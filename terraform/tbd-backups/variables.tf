@@ -72,10 +72,10 @@ variable "tfc_organization" {
   default     = "FlamaCorp"
 }
 
-variable "github_repo" {
-  description = "GitHub repo (owner/name) whose scheduled workflow may assume the read-only freshness probe role."
-  type        = string
-  default     = "fjcloudaiconsulting/tbd"
+variable "github_repos" {
+  description = "GitHub repos whose main-branch workflow may assume the read-only freshness probe role, written as the repo part of the OIDC sub claim (`gh api repos/OWNER/REPO/actions/oidc/customization/sub` -> sub_claim_prefix without `repo:`). Repos created with immutable subjects use owner@id/name@id. One trust statement each."
+  type        = list(string)
+  default     = ["fjcloudaiconsulting/tbd", "fjcloudaiconsulting@279198687/aws-infra@1399390121"]
 }
 
 variable "github_main_branch" {
