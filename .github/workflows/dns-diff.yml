@@ -1,0 +1,27 @@
+name: DNS diff
+
+# INFRA-15 gate before the registrar NS switch: queries every thebetterdecision.com record
+# from Route 53 and from Cloudflare and fails on any difference. Runs here because some local
+# networks intercept direct queries to authoritative nameservers.
+on:
+  workflow_dispatch:
+    inputs:
+      cloudflare_ns:
+        description: "One Cloudflare nameserver (terraform output tbd_name_servers)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    name: Route 53 vs Cloudflare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: diff every record
+        env:
+          CLOUDFLARE_NS: ${{ inputs.cloudflare_ns }}
+        run: .github/scripts/dns-diff.sh "$CLOUDFLARE_NS"
