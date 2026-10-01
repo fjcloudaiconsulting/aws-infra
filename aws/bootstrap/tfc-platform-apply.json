@@ -91,21 +91,21 @@
       ]
     },
     {
-      "Sid": "LetServicesUseKeysForTheRole",
+      "Sid": "LetLightsailUseItsManagedKey",
       "Effect": "Allow",
       "Action": [
         "kms:GenerateDataKey*",
         "kms:Decrypt"
       ],
-      "Resource": "*",
+      "Resource": "arn:aws:kms:eu-central-1:884686184019:key/91ee63d2-dc68-4b7c-a271-a2eac52cd150",
       "Condition": {
-        "Bool": {
-          "aws:ViaAWSService": "true"
+        "StringEquals": {
+          "kms:ViaService": "lightsail.eu-central-1.amazonaws.com"
         }
       }
     },
     {
-      "Sid": "NeverUseKeysDirectly",
+      "Sid": "NeverUseKeysOutsideLightsail",
       "Effect": "Deny",
       "Action": [
         "kms:Decrypt",
@@ -114,8 +114,8 @@
       ],
       "Resource": "*",
       "Condition": {
-        "BoolIfExists": {
-          "aws:ViaAWSService": "false"
+        "StringNotEquals": {
+          "kms:ViaService": "lightsail.eu-central-1.amazonaws.com"
         }
       }
     },
