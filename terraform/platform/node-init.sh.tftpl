@@ -1,0 +1,38 @@
+#!/bin/bash
+# First-boot launch script for the k3s node (INFRA-22). A plain shell script, not
+# #cloud-config: Lightsail runs user_data as a launch script. The instance ignores later
+# changes to user_data, so editing this file does not touch the running node.
+# Output: /var/log/cloud-init-output.log.
+# POSIX sh on purpose: Lightsail may prepend its own #!/bin/sh preamble, which would turn
+# the shebang above into a comment and run everything under dash.
+set -eu
+
+# 2 GB swap. Under kubelet's default NoSwap behaviour pods do not use it; it absorbs memory
+# pressure from k3s itself and the OS, so the kernel does not OOM-kill the control plane.
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+# Security updates only (the Ubuntu default origins), no automatic reboot: a reboot restarts
+# the databases, so it stays a deliberate act. The Ubuntu image ships unattended-upgrades;
+# no apt-get here, since apt's first-boot timers can hold the dpkg lock and abort this script.
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+CONF
+
+install -d -m 0755 /etc/rancher/k3s
+install -m 0600 /dev/null /etc/rancher/k3s/config.yaml
+cat > /etc/rancher/k3s/config.yaml <<'CONF'
+write-kubeconfig-mode: "0600"
+secrets-encryption: true
+kubelet-arg:
+  - "fail-swap-on=false"
+CONF
+
+# The installer is fetched at the release tag, not from get.k3s.io, so both the script and
+# the binary it verifies are pinned.
+curl -sfL --retry 5 --retry-all-errors -o /tmp/k3s-install.sh "https://raw.githubusercontent.com/k3s-io/k3s/${k3s_version}/install.sh"
+INSTALL_K3S_VERSION="${k3s_version}" sh /tmp/k3s-install.sh
