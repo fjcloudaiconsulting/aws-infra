@@ -28,7 +28,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 - `aws/bootstrap/`: IAM documents for the HCP Terraform OIDC roles, minted once by root (see each stack's
   README). A workspace never manages its own role.
 - CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff`, `init -backend=false && validate`
-  for every stack, and tflint (`.tflint.hcl`). Locally: `terraform fmt -recursive`,
+  for every stack, tflint (`.tflint.hcl`), and the backup probe tests (`python3 -m unittest discover -s tests`). Locally: `terraform fmt -recursive`,
   `terraform -chdir=terraform/<stack> validate`, and `tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"`.
 - The Terraform version is pinned in `ci.yml`; keep workspaces on the same version.
 
