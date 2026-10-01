@@ -123,7 +123,7 @@ class AlarmWiring(unittest.TestCase):
     def test_a_keepalive_job_re_enables_the_workflow(self):
         # Kills: no keepalive, so 60 quiet days in this public repo disable the schedule.
         wf = WORKFLOW.read_text()
-        job = re.search(r"\n  keepalive:\n(.*)", wf, re.S)
+        job = re.search(r"\n  keepalive:\n(.*?)(?=\n  \S|\Z)", wf, re.S)
         self.assertTrue(job, "no keepalive job")
         self.assertIn("actions: write", job.group(1))
         self.assertRegex(job.group(1), r"run: gh api -X PUT \"repos/\$\{GH_REPO\}/actions/workflows/backup-freshness-probe\.yml/enable\"")
