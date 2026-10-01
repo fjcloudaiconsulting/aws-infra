@@ -91,12 +91,38 @@
       ]
     },
     {
-      "Sid": "NeverUseOrManageKeys",
+      "Sid": "LetLightsailUseItsOwnKeys",
+      "Effect": "Allow",
+      "Action": [
+        "kms:GenerateDataKey*",
+        "kms:Decrypt"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "aws:ViaAWSService": "true"
+        }
+      }
+    },
+    {
+      "Sid": "NeverUseKeysDirectly",
       "Effect": "Deny",
       "Action": [
         "kms:Decrypt",
         "kms:ReEncrypt*",
-        "kms:GenerateDataKey*",
+        "kms:GenerateDataKey*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:ViaAWSService": "false"
+        }
+      }
+    },
+    {
+      "Sid": "NeverManageKeys",
+      "Effect": "Deny",
+      "Action": [
         "kms:CreateGrant",
         "kms:PutKeyPolicy",
         "kms:ScheduleKeyDeletion",
