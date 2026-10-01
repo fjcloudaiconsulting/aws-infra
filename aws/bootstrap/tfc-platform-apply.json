@@ -2,6 +2,30 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ReadPlatformServiceConfig",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:Get*",
+        "lightsail:Is*",
+        "sns:Get*",
+        "sns:List*",
+        "cloudwatch:Describe*",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "cloudtrail:Describe*",
+        "cloudtrail:Get*",
+        "cloudtrail:List*",
+        "budgets:View*",
+        "budgets:Describe*",
+        "budgets:ListTagsForResource",
+        "s3:ListAllMyBuckets",
+        "sts:GetCallerIdentity",
+        "iam:Get*",
+        "iam:List*"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "ManageLightsailInFrankfurt",
       "Effect": "Allow",
       "Action": "lightsail:*",
@@ -13,15 +37,24 @@
       }
     },
     {
-      "Sid": "ManagePlatformServices",
+      "Sid": "ManageBudgets",
+      "Effect": "Allow",
+      "Action": "budgets:*",
+      "Resource": "arn:aws:budgets::884686184019:budget/*"
+    },
+    {
+      "Sid": "ManageOnlyPlatformTrailsTopicsAlarms",
       "Effect": "Allow",
       "Action": [
         "cloudtrail:*",
-        "budgets:*",
         "sns:*",
         "cloudwatch:*"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:cloudtrail:*:884686184019:trail/platform-*",
+        "arn:aws:sns:*:884686184019:platform-*",
+        "arn:aws:cloudwatch:*:884686184019:alarm:platform-*"
+      ]
     },
     {
       "Sid": "ManagePlatformBuckets",
@@ -30,17 +63,12 @@
       "Resource": [
         "arn:aws:s3:::fjc-platform-*",
         "arn:aws:s3:::fjc-platform-*/*"
-      ]
-    },
-    {
-      "Sid": "ReadIdentities",
-      "Effect": "Allow",
-      "Action": [
-        "iam:Get*",
-        "iam:List*",
-        "sts:GetCallerIdentity"
       ],
-      "Resource": "*"
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "884686184019"
+        }
+      }
     },
     {
       "Sid": "NeverTouchTheBackupChainIdentities",

@@ -25,8 +25,11 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 - `terraform/<stack>/`: every directory directly under `terraform/` is a root stack, one per HCP Terraform workspace (org `FlamaCorp`). Plan runs on the PR, apply on
   merge after approval in the TFC UI. Local CLI only for debugging.
 - `clusters/<cluster>/`: Kubernetes manifests reconciled by Flux.
-- CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff` and `init -backend=false && validate`
-  for every stack. Locally: `terraform fmt -recursive` and `terraform -chdir=terraform/<stack> validate`.
+- `aws/bootstrap/`: IAM documents for the HCP Terraform OIDC roles, minted once by root (see each stack's
+  README). A workspace never manages its own role.
+- CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff`, `init -backend=false && validate`
+  for every stack, and tflint (`.tflint.hcl`). Locally: `terraform fmt -recursive`,
+  `terraform -chdir=terraform/<stack> validate`, and `tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"`.
 - The Terraform version is pinned in `ci.yml`; keep workspaces on the same version.
 
 ## Constraints that are easy to break

@@ -2,15 +2,51 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "NeverReadContentOrSecrets",
-      "Effect": "Deny",
+      "Sid": "ReadPlatformServiceConfig",
+      "Effect": "Allow",
       "Action": [
-        "s3:GetObject*",
-        "ssm:GetParameter*",
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:BatchGetSecretValue"
+        "lightsail:Get*",
+        "lightsail:Is*",
+        "sns:Get*",
+        "sns:List*",
+        "cloudwatch:Describe*",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "cloudtrail:Describe*",
+        "cloudtrail:Get*",
+        "cloudtrail:List*",
+        "budgets:View*",
+        "budgets:Describe*",
+        "budgets:ListTagsForResource",
+        "s3:ListAllMyBuckets",
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "ReadPlatformBucketConfig",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucket*",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetObjectLockConfiguration",
+        "s3:GetIntelligentTieringConfiguration",
+        "s3:GetAnalyticsConfiguration",
+        "s3:GetInventoryConfiguration",
+        "s3:GetMetricsConfiguration",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::fjc-platform-*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "884686184019"
+        }
+      }
     },
     {
       "Sid": "NeverTouchTheBackupChainIdentities",
