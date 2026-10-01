@@ -26,6 +26,9 @@ jobs:
           terraform_version: 1.16.4
       - name: fmt
         run: terraform fmt -check -recursive -diff
+      - name: tbd-backups fences
+        # Trust-anchor (TBD-372) and least-privilege policy checks, ported from tbd (INFRA-18).
+        run: python3 .github/scripts/check-tbd-backups-fences.py
       - name: validate every stack
         run: |
           set -uo pipefail
