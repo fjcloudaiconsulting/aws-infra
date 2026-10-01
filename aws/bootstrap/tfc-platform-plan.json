@@ -96,12 +96,16 @@
       "Resource": "*"
     },
     {
-      "Sid": "NeverReadNodeAccess",
+      "Sid": "NeverReadNodeAccessOrData",
       "Effect": "Deny",
       "Action": [
         "lightsail:GetInstanceAccessDetails",
         "lightsail:DownloadDefaultKeyPair",
-        "lightsail:GetRelationalDatabaseMasterUserPassword"
+        "lightsail:GetRelationalDatabaseMasterUserPassword",
+        "lightsail:GetContainerLog",
+        "lightsail:GetRelationalDatabaseLogEvents",
+        "cloudtrail:GetQueryResults",
+        "sns:ListSubscriptions*"
       ],
       "Resource": "*"
     }

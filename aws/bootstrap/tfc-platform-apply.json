@@ -40,7 +40,7 @@
       "Sid": "ManageBudgets",
       "Effect": "Allow",
       "Action": "budgets:*",
-      "Resource": "arn:aws:budgets::884686184019:budget/*"
+      "Resource": "arn:aws:budgets::884686184019:budget/platform-*"
     },
     {
       "Sid": "ManageOnlyPlatformTrailsTopicsAlarms",
