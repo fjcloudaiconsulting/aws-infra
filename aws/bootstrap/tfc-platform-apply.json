@@ -91,12 +91,39 @@
       ]
     },
     {
-      "Sid": "NeverUseOrManageKeys",
+      "Sid": "LetLightsailUseItsManagedKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:GenerateDataKey*",
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ],
+      "Resource": "arn:aws:kms:eu-central-1:884686184019:key/91ee63d2-dc68-4b7c-a271-a2eac52cd150",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "lightsail.eu-central-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverUseKeysOutsideLightsail",
       "Effect": "Deny",
       "Action": [
         "kms:Decrypt",
         "kms:ReEncrypt*",
-        "kms:GenerateDataKey*",
+        "kms:GenerateDataKey*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "kms:ViaService": "lightsail.eu-central-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverManageKeys",
+      "Effect": "Deny",
+      "Action": [
         "kms:CreateGrant",
         "kms:PutKeyPolicy",
         "kms:ScheduleKeyDeletion",
