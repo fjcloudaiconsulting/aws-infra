@@ -17,16 +17,22 @@ PREFIX = "pfv-data-01/2026/08/27"
 NOW = 1000000000
 
 
-def listing(age_hours, *, manifest=True, grants=True, dump_size=620000):
+def night(age_hours, *, prefix=PREFIX, manifest=True, grants=True, dump=True, dump_size=620000):
     ts = datetime.datetime.fromtimestamp(
         NOW - age_hours * 3600, datetime.timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
-    objs = [{"Key": f"{PREFIX}/pfv2_x.sql.gz", "Size": dump_size, "LastModified": ts}]
+    objs = []
+    if dump:
+        objs.append({"Key": f"{prefix}/pfv2_x.sql.gz", "Size": dump_size, "LastModified": ts})
     if grants:
-        objs.append({"Key": f"{PREFIX}/grants_x.sql.gz", "Size": 800, "LastModified": ts})
+        objs.append({"Key": f"{prefix}/grants_x.sql.gz", "Size": 800, "LastModified": ts})
     if manifest:
-        objs.append({"Key": f"{PREFIX}/manifest_x.json", "Size": 484, "LastModified": ts})
-    return json.dumps({"Contents": objs})
+        objs.append({"Key": f"{prefix}/manifest_x.json", "Size": 484, "LastModified": ts})
+    return objs
+
+
+def listing(age_hours, **kw):
+    return json.dumps({"Contents": night(age_hours, **kw)})
 
 
 def probe(payload):
@@ -76,6 +82,23 @@ class Verdicts(unittest.TestCase):
                 self.assertEqual(probe(payload).returncode, 2)
 
 
+    def test_could_not_run_for_a_future_dated_manifest(self):
+        # A skewed or doctored timestamp must not read as fresh forever.
+        self.assertEqual(probe(listing(-3)).returncode, 2)
+
+    def test_judges_the_newest_night(self):
+        # Kills: picking the oldest manifest.
+        old = night(50, prefix="pfv-data-01/2026/08/25")
+        self.assertEqual(probe(json.dumps({"Contents": old + night(2)})).returncode, 0)
+
+    def test_artifacts_must_sit_beside_the_newest_manifest(self):
+        # Kills: looking for the dump anywhere in the listing, not in the manifest's prefix.
+        old = night(26, prefix="pfv-data-01/2026/08/26")
+        r = probe(json.dumps({"Contents": old + night(2, dump=False)}))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("no dump", r.stdout)
+
+
 class AlarmWiring(unittest.TestCase):
     def test_the_workflow_alarms_on_every_non_fresh_verdict(self):
         # Kills: alarming only on `stale`, which silences could-not-run.
@@ -86,6 +109,16 @@ class AlarmWiring(unittest.TestCase):
         cond = re.search(r"^\s+if: (.+)$", step.group(1), re.M)
         self.assertTrue(cond, "the alarm step has no if:")
         self.assertEqual(" ".join(cond.group(1).split()), "steps.check.outputs.verdict != 'fresh'")
+
+    def test_the_job_fails_on_every_non_fresh_verdict(self):
+        step = re.search(r"- name: Fail the job when the backup is not fresh\n(.*)", WORKFLOW.read_text(), re.S)
+        self.assertTrue(step, "no 'Fail the job' step")
+        cond = re.search(r"^\s+if: (.+)$", step.group(1), re.M)
+        self.assertEqual(" ".join(cond.group(1).split()), "steps.check.outputs.verdict != 'fresh'")
+
+    def test_the_workflow_runs_this_repos_probe(self):
+        # A wrong path exits 127 and reads as could-not-run every night.
+        self.assertIn("bash .github/scripts/check-backup-freshness.sh", WORKFLOW.read_text())
 
     def test_the_workflow_is_scheduled(self):
         # Without a schedule the probe detects no silence.
