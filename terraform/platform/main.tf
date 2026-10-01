@@ -231,8 +231,8 @@ data "http" "cloudflare_ips" {
 
   lifecycle {
     postcondition {
-      condition = self.status_code == 200 && length(compact(split("\n", self.response_body))) > 0 && alltrue([
-        for c in compact(split("\n", self.response_body)) : can(cidrhost(trimspace(c), 0))
+      condition = self.status_code == 200 && length(compact([for c in split("\n", self.response_body) : trimspace(c)])) > 0 && alltrue([
+        for c in compact([for l in split("\n", self.response_body) : trimspace(l)]) : can(cidrhost(c, 0))
       ])
       error_message = "Could not read Cloudflare's IP ranges from ${self.url}."
     }
@@ -251,8 +251,8 @@ resource "aws_lightsail_instance_public_ports" "node" {
     protocol   = "tcp"
     from_port  = 443
     to_port    = 443
-    cidrs      = [for c in compact(split("\n", data.http.cloudflare_ips["ips-v4"].response_body)) : trimspace(c)]
-    ipv6_cidrs = [for c in compact(split("\n", data.http.cloudflare_ips["ips-v6"].response_body)) : trimspace(c)]
+    cidrs      = compact([for c in split("\n", data.http.cloudflare_ips["ips-v4"].response_body) : trimspace(c)])
+    ipv6_cidrs = compact([for c in split("\n", data.http.cloudflare_ips["ips-v6"].response_body) : trimspace(c)])
   }
 
   port_info {

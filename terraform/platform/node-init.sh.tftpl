@@ -34,5 +34,5 @@ CONF
 
 # The installer is fetched at the release tag, not from get.k3s.io, so both the script and
 # the binary it verifies are pinned.
-curl -sfL -o /tmp/k3s-install.sh "https://raw.githubusercontent.com/k3s-io/k3s/${k3s_version}/install.sh"
+curl -sfL --retry 5 --retry-all-errors -o /tmp/k3s-install.sh "https://raw.githubusercontent.com/k3s-io/k3s/${k3s_version}/install.sh"
 INSTALL_K3S_VERSION="${k3s_version}" sh /tmp/k3s-install.sh
