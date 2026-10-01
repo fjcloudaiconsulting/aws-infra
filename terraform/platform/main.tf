@@ -45,6 +45,11 @@ data "aws_iam_policy_document" "platform_alerts" {
       variable = "aws:SourceAccount"
       values   = [local.account_id]
     }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:budgets::${local.account_id}:*"]
+    }
   }
 }
 
