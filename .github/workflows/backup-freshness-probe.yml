@@ -93,8 +93,9 @@ jobs:
             1) echo "verdict=stale" >> "$GITHUB_OUTPUT" ;;
             *) echo "verdict=could-not-run" >> "$GITHUB_OUTPUT" ;;
           esac
-          # Random delimiter: detail echoes S3 keys, which may contain newlines.
-          eof="DETAIL_EOF_$(openssl rand -hex 8)"
+          # Random delimiter: detail echoes S3 keys, which may contain newlines. A builtin, so it
+          # cannot fail after the verdict is written and skip the alarm.
+          eof="DETAIL_EOF_${RANDOM}${RANDOM}${RANDOM}"
           {
             echo "detail<<$eof"
             printf '%s\n' "$detail"
