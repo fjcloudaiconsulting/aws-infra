@@ -215,7 +215,7 @@ resource "aws_lightsail_instance" "node" {
 }
 
 resource "aws_lightsail_static_ip" "node" {
-  name = "platform-node"
+  name = "platform-node-ip" # Lightsail names are unique across resource types, so not the instance's name
 }
 
 resource "aws_lightsail_static_ip_attachment" "node" {
