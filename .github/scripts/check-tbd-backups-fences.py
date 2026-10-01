@@ -34,18 +34,23 @@ check(actions(uploader) == {"s3:PutObject", "kms:GenerateDataKey", "kms:Encrypt"
       f"uploader policy actions are {sorted(actions(uploader))}; it must stay exactly put + encrypt "
       "(read access would let a compromised droplet harvest every historical dump)")
 check(actions(probe) == {"s3:ListBucket"}, f"probe policy actions are {sorted(actions(probe))}; must be exactly s3:ListBucket")
+# Exact resources: a substring test would pass arn:aws:s3:::*${bucket}*.
+SCOPED = {"arn:aws:s3:::${bucket}/${prefix}/*", "${kms_key_arn}", "arn:aws:s3:::${bucket}"}
 for name, doc in (("uploader", uploader), ("probe", probe)):
     for stmt in doc["Statement"]:
         check(stmt["Effect"] == "Allow", f"{name} policy has a {stmt['Effect']} statement; these are grant policies")
         res = stmt["Resource"]
         for r in res if isinstance(res, list) else [res]:
-            check("${bucket}" in r or "${kms_key_arn}" in r, f"{name} policy grants on {r!r}, not scoped to the bucket or key")
+            check(r in SCOPED, f"{name} policy grants on {r!r}, not exactly the bucket, prefix or key")
 # StringEquals against an absent header fails, so the uploader must send both SSE headers; the
-# uploader-side half of this fence stays in tbd with the script.
-put = [s for s in uploader["Statement"] if "s3:PutObject" in str(s["Action"])]
-cond = put[0].get("Condition", {}).get("StringEquals", {}) if put else {}
-check(cond.get("s3:x-amz-server-side-encryption") == "aws:kms", "uploader PutObject no longer requires SSE aws:kms")
-check(any("kms-key-id" in k for k in cond), "uploader PutObject no longer pins the KMS key id")
+# uploader-side half of this fence stays in tbd with the script. Every PutObject statement: a second
+# unconditioned one would otherwise allow unencrypted writes.
+puts = [s for s in uploader["Statement"] if "s3:PutObject" in str(s["Action"])]
+check(puts, "uploader policy has no PutObject statement")
+for put in puts:
+    cond = put.get("Condition", {}).get("StringEquals", {})
+    check(cond.get("s3:x-amz-server-side-encryption") == "aws:kms", "an uploader PutObject statement does not require SSE aws:kms")
+    check(any("kms-key-id" in k for k in cond), "an uploader PutObject statement does not pin the KMS key id")
 
 # F5. TBD-372: the role trust is managed BY the workspace it authorizes, so a rename applied with
 # the trust unchanged locks the workspace out of its own fix. The declared workspace must be
