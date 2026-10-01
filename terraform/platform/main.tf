@@ -242,9 +242,21 @@ data "http" "cloudflare_ips" {
 
 # Replaces the instance's default rules (22 and 80 open to all). 443 only from Cloudflare,
 # 22 only through the Lightsail console (and any owner CIDR), 6443 and 80 closed.
-# port_info is ForceNew: a change (say, Cloudflare adding a range) closes and reopens the
-# ports, so 443 is down for a few seconds during that apply.
-resource "aws_lightsail_instance_public_ports" "node" {
+# ⚠ Never let Terraform destroy this resource. port_info is ForceNew, and the provider's
+# delete calls CloseInstancePublicPorts per rule: on 2026-10-01 Lightsail failed every close of
+# the 443 rule with "ServiceException: ... trouble with your network settings", and the apply
+# hung until cancelled. PutInstancePublicPorts (create) replaces the whole rule set and works.
+# So a port_info change goes in as a new resource address plus a `removed` block with
+# destroy = false for the old one: the new Put overwrites the old rules, nothing is closed.
+removed {
+  from = aws_lightsail_instance_public_ports.node
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+resource "aws_lightsail_instance_public_ports" "firewall" {
   instance_name = aws_lightsail_instance.node.name
   depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
 
