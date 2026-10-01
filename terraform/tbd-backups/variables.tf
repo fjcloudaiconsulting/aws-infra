@@ -58,10 +58,10 @@ variable "tfc_workspace_name" {
   # by globbing the workspace segment (`tbd-backups*`): apex carries such a
   # wildcard only as scar tissue from the rename that caused TBD-372, a glob is
   # indistinguishable from a permanent widening once the rename is over, and
-  # backend/tests/test_backup_offhost.py rejects one that matches the declared
+  # .github/scripts/check-tbd-backups-fences.py rejects one that matches the declared
   # name. The two-statement form is explicit, reviewable, and self-cleaning.
   # NEVER rename first.
-  description = "TFC workspace name allowed to assume the provisioner role. Must equal the workspace in versions.tf -- fenced by backend/tests/test_backup_trust_anchor.py."
+  description = "TFC workspace name allowed to assume the provisioner role. Must equal the workspace in versions.tf -- fenced by .github/scripts/check-tbd-backups-fences.py."
   type        = string
   default     = "tbd-backups"
 }

@@ -134,7 +134,7 @@ This workspace manages the trust policy that admits this workspace. That is the
 TBD-372 shape, and it is unavoidable inside one account touched by one
 workspace. Three defences:
 
-1. `backend/tests/test_backup_offhost.py` asserts at **PR time** that the
+1. `.github/scripts/check-tbd-backups-fences.py` (CI) asserts at **PR time** that the
    workspace named in `versions.tf` equals the workspace in the committed trust
    document. TBD-372 happened because a rename was *applied* with the pattern
    unchanged; this stops that from being applied at all.

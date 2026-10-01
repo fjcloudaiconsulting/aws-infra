@@ -26,9 +26,8 @@ locals {
 # ⚠ That leaves the role self-authorizing: this workspace manages the trust
 # policy that admits this workspace. That is the TBD-372 shape. Three defences,
 # in increasing order of value:
-#   1. backend/tests/test_backup_trust_anchor.py asserts, at PR time, that the
-#      workspace named in versions.tf equals the one in the trust document
-#      (backend/tests/test_backup_offhost.py). That
+#   1. .github/scripts/check-tbd-backups-fences.py (CI) asserts, at PR time, that the
+#      workspace named in versions.tf equals the one in the trust document. That
 #      is what PREVENTS the event -- TBD-372 happened because a rename was
 #      APPLIED with the pattern unchanged.
 #   2. prevent_destroy below, so state surgery or a -target mistake cannot
@@ -421,7 +420,7 @@ resource "aws_iam_user_policy" "uploader" {
   user = aws_iam_user.uploader.name
 
   # Loaded from a committed JSON rather than written inline, so
-  # backend/tests/test_backup_offhost.py can json.load it and assert
+  # .github/scripts/check-tbd-backups-fences.py can json.load it and assert
   # the action set in BOTH directions. A regex over HCL could not.
   policy = templatefile("${path.module}/policies/backup-uploader.json", {
     bucket      = var.bucket_name
