@@ -33,6 +33,7 @@ Read from Billing and Cost Management > Credits on 2026-10-01:
 | **Total** | $140.00 | **$139.90** (estimated $138.83) | |
 
 At the planned ~$26/month (Lightsail `medium_3_0` plus extras) the credits last about five months
-from the node's launch, well before they expire. Re-read and update this table when planning spend.
+from the node's launch, well before they expire, assuming they apply to Lightsail (not confirmed:
+check the first invoice after launch). Re-read and update this table when planning spend.
 
 Work is tracked in Jira project [INFRA](https://fjconsulting.atlassian.net/jira/software/c/projects/INFRA/).
