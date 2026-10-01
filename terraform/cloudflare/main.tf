@@ -84,5 +84,6 @@ output "tbd_name_servers" {
 }
 
 output "tbd_zone_status" {
-  value = cloudflare_zone.tbd.status
+  description = "pending until the registrar NS switch, then active."
+  value       = cloudflare_zone.tbd.status
 }
