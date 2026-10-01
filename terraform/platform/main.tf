@@ -200,6 +200,7 @@ resource "aws_lightsail_instance" "node" {
   availability_zone = "eu-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "medium_3_0" # 2 vCPU, 4 GB, 80 GB, IPv4 included. The IPv6-only bundle cannot reach GitHub or GHCR.
+  ip_address_type   = "ipv4"       # Cloudflare reaches the static IPv4; the dynamic IPv6 address would only add exposure.
   user_data         = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
 
   add_on {
@@ -226,7 +227,7 @@ resource "aws_lightsail_static_ip_attachment" "node" {
 # Cloudflare publishes its edge ranges here. A failed fetch, an empty body or anything that is
 # not a CIDR (say, a challenge page) fails the plan rather than closing 443 to the proxy.
 data "http" "cloudflare_ips" {
-  for_each = toset(["ips-v4", "ips-v6"])
+  for_each = toset(["ips-v4"])
   url      = "https://www.cloudflare.com/${each.key}"
 
   lifecycle {
@@ -248,11 +249,10 @@ resource "aws_lightsail_instance_public_ports" "node" {
   depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
 
   port_info {
-    protocol   = "tcp"
-    from_port  = 443
-    to_port    = 443
-    cidrs      = compact([for c in split("\n", data.http.cloudflare_ips["ips-v4"].response_body) : trimspace(c)])
-    ipv6_cidrs = compact([for c in split("\n", data.http.cloudflare_ips["ips-v6"].response_body) : trimspace(c)])
+    protocol  = "tcp"
+    from_port = 443
+    to_port   = 443
+    cidrs     = compact([for c in split("\n", data.http.cloudflare_ips["ips-v4"].response_body) : trimspace(c)])
   }
 
   port_info {
