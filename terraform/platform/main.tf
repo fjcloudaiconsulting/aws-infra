@@ -200,8 +200,8 @@ resource "aws_lightsail_instance" "node" {
   availability_zone = "eu-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "medium_3_0" # 2 vCPU, 4 GB, 80 GB, IPv4 included. The IPv6-only bundle cannot reach GitHub or GHCR.
-  # dualstack until the firewall carries no IPv6 ranges (this PR's Put removes them); switching to
-  # ipv4 in the same apply would run SetIpAddressType first, against the rule Lightsail failed to close.
+  # dualstack until the firewall carries no IPv6 ranges (the `firewall` Put removes them); ipv4 in
+  # the same apply would run SetIpAddressType first, against the rule Lightsail failed to close.
   ip_address_type = "dualstack"
   user_data       = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
 
@@ -261,6 +261,12 @@ removed {
 resource "aws_lightsail_instance_public_ports" "firewall" {
   instance_name = aws_lightsail_instance.node.name
   depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
+
+  # A port_info change would plan destroy+create and hang on Close; fail the plan instead and use
+  # the new-address pattern above.
+  lifecycle {
+    prevent_destroy = true
+  }
 
   port_info {
     protocol  = "tcp"
