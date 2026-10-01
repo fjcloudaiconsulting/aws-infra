@@ -15,5 +15,6 @@ provider "aws" {
 # Alarm and budget notifications land here (INFRA-11/26). Also the first real resource, so the
 # first merge exercises the apply role: a no-change plan never reaches apply.
 resource "aws_sns_topic" "platform_alerts" {
-  name = "platform-alerts"
+  name         = "platform-alerts"
+  display_name = "FJ Consulting platform alerts" # sender name on email subscriptions
 }
