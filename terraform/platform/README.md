@@ -3,8 +3,8 @@
 Shared AWS resources for the platform in account `884686184019`, eu-central-1: today the
 `platform-alerts` SNS topic (email to the owner), the `platform-monthly` budget ($50, gross of
 credits; alerts at $25, $50 and forecast $50), the multi-region `platform-management` trail into
-`fjc-platform-cloudtrail-884686184019` (365-day expiry), and the k3s node `platform-node`
-(Lightsail `medium_3_0`, IPv4 only, static IP, daily snapshots, 443 from Cloudflare only, 22 via the Lightsail
+`fjc-platform-cloudtrail-884686184019` (365-day expiry), and the k3s node `platform-node` (Lightsail
+`medium_3_0`, IPv4 only, static IP, daily snapshots, 443 from Cloudflare only, 22 via the Lightsail
 console or `ssh_allowed_cidrs`). The node's launch script (`node-init.sh.tftpl`) runs only at first
 boot; `user_data` changes are ignored afterwards, and `prevent_destroy` blocks a replace.
 
