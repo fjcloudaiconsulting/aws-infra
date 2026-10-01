@@ -72,10 +72,10 @@ variable "tfc_organization" {
   default     = "FlamaCorp"
 }
 
-variable "github_repo" {
-  description = "GitHub repo (owner/name) whose scheduled workflow may assume the read-only freshness probe role."
-  type        = string
-  default     = "fjcloudaiconsulting/tbd"
+variable "github_repos" {
+  description = "GitHub repos (owner/name) whose scheduled workflow may assume the read-only freshness probe role. One trust statement each, so a repo move adds the new one, applies, then drops the old one."
+  type        = list(string)
+  default     = ["fjcloudaiconsulting/tbd", "fjcloudaiconsulting/aws-infra"]
 }
 
 variable "github_main_branch" {
