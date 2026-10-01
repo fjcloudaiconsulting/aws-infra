@@ -17,13 +17,13 @@ owns its own role can widen it.
   (configuration only, no data reads such as `s3:GetObject`, logs, parameters or secrets) plus a
   Deny on Lightsail SSH/key-pair access and every path into the TBD backup chain. A speculative
   plan runs PR code, so it gets nothing beyond what refreshing this stack needs.
-- `tfc-platform-apply` (`run_phase:apply`): Lightsail (eu-central-1 only), and budgets, CloudTrail trails,
-  SNS topics and CloudWatch alarms named `platform-*`, `fjc-platform-*` buckets in this account, plus
-  reads and IAM reads. No IAM writes. Same backup-chain Deny. KMS: `GenerateDataKey`/`Decrypt` only
-  when a service calls on the role's behalf (`aws:ViaAWSService`; Lightsail encrypts with its own key
-  when it creates instances and static IPs), never directly, and no key management. Apply runs only after an approved
-  merge; it can still create Lightsail key pairs or snapshots, so the node-access Deny is a
-  plan-phase guarantee only.
+- `tfc-platform-apply` (`run_phase:apply`): Lightsail (eu-central-1 only), and budgets, CloudTrail
+  trails, SNS topics and CloudWatch alarms named `platform-*`, `fjc-platform-*` buckets in this
+  account, plus reads and IAM reads. No IAM writes. Same backup-chain Deny. KMS:
+  `GenerateDataKey`/`Decrypt` only when a service calls on the role's behalf (`aws:ViaAWSService`;
+  Lightsail encrypts with its own key when it creates instances and static IPs), never directly, and
+  no key management. Apply runs only after an approved merge; it can still create Lightsail key
+  pairs or snapshots, so the node-access Deny is a plan-phase guarantee only.
 
 A new resource type or data source for this stack means widening both role documents first (the
 plan allow-list and the apply allow-list), then re-running the `put-role-policy` lines below.

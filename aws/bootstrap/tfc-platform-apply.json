@@ -91,7 +91,7 @@
       ]
     },
     {
-      "Sid": "LetLightsailUseItsOwnKeys",
+      "Sid": "LetServicesUseKeysForTheRole",
       "Effect": "Allow",
       "Action": [
         "kms:GenerateDataKey*",
