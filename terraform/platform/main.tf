@@ -251,8 +251,8 @@ resource "aws_lightsail_instance_public_ports" "node" {
     protocol   = "tcp"
     from_port  = 443
     to_port    = 443
-    cidrs      = compact(split("\n", data.http.cloudflare_ips["ips-v4"].response_body))
-    ipv6_cidrs = compact(split("\n", data.http.cloudflare_ips["ips-v6"].response_body))
+    cidrs      = [for c in compact(split("\n", data.http.cloudflare_ips["ips-v4"].response_body)) : trimspace(c)]
+    ipv6_cidrs = [for c in compact(split("\n", data.http.cloudflare_ips["ips-v6"].response_body)) : trimspace(c)]
   }
 
   port_info {

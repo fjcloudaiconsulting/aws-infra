@@ -3,7 +3,9 @@
 # #cloud-config: Lightsail runs user_data as a launch script. The instance ignores later
 # changes to user_data, so editing this file does not touch the running node.
 # Output: /var/log/cloud-init-output.log.
-set -euo pipefail
+# POSIX sh on purpose: Lightsail may prepend its own #!/bin/sh preamble, which would turn
+# the shebang above into a comment and run everything under dash.
+set -eu
 
 # 2 GB swap. Under kubelet's default NoSwap behaviour pods do not use it; it absorbs memory
 # pressure from k3s itself and the OS, so the kernel does not OOM-kill the control plane.
@@ -14,10 +16,8 @@ swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 # Security updates only (the Ubuntu default origins), no automatic reboot: a reboot restarts
-# the databases, so it stays a deliberate act.
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y unattended-upgrades
+# the databases, so it stays a deliberate act. The Ubuntu image ships unattended-upgrades;
+# no apt-get here, since apt's first-boot timers can hold the dpkg lock and abort this script.
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
