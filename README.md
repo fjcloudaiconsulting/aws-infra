@@ -9,6 +9,7 @@ Dockerfiles and their own CI; everything about where and how the apps run lives 
 |---|---|---|
 | `terraform/<stack>/` | One Terraform root per HCP Terraform workspace (org `FlamaCorp`) | HCP Terraform VCS flow: plan on PR, apply on merge after approval in the TFC UI |
 | `clusters/<cluster>/` | Kubernetes manifests | Flux, reconciling `main` |
+| `aws/bootstrap/` | IAM trust and permission documents for the HCP Terraform roles (a workspace never manages its own role) | Root, once by CLI; see each stack's README |
 
 ## Rules
 

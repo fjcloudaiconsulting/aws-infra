@@ -1,0 +1,103 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageLightsailInFrankfurt",
+      "Effect": "Allow",
+      "Action": "lightsail:*",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ManagePlatformServices",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:*",
+        "budgets:*",
+        "sns:*",
+        "cloudwatch:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManagePlatformBuckets",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::fjc-platform-*",
+        "arn:aws:s3:::fjc-platform-*/*"
+      ]
+    },
+    {
+      "Sid": "ReadIdentities",
+      "Effect": "Allow",
+      "Action": [
+        "iam:Get*",
+        "iam:List*",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverTouchTheBackupChainIdentities",
+      "Effect": "Deny",
+      "Action": "iam:*",
+      "Resource": [
+        "arn:aws:iam::884686184019:role/tfc-*",
+        "arn:aws:iam::884686184019:user/pfv-backup-uploader",
+        "arn:aws:iam::884686184019:role/github-actions-backup-probe",
+        "arn:aws:iam::884686184019:oidc-provider/*"
+      ]
+    },
+    {
+      "Sid": "NeverTouchTheBackupBucket",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::tbd-mysql-backups-884686184019",
+        "arn:aws:s3:::tbd-mysql-backups-884686184019/*"
+      ]
+    },
+    {
+      "Sid": "NeverUseOrManageKeys",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:PutKeyPolicy",
+        "kms:ScheduleKeyDeletion",
+        "kms:DisableKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverMintOtherCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoleWithSAML",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+        "iam:PassRole"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverReadNodeAccess",
+      "Effect": "Deny",
+      "Action": [
+        "lightsail:GetInstanceAccessDetails",
+        "lightsail:DownloadDefaultKeyPair",
+        "lightsail:GetRelationalDatabaseMasterUserPassword"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
