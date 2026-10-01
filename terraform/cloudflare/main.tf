@@ -82,7 +82,7 @@ resource "cloudflare_dns_record" "tbd" {
 # hostnames: ziftbook.com is proxied today, thebetterdecision.com picks them up when `app` is
 # proxied at the Lightsail cutover. ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
-  filter = { name = "ziftbook.com" }
+  filter = { name = "ziftbook.com", account = { id = var.account_id } }
 }
 
 locals {
@@ -107,6 +107,8 @@ locals {
   }
 }
 
+# Removing an entry only drops it from state (the provider's Delete is a no-op), so back out by
+# applying the old value ("off", max_age = 0), never by deleting it.
 resource "cloudflare_zone_setting" "app" {
   for_each = {
     for pair in setproduct(keys(local.app_zones), keys(local.app_zone_settings)) :
