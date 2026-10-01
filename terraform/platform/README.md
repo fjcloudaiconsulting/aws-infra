@@ -24,8 +24,8 @@ Trust edits follow the add, apply, remove order in the repo README.
 
 ## Genesis (once, root)
 
-Root through `aws login` or CloudShell (the account has no root access keys), from a checkout of this
-repo's `main` after this stack merges, or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
+Root through `aws login` or CloudShell (the account has no root access keys), from a checkout of the
+PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
 
 ```bash
 cd aws/bootstrap
