@@ -1,0 +1,113 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadPlatformServiceConfig",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:Get*",
+        "lightsail:Is*",
+        "sns:Get*",
+        "sns:List*",
+        "cloudwatch:Describe*",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "cloudtrail:Describe*",
+        "cloudtrail:Get*",
+        "cloudtrail:List*",
+        "budgets:View*",
+        "budgets:Describe*",
+        "budgets:ListTagsForResource",
+        "s3:ListAllMyBuckets",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadPlatformBucketConfig",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucket*",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetObjectLockConfiguration",
+        "s3:GetIntelligentTieringConfiguration",
+        "s3:GetAnalyticsConfiguration",
+        "s3:GetInventoryConfiguration",
+        "s3:GetMetricsConfiguration",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::fjc-platform-*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "884686184019"
+        }
+      }
+    },
+    {
+      "Sid": "NeverTouchTheBackupChainIdentities",
+      "Effect": "Deny",
+      "Action": "iam:*",
+      "Resource": [
+        "arn:aws:iam::884686184019:role/tfc-*",
+        "arn:aws:iam::884686184019:user/pfv-backup-uploader",
+        "arn:aws:iam::884686184019:role/github-actions-backup-probe",
+        "arn:aws:iam::884686184019:oidc-provider/*"
+      ]
+    },
+    {
+      "Sid": "NeverTouchTheBackupBucket",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::tbd-mysql-backups-884686184019",
+        "arn:aws:s3:::tbd-mysql-backups-884686184019/*"
+      ]
+    },
+    {
+      "Sid": "NeverUseOrManageKeys",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:PutKeyPolicy",
+        "kms:ScheduleKeyDeletion",
+        "kms:DisableKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverMintOtherCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoleWithSAML",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+        "iam:PassRole"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NeverReadNodeAccessOrData",
+      "Effect": "Deny",
+      "Action": [
+        "lightsail:GetInstanceAccessDetails",
+        "lightsail:DownloadDefaultKeyPair",
+        "lightsail:GetRelationalDatabaseMasterUserPassword",
+        "lightsail:GetContainerLog",
+        "lightsail:GetRelationalDatabaseLogEvents",
+        "cloudtrail:GetQueryResults",
+        "sns:ListSubscriptions*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
