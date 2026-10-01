@@ -452,25 +452,28 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 data "aws_iam_policy_document" "probe_trust" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-    # ⚠ StringEquals on the exact branch ref, not StringLike. A PR context
-    # cannot assume this role even if its author rewrites the workflow file in
-    # that same PR -- the same posture apex/main.tf takes, for the same reason.
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/${var.github_main_branch}"]
+  dynamic "statement" {
+    for_each = var.github_repos
+    content {
+      effect  = "Allow"
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+      principals {
+        type        = "Federated"
+        identifiers = [aws_iam_openid_connect_provider.github.arn]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:aud"
+        values   = ["sts.amazonaws.com"]
+      }
+      # ⚠ StringEquals on the exact branch ref, not StringLike. A PR context
+      # cannot assume this role even if its author rewrites the workflow file in
+      # that same PR -- the same posture apex/main.tf takes, for the same reason.
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:sub"
+        values   = ["repo:${statement.value}:ref:refs/heads/${var.github_main_branch}"]
+      }
     }
   }
 }
