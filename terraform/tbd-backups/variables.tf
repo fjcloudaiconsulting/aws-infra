@@ -3,7 +3,7 @@ variable "aws_account_id" {
   # this repo now spans TWO AWS accounts, so a wrong-account apply is a real
   # and easy mistake. main.tf additionally asserts the caller matches, so a
   # mismatch dies at plan rather than creating a bucket in the wrong place.
-  description = "12-digit AWS account ID that owns the backup bucket, KMS key and IAM identities. Must be set explicitly in the TFC workspace. This is NOT the account infra/terraform/apex/ uses."
+  description = "12-digit AWS account ID that owns the backup bucket, KMS key and IAM identities. Must be set explicitly in the TFC workspace. This is NOT the account terraform/tbd-apex/ uses."
   type        = string
 
   validation {

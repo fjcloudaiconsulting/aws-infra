@@ -12,7 +12,7 @@ a bucket in the wrong place. Never copy an account id between the two.
 ## Why a separate workspace
 
 Folding these resources into `FlamaCorp/tbd` (the DigitalOcean data plane) would
-have made credential delivery free, since `bin/run-playbook.sh` already reads
+have made credential delivery free, since the tbd repo's `infra/ansible/bin/run-playbook.sh` already reads
 that directory. It was rejected:
 
 * The AWS provider validates credentials at **configure** time. A configure-time
