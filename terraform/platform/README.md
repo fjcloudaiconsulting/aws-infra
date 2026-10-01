@@ -24,7 +24,8 @@ Trust edits follow the add, apply, remove order in the repo README.
 
 ## Genesis (once, root)
 
-Root through `aws login` or CloudShell; the account has no root access keys.
+Root through `aws login` or CloudShell (the account has no root access keys), from a checkout of this
+repo's `main` after this stack merges, or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
 
 ```bash
 cd aws/bootstrap
@@ -40,8 +41,9 @@ aws iam put-role-policy --role-name tfc-platform-apply \
 ```
 
 HCP Terraform workspace `aws-platform` (org FlamaCorp, same project as the other workspaces): VCS
-`fjcloudaiconsulting/aws-infra` branch `main`, working directory `terraform/platform`, trigger
-prefix `terraform/platform`, Terraform 1.16.4, auto-apply off, speculative plans on. Environment
+`fjcloudaiconsulting/aws-infra` branch `main`, working directory `terraform/platform`, VCS
+trigger "Only trigger runs when files in specified paths change" with the pattern `terraform/platform/**`,
+Terraform 1.16.4, auto-apply off, speculative plans on. Environment
 variables:
 
 | Name | Value |
