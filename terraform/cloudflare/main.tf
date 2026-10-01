@@ -78,6 +78,48 @@ resource "cloudflare_dns_record" "tbd" {
   proxied  = false
 }
 
+# Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
+# hostnames: ziftbook.com is proxied today, thebetterdecision.com picks them up when `app` is
+# proxied at the Lightsail cutover. ziftbook.com's zone is read here, not managed.
+data "cloudflare_zone" "ziftbook" {
+  filter = { name = "ziftbook.com", account = { id = var.account_id } }
+}
+
+locals {
+  app_zones = {
+    tbd      = cloudflare_zone.tbd.id
+    ziftbook = data.cloudflare_zone.ziftbook.id
+  }
+  app_zone_settings = {
+    min_tls_version  = "1.2"
+    always_use_https = "on"
+    # HSTS without includeSubDomains or preload, so a host that cannot do HTTPS stays reachable
+    # and backing out is max_age = 0 (browsers keep the old max_age until they revisit).
+    security_header = {
+      strict_transport_security = {
+        enabled            = true
+        max_age            = 15552000
+        include_subdomains = false
+        preload            = false
+        nosniff            = false
+      }
+    }
+  }
+}
+
+# Removing an entry only drops it from state (the provider's Delete is a no-op), so back out by
+# applying the old value ("off", max_age = 0), never by deleting it.
+resource "cloudflare_zone_setting" "app" {
+  for_each = {
+    for pair in setproduct(keys(local.app_zones), keys(local.app_zone_settings)) :
+    "${pair[0]}/${pair[1]}" => { zone = pair[0], setting = pair[1] }
+  }
+
+  zone_id    = local.app_zones[each.value.zone]
+  setting_id = each.value.setting
+  value      = local.app_zone_settings[each.value.setting]
+}
+
 output "tbd_name_servers" {
   description = "Set these at the registrar (Route 53 Domains, old AWS account) to switch DNS to Cloudflare."
   value       = cloudflare_zone.tbd.name_servers
