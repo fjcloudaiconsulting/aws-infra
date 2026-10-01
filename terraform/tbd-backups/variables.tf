@@ -73,9 +73,9 @@ variable "tfc_organization" {
 }
 
 variable "github_repos" {
-  description = "GitHub repos (owner/name) whose scheduled workflow may assume the read-only freshness probe role. One trust statement each, so a repo move adds the new one, applies, then drops the old one."
+  description = "GitHub repos whose main-branch workflow may assume the read-only freshness probe role, written as the repo part of the OIDC sub claim (`gh api repos/OWNER/REPO/actions/oidc/customization/sub` -> sub_claim_prefix without `repo:`). Repos created with immutable subjects use owner@id/name@id. One trust statement each."
   type        = list(string)
-  default     = ["fjcloudaiconsulting/tbd", "fjcloudaiconsulting/aws-infra"]
+  default     = ["fjcloudaiconsulting/tbd", "fjcloudaiconsulting@279198687/aws-infra@1399390121"]
 }
 
 variable "github_main_branch" {
