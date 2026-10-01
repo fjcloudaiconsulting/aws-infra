@@ -182,7 +182,7 @@ resource "aws_cloudtrail" "platform" {
 }
 
 # The single k3s node (INFRA-21/22). Replacing it destroys the in-cluster databases, hence
-# prevent_destroy, and user_data (cloud-init) is ignored after the first boot.
+# prevent_destroy, and user_data (the launch script) is ignored after the first boot.
 variable "k3s_version" {
   description = "k3s release installed at first boot. Upgrading a running node is a separate, manual step."
   type        = string
@@ -200,7 +200,7 @@ resource "aws_lightsail_instance" "node" {
   availability_zone = "eu-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "medium_3_0" # 2 vCPU, 4 GB, 80 GB, IPv4 included. The IPv6-only bundle cannot reach GitHub or GHCR.
-  user_data         = templatefile("${path.module}/cloud-init.yaml.tftpl", { k3s_version = var.k3s_version })
+  user_data         = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
 
   add_on {
     type          = "AutoSnapshot"
@@ -223,15 +223,17 @@ resource "aws_lightsail_static_ip_attachment" "node" {
   instance_name  = aws_lightsail_instance.node.name
 }
 
-# Cloudflare publishes its edge ranges here. A failed or empty fetch fails the plan rather
-# than closing 443 to the proxy.
+# Cloudflare publishes its edge ranges here. A failed fetch, an empty body or anything that is
+# not a CIDR (say, a challenge page) fails the plan rather than closing 443 to the proxy.
 data "http" "cloudflare_ips" {
   for_each = toset(["ips-v4", "ips-v6"])
   url      = "https://www.cloudflare.com/${each.key}"
 
   lifecycle {
     postcondition {
-      condition     = self.status_code == 200 && length(compact(split("\n", self.response_body))) > 0
+      condition = self.status_code == 200 && length(compact(split("\n", self.response_body))) > 0 && alltrue([
+        for c in compact(split("\n", self.response_body)) : can(cidrhost(trimspace(c), 0))
+      ])
       error_message = "Could not read Cloudflare's IP ranges from ${self.url}."
     }
   }
@@ -239,8 +241,11 @@ data "http" "cloudflare_ips" {
 
 # Replaces the instance's default rules (22 and 80 open to all). 443 only from Cloudflare,
 # 22 only through the Lightsail console (and any owner CIDR), 6443 and 80 closed.
+# port_info is ForceNew: a change (say, Cloudflare adding a range) closes and reopens the
+# ports, so 443 is down for a few seconds during that apply.
 resource "aws_lightsail_instance_public_ports" "node" {
   instance_name = aws_lightsail_instance.node.name
+  depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
 
   port_info {
     protocol   = "tcp"
