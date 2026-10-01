@@ -94,6 +94,10 @@ flip to OIDC immediately.
 
 ### One-time bootstrap (owner runs)
 
+> Historical: done in 2026 while the stack lived in the tbd repo. The workspace now authenticates
+> with OIDC (`TFC_AWS_RUN_ROLE_ARN`); do not re-run the static-key steps. Only step 3 (VCS
+> settings) reflects the current state.
+
 1. In AWS, create an IAM user named `pfv-apex-bootstrap` with
    `AdministratorAccess`. Generate an access key pair.
 2. In TFC -> `<tfc-org>/<apex-workspace>` -> Variables, add:
@@ -322,7 +326,3 @@ break-glass CLI path is documented in PR-D's PR body.
 ## See also
 
 - tbd repo `infra/terraform/README.md`: DO data droplet workspace (`<tfc-org>/<data-workspace>`)
-- `~/.claude/projects/-Users-flamarion-src-tbd/memory/project_apex_s3_cloudfront.md`:
-  canonical plan and locked decisions (D1-D5)
-- `~/.claude/projects/-Users-flamarion-src-tbd/memory/feedback_terraform_vcs_only.md`:
-  Terraform is VCS-driven; CLI is debug-only
