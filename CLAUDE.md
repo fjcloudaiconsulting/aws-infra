@@ -22,10 +22,10 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 
 ## Layout and commands
 
-- `terraform/<stack>/`: one root per HCP Terraform workspace (org `FlamaCorp`). Plan runs on the PR, apply on
+- `terraform/<stack>/`: every directory directly under `terraform/` is a root stack, one per HCP Terraform workspace (org `FlamaCorp`). Plan runs on the PR, apply on
   merge after approval in the TFC UI. Local CLI only for debugging.
 - `clusters/<cluster>/`: Kubernetes manifests reconciled by Flux.
-- CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive` and `init -backend=false && validate`
+- CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff` and `init -backend=false && validate`
   for every stack. Locally: `terraform fmt -recursive` and `terraform -chdir=terraform/<stack> validate`.
 - The Terraform version is pinned in `ci.yml`; keep workspaces on the same version.
 
@@ -33,8 +33,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 
 - AWS account `884686184019` holds the TBD backup chain (bucket, KMS key, `pfv-backup-uploader`,
   `tfc-backups-*` roles, OIDC providers). The TFC role trust is pinned to workspace name `tbd-backups`:
-  never rename it, and never edit an existing trust statement in place (add a second one, apply, then
-  remove the old).
+  do not rename it. If a rename is ever unavoidable, or any trust statement must change, add the new
+  statement, apply, then remove the old one; never edit in place.
 - The TBD apex site and the `thebetterdecision.com` Route 53 zone/registration live in an older, separate
   AWS account we have no credentials for; the owner acts there.
 - Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, since replacing it destroys the

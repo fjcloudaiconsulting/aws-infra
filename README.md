@@ -14,8 +14,9 @@ Dockerfiles and their own CI; everything about where and how the apps run lives 
 
 - Terraform runs through HCP Terraform only. CLI plan/apply is for debugging.
 - Terraform version is pinned to the one in `.github/workflows/ci.yml`; workspaces use the same.
-- Never rename a workspace whose name is pinned in an AWS trust policy (e.g. `tbd-backups`); add a
-  second trust statement first, then rename, then remove the old one.
+- Do not rename a workspace whose name is pinned in an AWS trust policy (e.g. `tbd-backups`). If a
+  rename is ever unavoidable: add a trust statement for the new name, apply, rename, then remove the
+  old statement. The same add-apply-remove order applies to any trust policy edit.
 - Secrets never land in plain text: Terraform variables are sensitive TFC variables, Kubernetes
   secrets are SOPS-encrypted.
 

@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.16.4
@@ -26,11 +28,16 @@ jobs:
         run: terraform fmt -check -recursive -diff
       - name: validate every stack
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          # Every directory directly under terraform/ is a root stack; shared modules go elsewhere.
+          rc=0
           for dir in terraform/*/; do
             ls "$dir"*.tf >/dev/null 2>&1 || continue
             echo "::group::$dir"
-            terraform -chdir="$dir" init -backend=false -input=false
-            terraform -chdir="$dir" validate
+            if ! { terraform -chdir="$dir" init -backend=false -input=false && terraform -chdir="$dir" validate; }; then
+              echo "::error::validate failed in $dir"
+              rc=1
+            fi
             echo "::endgroup::"
           done
+          exit $rc
