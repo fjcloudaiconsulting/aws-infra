@@ -1,7 +1,9 @@
 # `aws-platform`
 
 Shared AWS resources for the platform in account `884686184019`, eu-central-1: today the
-`platform-alerts` SNS topic, later the Lightsail node, CloudTrail and budgets.
+`platform-alerts` SNS topic (email to the owner), the `platform-monthly` budget ($50, gross of
+credits; alerts at $25, $50 and forecast $50), the multi-region `platform-management` trail into
+`fjc-platform-cloudtrail-884686184019` (365-day expiry); later the Lightsail node.
 
 ## Roles
 
