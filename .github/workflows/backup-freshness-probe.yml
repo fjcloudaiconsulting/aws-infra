@@ -121,3 +121,21 @@ jobs:
         run: |
           echo "backup freshness verdict: ${{ steps.check.outputs.verdict }}" >&2
           exit 1
+
+  # ⚠ GitHub disables scheduled workflows in a public repo after 60 days without
+  # repository activity, and tbd no longer runs a second probe (INFRA-20). Force-
+  # enabling this workflow on every run resets that counter (not documented by
+  # GitHub; it is what community keepalive actions rely on), so a quiet aws-infra
+  # cannot silence the alarm. Its own job keeps actions: write away from the job
+  # that holds the AWS role and issues: write.
+  keepalive:
+    name: Keep the schedule alive
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh api -X PUT "repos/${GH_REPO}/actions/workflows/backup-freshness-probe.yml/enable"
