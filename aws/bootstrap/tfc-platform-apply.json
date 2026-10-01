@@ -95,7 +95,8 @@
       "Effect": "Allow",
       "Action": [
         "kms:GenerateDataKey*",
-        "kms:Decrypt"
+        "kms:Decrypt",
+        "kms:DescribeKey"
       ],
       "Resource": "arn:aws:kms:eu-central-1:884686184019:key/91ee63d2-dc68-4b7c-a271-a2eac52cd150",
       "Condition": {
