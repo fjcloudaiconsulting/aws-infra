@@ -29,7 +29,8 @@ jobs:
       - name: tbd-backups fences
         # Trust-anchor (TBD-372) and least-privilege policy checks, ported from tbd (INFRA-18).
         run: python3 .github/scripts/check-tbd-backups-fences.py
-      - name: backup probe tests
+      - name: python tests
+        # Backup probe and the SOPS secrets check.
         run: python3 -m unittest discover -s tests
       - name: validate every stack
         run: |
@@ -57,3 +58,31 @@ jobs:
           # --recursive resolves a relative --config per directory, so pass it absolute.
           tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
           tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" --format compact
+
+  kubernetes:
+    name: Kubernetes checks
+    runs-on: ubuntu-24.04
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # datreeio/CRDs-catalog commit, pinned so schemas change only with a repo change.
+      CRDS_CATALOG_SHA: d373c2da9702bc9509a004db83e57263fe3bdfc1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: every Secret is SOPS-encrypted
+        run: python3 .github/scripts/check-sops-secrets.py clusters
+      - name: kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSLo kc.tgz "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  kc.tgz" | sha256sum -c -
+          tar -xzf kc.tgz kubeconform
+          # No published schema for CRDs themselves (they come from `flux install --export`);
+          # Flux custom resources validate against the CRDs catalog. Non-strict: SOPS adds a sops: field.
+          ./kubeconform -summary -kubernetes-version 1.36.0 -skip CustomResourceDefinition \
+            -ignore-filename-pattern 'kustomization\.yaml$' \
+            -schema-location default \
+            -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRDS_CATALOG_SHA/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            clusters/

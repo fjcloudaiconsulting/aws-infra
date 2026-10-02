@@ -1,0 +1,5 @@
+# The private key is held offline by the owner and in-cluster as flux-system/sops-age.
+creation_rules:
+  - path_regex: ^clusters/.*\.secret\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1mz9payf8pxgmsn6am82tv78dx3wfhyt5ak8ruhtxtk2emhrmh45qhmdls0
