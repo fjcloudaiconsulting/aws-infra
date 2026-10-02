@@ -42,7 +42,7 @@ the prompt empty, hence the length guard:
 
 ```sh
 # Run it, wait for the prompt, then paste the AGE-SECRET-KEY line (74 chars); anything else changes nothing.
-read -rsp 'Paste the key line, then Enter: ' K; echo; if [ ${#K} -eq 74 ]; then printf '%s\n' "$K" | sudo k3s kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=/dev/stdin; else echo "got ${#K} chars, expected 74: nothing changed"; fi; unset K
+read -rsp 'Paste the key line, then Enter: ' K; K=${K%$'\r'}; echo; if [ ${#K} -eq 74 ]; then printf '%s\n' "$K" | sudo k3s kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=/dev/stdin; else echo "got ${#K} chars, expected 74: nothing changed"; fi; unset K
 ```
 
 Then
