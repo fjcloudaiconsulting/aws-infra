@@ -65,6 +65,8 @@ jobs:
     env:
       KUBECONFORM_VERSION: v0.8.0
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # datreeio/CRDs-catalog commit, pinned so schemas change only with a repo change.
+      CRDS_CATALOG_SHA: d373c2da9702bc9509a004db83e57263fe3bdfc1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -82,5 +84,5 @@ jobs:
           ./kubeconform -summary -kubernetes-version 1.36.0 -skip CustomResourceDefinition \
             -ignore-filename-pattern 'kustomization\.yaml$' \
             -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRDS_CATALOG_SHA/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             clusters/

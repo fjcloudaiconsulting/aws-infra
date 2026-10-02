@@ -35,6 +35,11 @@ sops edit clusters/platform/<path>/<name>.secret.yaml   # later changes
 
 Encrypting needs only the public key in `.sops.yaml`; editing needs the private key (offline backup).
 
+Bootstrap on a fresh cluster (once): create namespace `flux-system` and the Secret `sops-age` with the
+private key under a name ending in `.agekey` (Flux ignores other names), then `kubectl apply -f`
+`flux-system/gotk-components.yaml`, wait for the controllers, and apply `flux-system/gotk-sync.yaml`.
+Not `apply -k`: the encrypted Secrets in the folder fail kubectl validation; Flux applies them.
+
 ## AWS credits (account 884686184019)
 
 Read from Billing and Cost Management > Credits on 2026-10-01:
