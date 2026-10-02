@@ -123,8 +123,10 @@ resource "cloudflare_zone_setting" "app" {
 # The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate
 # for thebetterdecision.com and *.thebetterdecision.com, so this zone runs in Full (strict).
 # Safe to flip now: no other record in the zone is proxied, and a DNS-only record never
-# reaches this setting. ziftbook.com stays on Automatic SSL/TLS until it has a proxied
-# hostname on the node.
+# reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
+# custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
+# the cluster, ping below answers 526 under strict; merge only with the secret files in.
+# ziftbook.com stays on Automatic SSL/TLS until it has a proxied hostname on the node.
 resource "cloudflare_zone_setting" "tbd_ssl" {
   zone_id    = cloudflare_zone.tbd.id
   setting_id = "ssl"

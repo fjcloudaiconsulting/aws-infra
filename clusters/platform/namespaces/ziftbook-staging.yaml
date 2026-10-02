@@ -64,5 +64,8 @@ kind: ServiceAccount
 metadata:
   name: default
   namespace: ziftbook-staging
+  annotations:
+    # Removing this file must not make Flux delete the namespace's default account.
+    kustomize.toolkit.fluxcd.io/prune: disabled
 imagePullSecrets:
   - name: ghcr-pull
