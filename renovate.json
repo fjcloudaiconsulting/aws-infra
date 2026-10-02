@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>fjcloudaiconsulting/.github#v1"],
+  "kubernetes": {
+    "managerFilePatterns": ["/^clusters/.+\\.ya?ml$/"]
+  },
+  "ignorePaths": ["clusters/platform/flux-system/**"],
+  "packageRules": [
+    {
+      "description": "Database majors are one-way data-dir upgrades: never proposed. Upgrade by hand after a fresh dump (clusters/platform/data/RESTORE.md).",
+      "matchPackageNames": ["mysql", "postgres", "valkey/valkey"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}
