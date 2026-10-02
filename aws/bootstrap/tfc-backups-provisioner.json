@@ -49,6 +49,15 @@
       ]
     },
     {
+      "Sid": "NeverMintTheK3sUploaderCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile"
+      ],
+      "Resource": "arn:aws:iam::884686184019:user/k3s-backup-uploader"
+    },
+    {
       "Sid": "ReadOwnIdentity",
       "Effect": "Allow",
       "Action": [

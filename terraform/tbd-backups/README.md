@@ -180,19 +180,39 @@ same key-policy and bucket-policy Denies. The probe role lists all three
 prefixes.
 
 Terraform creates the user but **not** its access key, so the secret never
-enters TFC state. Owner steps, in order:
+enters TFC state; the provisioner policy explicitly denies `iam:CreateAccessKey`
+and `iam:CreateLoginProfile` on it, so no future HCL can put one there.
+
+⚠ For the CronJob: upload with `aws s3api put-object` (one PUT) plus
+`--server-side-encryption aws:kms --ssekms-key-id <full key ARN>`. Multipart
+(`aws s3 cp` above 8 MB) needs `kms:Decrypt`, which the key policy denies.
+
+Owner steps, in order, from the repo root:
 
 ```bash
-# 1. BEFORE merge, as root: re-mint the provisioner policy so the apply may
-#    create the user. Then re-run the simulation above.
+# 1. BEFORE merge, as root: re-mint the three role policies this PR changes.
 aws iam put-role-policy --role-name tfc-backups-provisioner \
   --policy-name tfc-backups-provisioner-inline \
-  --policy-document file://../../aws/bootstrap/tfc-backups-provisioner.json
+  --policy-document file://aws/bootstrap/tfc-backups-provisioner.json
+aws iam put-role-policy --role-name tfc-platform-plan \
+  --policy-name tfc-platform-plan --policy-document file://aws/bootstrap/tfc-platform-plan.json
+aws iam put-role-policy --role-name tfc-platform-apply \
+  --policy-name tfc-platform-apply --policy-document file://aws/bootstrap/tfc-platform-apply.json
+
+#    Check: expect CreateUser/PutUserPolicy/TagUser "allowed",
+#    CreateAccessKey/CreateLoginProfile "explicitDeny".
+aws iam simulate-principal-policy --profile tbd \
+  --policy-source-arn arn:aws:iam::884686184019:role/tfc-backups-provisioner \
+  --resource-arns arn:aws:iam::884686184019:user/k3s-backup-uploader \
+  --action-names iam:CreateUser iam:PutUserPolicy iam:TagUser iam:CreateAccessKey iam:CreateLoginProfile \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 
 # 2. Merge, then Confirm & Apply in TFC.
 
-# 3. From the repo root: mint the key straight into a SOPS-encrypted Secret.
-#    It is never displayed and never written in plaintext.
+# 3. Mint the key straight into a SOPS-encrypted Secret. It is never displayed
+#    and never written in plaintext.
+set -o pipefail
+mkdir -p clusters/platform/data
 aws iam create-access-key --profile tbd --user-name k3s-backup-uploader --output json \
   | python3 -c 'import json,sys; k=json.load(sys.stdin)["AccessKey"]; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"backup-s3","namespace":"data"},"type":"Opaque","stringData":{"AWS_ACCESS_KEY_ID":k["AccessKeyId"],"AWS_SECRET_ACCESS_KEY":k["SecretAccessKey"]}}))' \
   | sops encrypt --filename-override clusters/platform/data/backup-s3.secret.yaml \
@@ -200,6 +220,11 @@ aws iam create-access-key --profile tbd --user-name k3s-backup-uploader --output
   > clusters/platform/data/backup-s3.secret.yaml
 grep -c 'ENC\[AES256' clusters/platform/data/backup-s3.secret.yaml   # 3: two values + the MAC
 ```
+
+If the pipeline fails after `create-access-key`, the key exists but nobody holds
+it: find it with `aws iam list-access-keys --profile tbd --user-name
+k3s-backup-uploader`, remove it with `aws iam delete-access-key --profile tbd
+--user-name k3s-backup-uploader --access-key-id <id>`, and rerun step 3.
 
 To rotate: create the second key the same way, let Flux roll it out, then
 `aws iam delete-access-key` the old one.

@@ -517,18 +517,11 @@ resource "aws_iam_role" "backup_probe" {
 }
 
 resource "aws_iam_role_policy" "backup_probe" {
-  for_each = toset(concat([var.backup_prefix], local.k3s_backup_prefixes))
-
-  name = "github-actions-backup-probe-list-only-${each.key}"
+  name = "github-actions-backup-probe-list-only"
   role = aws_iam_role.backup_probe.id
 
   policy = templatefile("${path.module}/policies/backup-probe.json", {
-    bucket = var.bucket_name
-    prefix = each.key
+    bucket   = var.bucket_name
+    prefixes = jsonencode([for p in concat([var.backup_prefix], local.k3s_backup_prefixes) : "${p}/*"])
   })
-}
-
-moved {
-  from = aws_iam_role_policy.backup_probe
-  to   = aws_iam_role_policy.backup_probe["pfv-data-01"]
 }
