@@ -5,26 +5,34 @@ metadata:
   name: mysql
   namespace: data
 data:
-  # Sized for the 640Mi container limit: 128M buffer pool, no performance_schema, small buffers.
+  # Sized for the 640Mi container limit; each knob below says why it is set.
   tbd.cnf: |
     [mysqld]
+    # Ticket budget: the two largest fixed allocations.
     performance_schema = OFF
-    mysqlx = OFF
     innodb_buffer_pool_size = 128M
+    # No replica, so binlogs only fill the disk (worst during the INFRA-48 import).
+    disable_log_bin
+    # X Protocol is unused; saves its listener threads.
+    mysqlx = OFF
+    # 8.4 defaults: 64M log buffer and a 1G in-memory temptable pool, both too big for 640Mi.
     innodb_log_buffer_size = 8M
+    temptable_max_ram = 64M
     # TBD: 2 backend workers + mcp at 15 pooled connections each, plus migrate and the dump job.
     max_connections = 80
+    # Default 4000 open-table handles; TBD has under 100 tables.
     table_open_cache = 400
-    tmp_table_size = 16M
-    max_heap_table_size = 16M
+    # Same as the droplet (TBD my.cnf.j2).
     character-set-server = utf8mb4
     collation-server = utf8mb4_0900_ai_ci
     # TBD-416: never wait 365 days on a metadata lock.
     lock_wait_timeout = 30
-  # Runs once, on an empty datadir only. The image itself creates pfv2 and pfv_app (ALL on pfv2.*, no GRANT OPTION).
+  # Runs once, on an empty datadir only; a failed first boot needs the PVC deleted before it runs again.
+  # The image creates pfv2 and pfv_app (ALL on pfv2.*, no GRANT OPTION). Its entrypoint has no SQL escape helper, so escape \ and ' here.
   10-backup-user.sh: |
+    pw=${MYSQL_BACKUP_PASSWORD//\\/\\\\}; pw=${pw//\'/\'\'}
     docker_process_sql --database=mysql <<-EOSQL
-    CREATE USER 'pfv_backup'@'%' IDENTIFIED BY '${MYSQL_BACKUP_PASSWORD}';
+    CREATE USER 'pfv_backup'@'%' IDENTIFIED BY '${pw}';
     GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, RELOAD, PROCESS, REPLICATION CLIENT ON *.* TO 'pfv_backup'@'%';
     EOSQL
 ---
@@ -40,9 +48,8 @@ spec:
     - name: mysql
       port: 3306
 ---
-# Users are created only on first boot. To rotate a password: change its key in mysql.secret.yaml, then
-# `kubectl -n data exec -it mysql-0 -- mysql -uroot -p -e "ALTER USER 'pfv_app'@'%' IDENTIFIED BY '<new>'"`
-# (root: ALTER USER 'root'@'localhost'), and restart the consumers (tbd-prod keeps its own copy of the app password).
+# Rotate: change the key in mysql.secret.yaml, run ALTER USER ... IDENTIFIED BY via `kubectl -n data exec -it mysql-0 -- mysql -uroot -p`,
+# then restart the consumers (tbd-prod holds its own copy of the app password).
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -117,6 +124,7 @@ spec:
             exec:
               command: [mysqladmin, ping, -h, 127.0.0.1]
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: [mysqladmin, ping, -h, 127.0.0.1]
