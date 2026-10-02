@@ -1,5 +1,6 @@
-# Staging shares the node with prod: lowest priority, so the kubelet evicts it first and it
-# never preempts anything. Pods without a class get priority 0, so the class is negative.
+# Staging shares the node with prod: lowest priority, so among pods over their memory request
+# the kubelet evicts staging first, and it never preempts. Pods without a class get priority 0,
+# so the class is negative.
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -12,6 +13,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: ziftbook-staging
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
 ---
 apiVersion: v1
 kind: LimitRange
@@ -37,7 +40,8 @@ spec:
     requests.memory: 256Mi
     limits.memory: 512Mi
 ---
-# Rejects any pod in this namespace that does not use the staging class.
+# Rejects any pod in this namespace that does not use the staging class, Job and CronJob
+# pods included (they fail with a FailedCreate event only).
 apiVersion: v1
 kind: ResourceQuota
 metadata:
