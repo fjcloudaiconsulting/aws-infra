@@ -31,12 +31,16 @@ spec:
         runAsUser: 999 # postgres in the image
         runAsGroup: 999
         runAsNonRoot: true
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
+      # The image's STOPSIGNAL SIGINT is a fast shutdown; give checkpointing time before the kill.
+      terminationGracePeriodSeconds: 60
       containers:
         - name: postgres
           image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
           # Sized for a 384Mi limit; Ziftbook pools: backend 5+10, worker 21, plus migrate and admin.
+          # Ceiling: ~40 busy sessions at work_mem each; no parallel workers, which would multiply it.
           args:
             - -c
             - shared_buffers=64MB
@@ -48,6 +52,8 @@ spec:
             - maintenance_work_mem=32MB
             - -c
             - max_connections=50
+            - -c
+            - max_parallel_workers_per_gather=0
           env:
             - name: POSTGRES_DB
               value: ziftbook
@@ -80,11 +86,7 @@ spec:
             exec:
               command: [pg_isready, -h, 127.0.0.1]
             periodSeconds: 5
-          lifecycle:
-            # SIGTERM is a smart shutdown that waits for clients; fast shutdown avoids a kill and crash recovery.
-            preStop:
-              exec:
-                command: [pg_ctl, stop, -m, fast]
+            timeoutSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
