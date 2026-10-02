@@ -13,7 +13,8 @@ provider "aws" {
 }
 
 locals {
-  account_id = "884686184019"
+  account_id  = "884686184019"
+  owner_email = "flamarion@fjconsulting.io"
 }
 
 # Alarm and budget notifications land here (INFRA-11/26). Also the first real resource, so the
@@ -28,7 +29,7 @@ resource "aws_sns_topic" "platform_alerts" {
 resource "aws_sns_topic_subscription" "owner_email" {
   topic_arn = aws_sns_topic.platform_alerts.arn
   protocol  = "email"
-  endpoint  = "flamarion@fjconsulting.io"
+  endpoint  = local.owner_email
 }
 
 data "aws_iam_policy_document" "platform_alerts" {
@@ -292,7 +293,7 @@ resource "aws_cloudformation_stack" "node_alarms" {
     Resources = {
       OwnerEmail = {
         Type       = "AWS::Lightsail::ContactMethod"
-        Properties = { Protocol = "Email", ContactEndpoint = "flamarion@fjconsulting.io" }
+        Properties = { Protocol = "Email", ContactEndpoint = local.owner_email }
       }
       # Credits under 20% for 10 minutes: sustained load is about to be throttled to baseline.
       BurstCapacity = {

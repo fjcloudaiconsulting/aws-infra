@@ -43,20 +43,31 @@
       "Resource": "arn:aws:budgets::884686184019:budget/platform-*"
     },
     {
-      "Sid": "ManageOnlyPlatformTrailsTopicsAlarmsStacks",
+      "Sid": "ManageOnlyPlatformTrailsTopicsAlarms",
       "Effect": "Allow",
       "Action": [
         "cloudtrail:*",
         "sns:*",
-        "cloudwatch:*",
-        "cloudformation:*"
+        "cloudwatch:*"
       ],
       "Resource": [
         "arn:aws:cloudtrail:*:884686184019:trail/platform-*",
         "arn:aws:sns:*:884686184019:platform-*",
-        "arn:aws:cloudwatch:*:884686184019:alarm:platform-*",
-        "arn:aws:cloudformation:eu-central-1:884686184019:stack/platform-*/*"
+        "arn:aws:cloudwatch:*:884686184019:alarm:platform-*"
       ]
+    },
+    {
+      "Sid": "ManageOnlyPlatformStacks",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:GetTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:eu-central-1:884686184019:stack/platform-*/*"
     },
     {
       "Sid": "ManagePlatformBuckets",
