@@ -29,7 +29,8 @@ def actions(doc):
 # as load-bearing as Action: a mutant that flipped Effect to Deny and widened Resource to
 # arn:aws:s3:::*/* kept the action set identical.
 uploader = json.loads((STACK / "policies/backup-uploader.json").read_text())
-probe = json.loads((STACK / "policies/backup-probe.json").read_text())
+# The probe template injects its prefix list as raw JSON; stand in an empty list so it parses.
+probe = json.loads((STACK / "policies/backup-probe.json").read_text().replace("${prefixes}", "[]"))
 check(actions(uploader) == {"s3:PutObject", "kms:GenerateDataKey", "kms:Encrypt", "kms:DescribeKey"},
       f"uploader policy actions are {sorted(actions(uploader))}; it must stay exactly put + encrypt "
       "(read access would let a compromised droplet harvest every historical dump)")

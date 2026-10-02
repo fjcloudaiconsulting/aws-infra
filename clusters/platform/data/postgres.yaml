@@ -1,0 +1,105 @@
+# Postgres 18 for Ziftbook. Admin and role passwords: postgres.secret.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: data
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: data
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsUser: 999 # postgres in the image
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      # The image's STOPSIGNAL SIGINT is a fast shutdown; give checkpointing time before the kill.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+          # Sized for a 384Mi limit; Ziftbook pools: backend 5+10, worker 21, plus migrate and admin.
+          # Ceiling: ~40 busy sessions at work_mem each; no parallel workers, which would multiply it.
+          args:
+            - -c
+            - shared_buffers=64MB
+            - -c
+            - effective_cache_size=192MB
+            - -c
+            - work_mem=2MB
+            - -c
+            - maintenance_work_mem=32MB
+            - -c
+            - max_connections=50
+            - -c
+            - max_parallel_workers_per_gather=0
+          env:
+            - name: POSTGRES_DB
+              value: ziftbook
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: admin-password
+          ports:
+            - name: postgres
+              containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+          # TCP, not the socket: initdb's temporary server listens on the socket only.
+          startupProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1]
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1]
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: [pg_isready, -h, 127.0.0.1]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            # Postgres 18 images keep PGDATA under /var/lib/postgresql/18/docker, not .../data.
+            - name: data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
