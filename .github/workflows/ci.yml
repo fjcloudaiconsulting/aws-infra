@@ -16,7 +16,7 @@ permissions:
 jobs:
   terraform:
     name: Terraform checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,7 +61,7 @@ jobs:
 
   kubernetes:
     name: Kubernetes checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       KUBECONFORM_VERSION: v0.8.0
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
