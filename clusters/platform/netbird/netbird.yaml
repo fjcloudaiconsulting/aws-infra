@@ -2,11 +2,16 @@
 # Rootless image: userspace WireGuard, no capabilities. With hostNetwork, traffic to the
 # peer's NetBird IP is forwarded to the host's 127.0.0.1, so the API server (6443) is
 # reachable. That forwarding exposes every loopback listener, so the NetBird access policy
-# (owner devices -> k3s, TCP 6443 only) is the control that matters.
+# (owner devices -> k3s, TCP 6443 only, one way) is the control that matters.
+# Recovery if the state volume is lost: the setup key is single-use, so the pod crash-loops
+# until a new key is SOPS-encrypted into setup-key.secret.yaml and merged.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: netbird
+  annotations:
+    # Never pruned by Flux: losing the state volume locks the owner out (see above).
+    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     # hostNetwork is only allowed at privileged.
     pod-security.kubernetes.io/enforce: privileged
@@ -16,6 +21,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: netbird-state
   namespace: netbird
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   accessModes: [ReadWriteOnce]
   resources:
@@ -40,7 +47,8 @@ spec:
         app: netbird
     spec:
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      # Host resolver: break-glass access must not depend on CoreDNS.
+      dnsPolicy: Default
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -79,7 +87,8 @@ spec:
             claimName: netbird-state
 ---
 # The owner's kubectl identity (tokens via `kubectl create token`). Revoke every token by
-# deleting and recreating the account.
+# deleting the account (Flux recreates it). Anyone who can create pods or tokens in this
+# namespace holds cluster-admin: never grant namespace-scoped rights here.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
