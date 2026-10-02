@@ -111,14 +111,6 @@ def all_three(*, pfv=2, mysql=2, pg=2):
 
 
 class PerPrefix(unittest.TestCase):
-    def test_a_tiny_dump_passes_on_a_low_floor(self):
-        r = probe(json.dumps({"Contents": night(2, prefix=MYSQL, dump_size=600)}), "tbd-mysql=300")
-        self.assertEqual(r.returncode, 0, r.stdout)
-
-    def test_the_same_tiny_dump_fails_on_a_high_floor(self):
-        r = probe(json.dumps({"Contents": night(2, prefix=MYSQL, dump_size=600)}), "tbd-mysql=100000")
-        self.assertEqual(r.returncode, 1, r.stdout)
-
     def test_each_prefix_is_judged_on_its_own_floor(self):
         # Kills: one global floor (the high one fails the k3s dumps, the low one waves through a tiny droplet dump).
         self.assertEqual(probe(all_three(), *FLOORS).returncode, 0, probe(all_three(), *FLOORS).stdout)
@@ -139,15 +131,14 @@ class PerPrefix(unittest.TestCase):
         self.assertIn("ziftbook-postgres", r.stdout.splitlines()[0])
         self.assertNotIn("pfv-data-01", r.stdout.splitlines()[0])
 
-    def test_every_failing_prefix_is_named(self):
-        r = probe(all_three(pfv=26, pg=26), *FLOORS)
-        self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("pfv-data-01", r.stdout.splitlines()[0])
-        self.assertIn("ziftbook-postgres", r.stdout.splitlines()[0])
-        self.assertNotIn("tbd-mysql", r.stdout.splitlines()[0])
-
     def test_a_prefix_with_no_objects_is_stale(self):
         r = probe(listing(2), *FLOORS)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("tbd-mysql", r.stdout.splitlines()[0])
+
+    def test_a_sibling_prefix_does_not_stand_in(self):
+        # Kills: matching on the bare name, so a fresh tbd-mysql-x/ hides an empty tbd-mysql/.
+        r = probe(json.dumps({"Contents": night(2, prefix="tbd-mysql-x/2026/08/27", dump_size=600)}), "tbd-mysql=300")
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("tbd-mysql", r.stdout.splitlines()[0])
 

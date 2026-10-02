@@ -111,7 +111,7 @@ def judge(contents, min_dump_bytes):
     manifests = [o for o in contents if "manifest" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
     if not manifests:
         return 1, ("STALE: no manifest object found. The manifest is uploaded last, so "
-              "its absence means no night has completed end to end.")
+                   "its absence means no night has completed end to end.")
 
     # ⚠ Sort by the PARSED INSTANT, never by the timestamp string. AWS CLI v2
     # emits `+00:00` offsets while these fixtures emit `Z`, and once two formats
@@ -120,7 +120,7 @@ def judge(contents, min_dump_bytes):
     dated = [(age_hours(o), o) for o in manifests]
     usable = [(a, o) for a, o in dated if a is not None]
     if not usable:
-        return 2, ("could not run: no manifest has a usable LastModified")
+        return 2, "could not run: no manifest has a usable LastModified"
     age, newest = min(usable, key=lambda pair: pair[0])
 
     # ⚠ A negative age means the object is stamped in the FUTURE -- a clock skew or
@@ -128,11 +128,11 @@ def judge(contents, min_dump_bytes):
     # forever. Refuse to answer rather than report healthy.
     if age < 0:
         return 2, (f"could not run: manifest {newest.get('Key')} is dated in the future "
-              f"({-age:.1f}h ahead). Refusing to call that fresh.")
+                   f"({-age:.1f}h ahead). Refusing to call that fresh.")
 
     if age > max_age_hours:
         return 1, (f"STALE: newest manifest {newest.get('Key')} is {age:.1f}h old "
-              f"(threshold {max_age_hours}h). At least one nightly run has been missed.")
+                   f"(threshold {max_age_hours}h). At least one nightly run has been missed.")
 
     # The manifest is fresh; the artifacts it implies must be present in the same
     # prefix and plausibly sized.
@@ -145,16 +145,16 @@ def judge(contents, min_dump_bytes):
 
     if not dumps:
         return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no dump object "
-              "sits beside it.")
+                   "sits beside it.")
     if not grants:
         return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no grants object "
-              "sits beside it. A restore would yield tables and zero logins.")
+                   "sits beside it. A restore would yield tables and zero logins.")
 
     biggest = max(int(o.get("Size", 0)) for o in dumps)
     if biggest < min_dump_bytes:
         return 1, (f"STALE: newest dump is {biggest} bytes, below the {min_dump_bytes} "
-              "byte floor. A plausible-looking but tiny dump is the failure mode a "
-              "presence check cannot see.")
+                   "byte floor. A plausible-looking but tiny dump is the failure mode a "
+                   "presence check cannot see.")
 
     return 0, (f"fresh: manifest {newest.get('Key')} is {age:.1f}h old, dump {biggest} bytes")
 
