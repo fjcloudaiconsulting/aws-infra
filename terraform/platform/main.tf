@@ -282,6 +282,56 @@ resource "aws_lightsail_instance_public_ports" "firewall" {
   }
 }
 
+# Lightsail metrics never reach CloudWatch and the AWS provider has no Lightsail alarm resource,
+# so the node's alarms (INFRA-26) live in a CloudFormation stack. Lightsail alarms notify only a
+# Lightsail contact method; creating it emails a verification link, and nothing is sent until the
+# owner clicks it. One email contact method per region: the create fails if one already exists.
+resource "aws_cloudformation_stack" "node_alarms" {
+  name = "platform-node-alarms"
+  template_body = jsonencode({
+    Resources = {
+      OwnerEmail = {
+        Type       = "AWS::Lightsail::ContactMethod"
+        Properties = { Protocol = "Email", ContactEndpoint = "flamarion@fjconsulting.io" }
+      }
+      # Credits under 20% for 10 minutes: sustained load is about to be throttled to baseline.
+      BurstCapacity = {
+        Type      = "AWS::Lightsail::Alarm"
+        DependsOn = "OwnerEmail"
+        Properties = {
+          AlarmName             = "platform-node-burst-capacity"
+          MonitoredResourceName = aws_lightsail_instance.node.name
+          MetricName            = "BurstCapacityPercentage"
+          ComparisonOperator    = "LessThanOrEqualToThreshold"
+          Threshold             = 20
+          EvaluationPeriods     = 2
+          DatapointsToAlarm     = 2
+          TreatMissingData      = "notBreaching" # a silent node is the status check's job
+          ContactProtocols      = ["Email"]
+          NotificationTriggers  = ["ALARM", "OK"]
+        }
+      }
+      # Missing data counts as failed, so a stopped or hung node alarms too.
+      StatusCheck = {
+        Type      = "AWS::Lightsail::Alarm"
+        DependsOn = "OwnerEmail"
+        Properties = {
+          AlarmName             = "platform-node-status-check"
+          MonitoredResourceName = aws_lightsail_instance.node.name
+          MetricName            = "StatusCheckFailed"
+          ComparisonOperator    = "GreaterThanOrEqualToThreshold"
+          Threshold             = 1
+          EvaluationPeriods     = 2
+          DatapointsToAlarm     = 2
+          TreatMissingData      = "breaching"
+          ContactProtocols      = ["Email"]
+          NotificationTriggers  = ["ALARM", "OK"]
+        }
+      }
+    }
+  })
+}
+
 output "node_static_ip" {
   description = "Public IPv4 of the k3s node; Cloudflare proxied records point here."
   value       = aws_lightsail_static_ip.node.ip_address

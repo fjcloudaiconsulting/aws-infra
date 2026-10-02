@@ -5,25 +5,31 @@ Shared AWS resources for the platform in account `884686184019`, eu-central-1: t
 credits; alerts at $25, $50 and forecast $50), the multi-region `platform-management` trail into
 `fjc-platform-cloudtrail-884686184019` (365-day expiry), and the k3s node `platform-node` (Lightsail
 `medium_3_0`, IPv4 only, static IP, daily snapshots, 443 from Cloudflare only, 22 via the Lightsail
-console or `ssh_allowed_cidrs`). The node's launch script (`node-init.sh.tftpl`) runs only at first
-boot; `user_data` changes are ignored afterwards, and `prevent_destroy` blocks a replace.
+console or `ssh_allowed_cidrs`), and its burst-credit and status-check alarms (CloudFormation stack
+`platform-node-alarms`: Lightsail alarms have no Terraform resource, and they email a Lightsail
+contact method that the owner verifies once through the link AWS sends). The node's launch script
+(`node-init.sh.tftpl`) runs only at first boot; `user_data` changes are ignored afterwards, and
+`prevent_destroy` blocks a replace.
 
 ## Roles
 
 Two OIDC roles, documents in `aws/bootstrap/`. Neither is managed by Terraform: a workspace that
 owns its own role can widen it.
 
-- `tfc-platform-plan` (`run_phase:plan`): an explicit read allow-list for the services below
-  (configuration only, no data reads such as `s3:GetObject`, logs, parameters or secrets) plus a
-  Deny on Lightsail SSH/key-pair access and every path into the TBD backup chain. A speculative
-  plan runs PR code, so it gets nothing beyond what refreshing this stack needs.
+- `tfc-platform-plan` (`run_phase:plan`): an explicit read allow-list for the services below plus
+  `DescribeStacks`/`GetTemplate` on `platform-*` CloudFormation stacks (configuration only, no data
+  reads such as `s3:GetObject`, logs, parameters or secrets) plus a Deny on Lightsail SSH/key-pair
+  access and every path into the TBD backup chain. A speculative plan runs PR code, so it gets
+  nothing beyond what refreshing this stack needs.
 - `tfc-platform-apply` (`run_phase:apply`): Lightsail (eu-central-1 only), and budgets, CloudTrail
-  trails, SNS topics and CloudWatch alarms named `platform-*`, `fjc-platform-*` buckets in this
-  account, plus reads and IAM reads. No IAM writes. Same backup-chain Deny. KMS:
-  `GenerateDataKey`/`Decrypt` only on the AWS-managed `aws/lightsail` key and only through Lightsail
-  (`kms:ViaService`; Lightsail uses it when it creates instances and static IPs), no other key use
-  and no key management. Apply runs only after an approved merge; it can still create Lightsail key
-  pairs or snapshots, so the node-access Deny is a plan-phase guarantee only.
+  trails, SNS topics, CloudWatch alarms and CloudFormation stacks named `platform-*` (the stack runs
+  under this role's credentials, so its Lightsail alarms fall under the Lightsail grant),
+  `fjc-platform-*` buckets in this account, plus reads and IAM reads. No IAM writes. Same
+  backup-chain Deny. KMS: `GenerateDataKey`/`Decrypt` only on the AWS-managed `aws/lightsail` key
+  and only through Lightsail (`kms:ViaService`; Lightsail uses it when it creates instances and
+  static IPs), no other key use and no key management. Apply runs only after an approved merge; it
+  can still create Lightsail key pairs or snapshots, so the node-access Deny is a plan-phase
+  guarantee only.
 
 A new resource type or data source for this stack means widening both role documents first (the
 plan allow-list and the apply allow-list), then re-running the `put-role-policy` lines below.
