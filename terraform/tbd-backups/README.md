@@ -170,3 +170,36 @@ the bucket, and never needs a backup's contents.
 
 Object Lock is GOVERNANCE mode: a compromised droplet cannot overwrite history,
 but break-glass can still clean up a mistake.
+
+## The k3s uploader (INFRA-30)
+
+`k3s-backup-uploader` is the k3s node's twin of `pfv-backup-uploader`: one user
+for the MySQL and Postgres dump CronJobs, with the same put + encrypt grant
+copied once per prefix (`tbd-mysql/`, `ziftbook-postgres/`), and named in the
+same key-policy and bucket-policy Denies. The probe role lists all three
+prefixes.
+
+Terraform creates the user but **not** its access key, so the secret never
+enters TFC state. Owner steps, in order:
+
+```bash
+# 1. BEFORE merge, as root: re-mint the provisioner policy so the apply may
+#    create the user. Then re-run the simulation above.
+aws iam put-role-policy --role-name tfc-backups-provisioner \
+  --policy-name tfc-backups-provisioner-inline \
+  --policy-document file://../../aws/bootstrap/tfc-backups-provisioner.json
+
+# 2. Merge, then Confirm & Apply in TFC.
+
+# 3. From the repo root: mint the key straight into a SOPS-encrypted Secret.
+#    It is never displayed and never written in plaintext.
+aws iam create-access-key --profile tbd --user-name k3s-backup-uploader --output json \
+  | python3 -c 'import json,sys; k=json.load(sys.stdin)["AccessKey"]; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"backup-s3","namespace":"data"},"type":"Opaque","stringData":{"AWS_ACCESS_KEY_ID":k["AccessKeyId"],"AWS_SECRET_ACCESS_KEY":k["SecretAccessKey"]}}))' \
+  | sops encrypt --filename-override clusters/platform/data/backup-s3.secret.yaml \
+      --input-type yaml --output-type yaml /dev/stdin \
+  > clusters/platform/data/backup-s3.secret.yaml
+grep -c 'ENC\[AES256' clusters/platform/data/backup-s3.secret.yaml   # 3: two values + the MAC
+```
+
+To rotate: create the second key the same way, let Flux roll it out, then
+`aws iam delete-access-key` the old one.
