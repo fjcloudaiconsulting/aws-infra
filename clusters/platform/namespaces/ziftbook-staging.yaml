@@ -55,3 +55,14 @@ spec:
       - scopeName: PriorityClass
         operator: NotIn
         values: [staging]
+---
+# Every pod here pulls private GHCR images with ghcr-pull (ziftbook-staging-ghcr-pull.secret.yaml), so
+# workloads need no imagePullSecrets of their own. Until the secret exists the kubelet logs a
+# warning and pulls anonymously; public images still work.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: ziftbook-staging
+imagePullSecrets:
+  - name: ghcr-pull
