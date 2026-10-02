@@ -1,0 +1,109 @@
+# NetBird peer that gives the owner kubectl access without any public port (INFRA-66).
+# Rootless image: userspace WireGuard, no capabilities. With hostNetwork, traffic to the
+# peer's NetBird IP is forwarded to the host's 127.0.0.1, so the API server (6443) is
+# reachable. That forwarding exposes every loopback listener, so the NetBird access policy
+# (owner devices -> k3s, TCP 6443 only, one way) is the control that matters.
+# Recovery if the state volume is lost: the setup key is single-use, so the pod crash-loops
+# until a new key is SOPS-encrypted into setup-key.secret.yaml and merged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbird
+  annotations:
+    # Never pruned by Flux: losing the state volume locks the owner out (see above).
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # hostNetwork is only allowed at privileged.
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netbird-state
+  namespace: netbird
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 16Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird
+  namespace: netbird
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: netbird
+  template:
+    metadata:
+      labels:
+        app: netbird
+    spec:
+      hostNetwork: true
+      # Host resolver: break-glass access must not depend on CoreDNS.
+      dnsPolicy: Default
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: netbird
+          image: netbirdio/netbird:0.80.0-rootless@sha256:d2f56dfa39a17f851e5ec360eb1cb675d54cf403b9c82e4323c0827bbd7e1350
+          env:
+            - name: NB_HOSTNAME
+              value: platform-node
+            # Console only: the default also writes a log file onto the state volume.
+            - name: NB_LOG_FILE
+              value: console
+          envFrom:
+            # NB_SETUP_KEY. Only used to enrol; the peer identity then lives on the volume.
+            - secretRef:
+                name: netbird-setup-key
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/netbird
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: netbird-state
+---
+# The owner's kubectl identity (tokens via `kubectl create token`). Revoke every token by
+# deleting the account (Flux recreates it). Anyone who can create pods or tokens in this
+# namespace holds cluster-admin: never grant namespace-scoped rights here.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: owner-admin
+  namespace: netbird
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: owner-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: owner-admin
+    namespace: netbird
