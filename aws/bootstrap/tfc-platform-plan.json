@@ -33,6 +33,16 @@
       "Resource": "arn:aws:cloudformation:eu-central-1:884686184019:stack/platform-*/*"
     },
     {
+      "Sid": "ReadHealthChecks",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHealthCheck",
+        "route53:ListTagsForResource",
+        "route53:ListTagsForResources"
+      ],
+      "Resource": "arn:aws:route53:::healthcheck/*"
+    },
+    {
       "Sid": "ReadPlatformBucketConfig",
       "Effect": "Allow",
       "Action": [
