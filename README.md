@@ -21,6 +21,11 @@ Dockerfiles and their own CI; everything about where and how the apps run lives 
 - Secrets never land in plain text: Terraform variables are sensitive TFC variables, Kubernetes
   secrets are SOPS-encrypted.
 
+## Cluster access
+
+kubectl and Flux reach the node over NetBird only (no public Kubernetes port). Setup, onboarding a
+device, token renewal and revocation: [`clusters/platform/netbird/README.md`](clusters/platform/netbird/README.md).
+
 ## Kubernetes secrets
 
 A Secret lives in its own `clusters/**/<name>.secret.yaml`; `.sops.yaml` encrypts its `data` and
