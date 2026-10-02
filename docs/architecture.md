@@ -9,9 +9,9 @@ flowchart LR
   user([Users]) --> cf
 
   subgraph cloudflare["Cloudflare (terraform/cloudflare)"]
-    cf["Proxy, Full strict<br/>zones thebetterdecision.com, ziftbook.com"]
-    worker["Worker ziftbook-landing<br/>ziftbook.com apex and www"]
+    cf["DNS and proxy<br/>thebetterdecision.com: Full strict"]
   end
+  worker["Worker ziftbook-landing<br/>ziftbook.com apex and www<br/>(not managed in this repo)"]
   cf --> worker
 
   subgraph aws_platform["AWS eu-central-1 (terraform/platform)"]
@@ -35,7 +35,7 @@ flowchart LR
     end
     alarms["Lightsail alarms, budget, CloudTrail"]
   end
-  cf -->|"proxied hosts"| fw --> traefik
+  cf -->|"proxied hosts: ping today, apps after cutover"| fw --> traefik
   traefik --> tbdapp & zifapp
   tbdapp --> mysql & valkey
   zifapp --> postgres
@@ -43,7 +43,6 @@ flowchart LR
 
   subgraph aws_backups["AWS (terraform/tbd-backups)"]
     bucket[("S3 Object Lock bucket + KMS")]
-    probe["Freshness probe (GitHub Actions)"]
   end
   backup -->|"put-only key"| bucket
   probe -->|"list-only role"| bucket
@@ -54,15 +53,16 @@ flowchart LR
   hc --> cf
 
   subgraph oldacct["Old AWS account (terraform/tbd-apex)"]
-    apex["TBD apex site, domain registration"]
+    apex["TBD apex site: S3 + CloudFront"]
   end
 
   subgraph control["Control plane"]
     gh["GitHub fjcloudaiconsulting/aws-infra"]
-    tfc["HCP Terraform (org FlamaCorp)<br/>OIDC roles per workspace"]
+    tfc["HCP Terraform (org FlamaCorp)<br/>AWS via OIDC roles, Cloudflare via API token"]
     ghcr["GHCR images"]
+    probe["Freshness probe (GitHub Actions)"]
   end
-  gh --> tfc --> aws_platform & aws_backups & cloudflare
+  gh --> tfc --> aws_platform & aws_backups & cloudflare & oldacct
   gh -->|"main"| flux
   ghcr -->|"ghcr-pull secret"| node
   owner([Owner Mac]) -->|"NetBird, TCP 6443 only"| netbird
@@ -70,11 +70,15 @@ flowchart LR
 
 ## Ingress
 
-Cloudflare proxies every app hostname to the node's static IP. The zone is in Full (strict), so
-Cloudflare only accepts the Cloudflare Origin CA certificate that Traefik serves as its default
-(`TLSStore default`). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
+Proxied hostnames go through Cloudflare to the node's static IP. Today that is only
+`ping.thebetterdecision.com`; the TBD app records stay DNS-only to DigitalOcean until cutover
+(INFRA-48), after which they are proxied the same way. The thebetterdecision.com zone is in Full
+(strict), so Cloudflare only accepts the Cloudflare Origin CA certificate that Traefik serves as its
+default (`TLSStore default`). ziftbook.com stays on Cloudflare's Automatic SSL/TLS mode until it gets
+a proxied host on the node. The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
-endpoint served by Traefik itself. The ziftbook.com apex and www are a Cloudflare Worker, not the node.
+endpoint served by Traefik itself. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
+repo.
 
 - Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), firewall in
   [`terraform/platform/main.tf`](../terraform/platform/main.tf)
@@ -91,12 +95,12 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 
 | Namespace | Holds | Memory quota (requests / limits) | Notes |
 |---|---|---|---|
-| `tbd-prod` | TBD | 512Mi / 768Mi | Pod Security baseline |
+| `tbd-prod` | TBD | 512Mi / 768Mi | |
 | `ziftbook-staging` | Ziftbook staging | 256Mi / 512Mi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 
-Every app namespace has a LimitRange with default memory limits, and its `default`
+`tbd-prod`, `ziftbook-staging` and `data` enforce Pod Security baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
 ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
 [`clusters/platform/namespaces/`](../clusters/platform/namespaces/).
 
@@ -107,12 +111,13 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 | Store | For | Key settings |
 |---|---|---|
 | MySQL 8.4 | TBD (`pfv2`, users `pfv_app`, `pfv_backup`) | buffer pool 128M, performance_schema off, binlog off |
-| Postgres 18 | Ziftbook (`ziftbook`, roles `ziftbook_migrate`, `ziftbook_app`) | shared_buffers 64MB, FORCE RLS in the app; bootstrap Job from Ziftbook's pinned `bootstrap.sql` |
+| Postgres 18 | Ziftbook (`ziftbook`; roles created by Ziftbook's pinned `bootstrap.sql`, run as a Job) | shared_buffers 64MB, no parallel workers |
 | Valkey 8 | TBD sessions | 64mb, noeviction, AOF on (not migrated at cutover) |
 
 A NetworkPolicy denies ingress to `data` by default: MySQL and Valkey accept `tbd-prod`, Postgres
 accepts `ziftbook-staging`, and the backup and bootstrap pods reach their databases inside `data`.
-Traffic from the node itself (kubelet probes, hostNetwork pods) is not filtered by the policy.
+Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
+and the NetBird ACL guard that path.
 Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).
 
 ## Backups and restore
@@ -132,7 +137,8 @@ Job: [`clusters/platform/data/db-backup.yaml`](../clusters/platform/data/db-back
 
 ## Access
 
-kubectl and Flux reach the node over NetBird only. The node is a NetBird peer, and the NetBird
+kubectl and the flux CLI reach the node over NetBird only (Flux in the cluster pulls from public
+GitHub over HTTPS). The node is a NetBird peer, and the NetBird
 policy allows owner devices to reach TCP 6443 and nothing else. Authentication uses tokens of the
 ServiceAccount `netbird/owner-admin`. Runbook (setup, new device, renew, revoke):
 [`clusters/platform/netbird/README.md`](../clusters/platform/netbird/README.md). SSO through
@@ -151,12 +157,13 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 - **Terraform:** every `terraform/<stack>/` is an HCP Terraform workspace with VCS flow: plan on
   the PR, apply on merge after approval in the TFC UI. The stacks are `platform` (node, alarms,
   budget, CloudTrail, uptime check), `cloudflare` (DNS, zone settings), `tbd-backups` (backup
-  chain) and `tbd-apex` (TBD site in the old account). Each workspace assumes an OIDC role whose
-  policy root mints once from [`aws/bootstrap/`](../aws/bootstrap/); a workspace never manages its
-  own role.
+  chain) and `tbd-apex` (TBD apex site in the old account). `platform` and `tbd-backups` assume
+  OIDC roles whose policies root mints once from [`aws/bootstrap/`](../aws/bootstrap/), so those
+  workspaces never manage their own roles. `cloudflare` uses an API token. `tbd-apex` manages its
+  own provisioner role and OIDC providers in the old account (see its README).
 - **Kubernetes:** Flux (source and kustomize controllers) applies `clusters/platform` from `main`.
 - **CI** ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): `terraform fmt` and validate,
-  tflint, kubeconform, the SOPS check and the Python tests.
+  tflint, the tbd-backups fences check, kubeconform, the SOPS check and the Python tests.
 
 ## Monitoring and alerts
 
@@ -171,6 +178,8 @@ There is no in-cluster observability stack; the node has no memory to spare.
 
 ## Cost
 
-About $24/month for the Lightsail node, plus about $2.75/month for the HTTPS health check and
-pennies for S3, KMS and SNS, all drawn from AWS credits. Credit balances:
+About $24/month for the Lightsail node, about $2.75/month for the HTTPS health check, about
+$1/month for the backup KMS key, and small amounts for S3 (backups, CloudTrail) and SNS. These are
+expected to draw on AWS credits; whether credits apply to Lightsail is not confirmed. Credit
+balances:
 [README.md, AWS credits](../README.md#aws-credits-account-884686184019).
