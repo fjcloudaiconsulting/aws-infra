@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # renovate/** reports checks on branches Renovate automerges without a PR (staging bumps).
+    branches: [main, "renovate/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
