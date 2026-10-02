@@ -5,12 +5,27 @@
     "managerFilePatterns": ["/^clusters/.+\\.ya?ml$/"]
   },
   "ignorePaths": ["clusters/platform/flux-system/**"],
+  "hostRules": [
+    {
+      "matchHost": "ghcr.io",
+      "hostType": "docker",
+      "username": "flamarion",
+      "password": "{{ secrets.GHCR_READ_TOKEN }}"
+    }
+  ],
   "packageRules": [
     {
       "description": "Database majors are one-way data-dir upgrades: never proposed. Upgrade by hand after a fresh dump (clusters/platform/data/RESTORE.md).",
       "matchPackageNames": ["mysql", "postgres", "valkey/valkey"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "App images (contract section 8): production references vX.Y.Z only. Track release tags, ignore sha- tags, no digest pin. Merging the bump PR is the deploy.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/fjcloudaiconsulting/**"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "pinDigests": false
     }
   ]
 }
