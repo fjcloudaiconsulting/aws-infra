@@ -95,10 +95,11 @@ locals {
     always_use_https = "on"
     # HSTS without includeSubDomains or preload, so a host that cannot do HTTPS stays reachable
     # and backing out is max_age = 0 (browsers keep the old max_age until they revisit).
+    # One year (INFRA-75): the zone header overrides the ziftbook landing worker's, whose smoke expects it.
     security_header = {
       strict_transport_security = {
         enabled            = true
-        max_age            = 15552000
+        max_age            = 31536000
         include_subdomains = false
         preload            = false
         nosniff            = false
