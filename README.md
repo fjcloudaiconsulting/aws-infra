@@ -37,8 +37,8 @@ Encrypting needs only the public key in `.sops.yaml`; editing needs the private 
 
 Bootstrap on a fresh cluster (once): create namespace `flux-system` and the Secret `sops-age` with the
 private key under a name ending in `.agekey` (Flux ignores other names), typed at a silent prompt
-so it stays out of shell history and scrollback (never a heredoc). Pasting the command with a trailing
-newline answers the prompt empty, hence the length guard:
+so it stays out of shell history and scrollback (never a heredoc). A pasted trailing newline answers
+the prompt empty, hence the length guard:
 
 ```sh
 # Run it, wait for the prompt, then paste the AGE-SECRET-KEY line (74 chars); anything else changes nothing.
