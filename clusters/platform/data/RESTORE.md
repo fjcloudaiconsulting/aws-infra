@@ -87,7 +87,7 @@ until kubectl -n "$NS" exec mysql -- mysqladmin ping -h127.0.0.1 --silent 2>/dev
 until kubectl -n "$NS" exec postgres -- pg_isready -qh 127.0.0.1 2>/dev/null; do sleep 5; done
 ```
 
-The images are the ones `mysql.yaml`, `postgres.yaml` and `db-backup.yaml` pin; keep them in step.
+The images are the ones `mysql.yaml`, `postgres.yaml` and `db-backup.yaml` pin. Renovate bumps those manifests, not this file: if they differ, use the image from the manifest.
 
 ## 3. Copy and check the files
 
