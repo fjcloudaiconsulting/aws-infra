@@ -32,7 +32,7 @@ spec:
     spec:
       enableServiceLinks: false
       securityContext:
-        # The image's valkey user; local-path volumes are world-writable, fsGroup covers other provisioners.
+        # The image's valkey user.
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 1000
@@ -56,7 +56,8 @@ spec:
             - --maxmemory-policy
             - noeviction
           env:
-            # Read by valkey-cli too, so probes and exec sessions authenticate without the password in argv.
+            # Also read by valkey-cli, so probes authenticate. It is in the server's argv (hidden from ps by setproctitle).
+            # Hex only: TBD embeds it in REDIS_URL userinfo.
             - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
@@ -74,11 +75,12 @@ spec:
               port: valkey
             initialDelaySeconds: 15
             periodSeconds: 20
+          # 192Mi: AOF-rewrite fork copy-on-write plus fragmentation above the 64mb dataset.
           resources:
             requests:
               memory: 96Mi
             limits:
-              memory: 128Mi
+              memory: 192Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
