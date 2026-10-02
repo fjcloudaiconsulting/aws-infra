@@ -130,7 +130,7 @@ Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).
 - A GitHub Actions probe at 04:17 UTC checks all three prefixes, each with its own size floor, and
   opens a `[backup-stale]` issue when one is stale.
 - Lightsail snapshots at 03:00 UTC cover the whole node.
-- Restore drill: INFRA-31.
+- Restore: [`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md), restore drill (steps 1-5) passed 2026-10-02 (INFRA-31).
 
 Bucket, KMS, IAM boundaries and owner steps: [`terraform/tbd-backups/README.md`](../terraform/tbd-backups/README.md).
 Job: [`clusters/platform/data/db-backup.yaml`](../clusters/platform/data/db-backup.yaml).
