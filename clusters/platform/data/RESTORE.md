@@ -24,6 +24,7 @@ There are two targets:
 ## 1. Pick a set
 
 ```bash
+cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019
 PREFIX=tbd-mysql   # or ziftbook-postgres, pfv-data-01
@@ -32,7 +33,8 @@ M=$(aws s3api list-objects-v2 --bucket "$B" --prefix "$PREFIX/" \
 aws s3 cp "s3://$B/$M" manifest.json && jq . manifest.json   # date, tables, both keys and SHA256s
 ```
 
-For an older night, set `M` to that night's manifest key.
+For an older night, set `M` to that night's manifest key. For a real restore, check that `date`
+predates the loss and `tables` is above 0: a run during the outage can upload a valid but empty set.
 
 ## 2. Scratch servers (drill only)
 
@@ -40,7 +42,7 @@ For an older night, set `M` to that night's manifest key.
 NS=restore-drill
 kubectl create namespace "$NS"
 kubectl label namespace "$NS" pod-security.kubernetes.io/enforce=baseline
-kubectl -n "$NS" create secret generic root --from-literal=password="$(openssl rand -hex 24)"
+openssl rand -hex 24 | tr -d '\n' | kubectl -n "$NS" create secret generic root --from-file=password=/dev/stdin
 kubectl apply -n "$NS" -f - <<'EOF'
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -125,7 +127,7 @@ exists` is the one expected error; the dump carries its own `CREATE DATABASE`.
 
 ```bash
 kubectl -n "$NS" exec "$POD" -- sh -c '
-  gzip -dc /tmp/grants.sql.gz | psql -U postgres -Xq 2>&1 | grep ERROR | grep -v "role \"postgres\" already exists"
+  gzip -dc /tmp/grants.sql.gz | psql -U postgres -Xq 2>&1 | grep -E "ERROR|FATAL" | grep -v "role \"postgres\" already exists"
   gzip -dc /tmp/dump.sql.gz | psql -U postgres -Xq -v ON_ERROR_STOP=1 -d postgres >/dev/null && echo restored'
 ```
 
@@ -151,7 +153,8 @@ SQL
 ```
 
 A round trip proves the rows match the dump byte for byte: re-dump with the backup's options and
-compare the `INSERT` lines. Expect two identical hashes.
+compare the `INSERT` lines. Expect two identical hashes. A pair of `e3b0c442...` is the hash of
+nothing: the set had no rows, so nothing was compared.
 
 ```bash
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
@@ -159,12 +162,15 @@ kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   mysqldump -uroot --single-transaction --routines --triggers --events --quick --hex-blob pfv2 | grep "^INSERT INTO" | sha256sum'
 ```
 
-**Postgres:** the same checks, one statement per table.
+**Postgres:** table and row counts (no round trip). The table filter matches the backup's, which
+skips tables owned by extensions.
 
 ```bash
 jq .tables manifest.json
 pg -d ziftbook <<'SQL'
-SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');
+SELECT count(*) FROM pg_tables t WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND NOT EXISTS
+  (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.deptype = 'e'
+    AND d.objid = format('%I.%I', t.schemaname, t.tablename)::regclass);
 SELECT rolname FROM pg_roles WHERE rolname NOT LIKE 'pg\_%' ORDER BY 1;
 SQL
 pg -d ziftbook <<'SQL' | pg -d ziftbook
@@ -181,14 +187,42 @@ kubectl delete namespace "$NS" && rm manifest.json
 
 ## 6. Real restore into `data`
 
-Only into an **empty** database: a fresh volume, where the entrypoint has created `pfv2` or
-`ziftbook` and the app users from the cluster secrets. If the database holds tables, stop and decide
-first; never drop it on reflex.
+Not drilled: the drill covers steps 1-5 only. Restore only into an **empty** database (a fresh
+volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
 
-1. Stop the writers: scale the app Deployment in `tbd-prod` or `ziftbook-staging` to 0.
-2. Steps 1, 3 and 4 with `NS=data` and `POD=mysql-0` (or `postgres-0`). The grants keep the
-   existing users' passwords, so the app's secret still works. For Postgres, the dump's
-   `CREATE DATABASE ziftbook` fails if the entrypoint already created it: drop the empty database
-   first (`psql -U postgres -c 'DROP DATABASE ziftbook'`, after checking it has no tables).
-3. Step 5's checks, then remove the copies: `kubectl -n data exec <pod> -- rm /tmp/dump.sql.gz /tmp/grants.sql.gz`.
-4. Scale the app back up and check it logs in.
+1. Stop everything that writes, and keep Flux from undoing it:
+
+   ```bash
+   flux suspend kustomization flux-system
+   kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":true}}'
+   ```
+
+   Then scale the app Deployment in `tbd-prod` or `ziftbook-staging` to 0.
+2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`).
+3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d ziftbook` block) must
+   print `0`. Anything else: stop and decide; never drop a database on reflex.
+4. Postgres only: the entrypoint created an empty `ziftbook` that the dump's `CREATE DATABASE`
+   would collide with. With the gate at `0`: `pg -d postgres -c 'DROP DATABASE ziftbook'`.
+5. Step 4.
+   - MySQL: the entrypoint and `10-backup-user.sh` created `pfv_app` and `pfv_backup` from the
+     `mysql` secret, and `IF NOT EXISTS` leaves them as they are.
+   - Postgres: the entrypoint creates only `postgres`, so the globals bring back every role **with
+     its password as of that night**, `postgres` included. Make the secrets authoritative again:
+     `kubectl -n data delete job ziftbook-bootstrap` (Flux recreates it on resume and it resets the
+     app passwords). If `admin-password` changed after that night, set it from
+     the pod's env (the value never leaves the pod):
+
+     ```bash
+     kubectl -n data exec postgres-0 -- sh -c \
+       'echo "ALTER ROLE postgres PASSWORD :'\''pw'\''" | psql -U postgres -Xq -v pw="$POSTGRES_PASSWORD"'
+     ```
+6. Step 5's checks, then remove the copies: `kubectl -n data exec "$POD" -- rm /tmp/dump.sql.gz /tmp/grants.sql.gz`.
+7. Resume (`suspend` was set by hand, so Flux does not clear it):
+
+   ```bash
+   kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":false}}'
+   flux resume kustomization flux-system
+   ```
+
+   Scale the app back up, and check that it logs in and that `kubectl -n data get job` shows the
+   bootstrap Job Complete.
