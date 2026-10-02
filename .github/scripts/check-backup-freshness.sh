@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Decide whether the off-host MySQL backup is fresh, from S3 object METADATA
-# only (TBD-400).
+# Decide whether the off-host database backups are fresh, from S3 object
+# METADATA only (TBD-400, INFRA-30).
 #
-# Reads an `aws s3api list-objects-v2` JSON document on STDIN and writes a
-# verdict to stdout.
+# Usage: check-backup-freshness.sh PREFIX=MIN_DUMP_BYTES...
+# Reads an `aws s3api list-objects-v2` JSON document on STDIN (one listing, or
+# several merged into one Contents array) and writes a verdict to stdout.
 #
 #   exit 0  fresh   -- last night's backup is present, complete and plausible
 #   exit 1  STALE   -- missing, too old, incomplete, or implausibly small
@@ -26,7 +27,6 @@
 set -euo pipefail
 
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-25}"
-MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-100000}"
 NOW_EPOCH="${NOW_EPOCH:-$(date -u +%s)}"
 
 command -v python3 >/dev/null 2>&1 || { echo "could not run: python3 missing" >&2; exit 2; }
@@ -46,8 +46,20 @@ import json
 import sys
 
 max_age_hours = float(sys.argv[1])
-min_dump_bytes = int(sys.argv[2])
-now = int(sys.argv[3])
+now = int(sys.argv[2])
+
+# prefix=min_dump_bytes, one argument per prefix. A missing or unparsable floor
+# is a caller bug and must not read as fresh.
+floors = []
+for spec in sys.argv[3:]:
+    name, _, floor = spec.partition("=")
+    if not name or not floor.isdigit():
+        print(f"could not run: bad prefix=floor argument {spec!r}")
+        raise SystemExit(2)
+    floors.append((name, int(floor)))
+if not floors:
+    print("could not run: no prefix=floor arguments")
+    raise SystemExit(2)
 
 try:
     raw = sys.stdin.read()
@@ -95,63 +107,71 @@ def age_hours(obj):
         return None
     return (now - int(parsed.timestamp())) / 3600.0
 
-manifests = [o for o in contents if "manifest" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
-if not manifests:
-    print("STALE: no manifest object found. The manifest is uploaded last, so "
-          "its absence means no night has completed end to end.")
-    raise SystemExit(1)
+def judge(contents, min_dump_bytes):
+    manifests = [o for o in contents if "manifest" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
+    if not manifests:
+        return 1, ("STALE: no manifest object found. The manifest is uploaded last, so "
+              "its absence means no night has completed end to end.")
 
-# ⚠ Sort by the PARSED INSTANT, never by the timestamp string. AWS CLI v2
-# emits `+00:00` offsets while these fixtures emit `Z`, and once two formats
-# coexist a lexicographic max picks the wrong object -- a false STALE alarm
-# from a healthy bucket.
-dated = [(age_hours(o), o) for o in manifests]
-usable = [(a, o) for a, o in dated if a is not None]
-if not usable:
-    print("could not run: no manifest has a usable LastModified")
-    raise SystemExit(2)
-age, newest = min(usable, key=lambda pair: pair[0])
+    # ⚠ Sort by the PARSED INSTANT, never by the timestamp string. AWS CLI v2
+    # emits `+00:00` offsets while these fixtures emit `Z`, and once two formats
+    # coexist a lexicographic max picks the wrong object -- a false STALE alarm
+    # from a healthy bucket.
+    dated = [(age_hours(o), o) for o in manifests]
+    usable = [(a, o) for a, o in dated if a is not None]
+    if not usable:
+        return 2, ("could not run: no manifest has a usable LastModified")
+    age, newest = min(usable, key=lambda pair: pair[0])
 
-# ⚠ A negative age means the object is stamped in the FUTURE -- a clock skew or
-# a doctored timestamp -- and would otherwise sail through the freshness test
-# forever. Refuse to answer rather than report healthy.
-if age < 0:
-    print(f"could not run: manifest {newest.get('Key')} is dated in the future "
-          f"({-age:.1f}h ahead). Refusing to call that fresh.")
-    raise SystemExit(2)
+    # ⚠ A negative age means the object is stamped in the FUTURE -- a clock skew or
+    # a doctored timestamp -- and would otherwise sail through the freshness test
+    # forever. Refuse to answer rather than report healthy.
+    if age < 0:
+        return 2, (f"could not run: manifest {newest.get('Key')} is dated in the future "
+              f"({-age:.1f}h ahead). Refusing to call that fresh.")
 
-if age > max_age_hours:
-    print(f"STALE: newest manifest {newest.get('Key')} is {age:.1f}h old "
-          f"(threshold {max_age_hours}h). At least one nightly run has been missed.")
-    raise SystemExit(1)
+    if age > max_age_hours:
+        return 1, (f"STALE: newest manifest {newest.get('Key')} is {age:.1f}h old "
+              f"(threshold {max_age_hours}h). At least one nightly run has been missed.")
 
-# The manifest is fresh; the artifacts it implies must be present in the same
-# prefix and plausibly sized.
-prefix = str(newest.get("Key", "")).rsplit("/", 1)[0]
-siblings = [o for o in contents if str(o.get("Key", "")).rsplit("/", 1)[0] == prefix]
+    # The manifest is fresh; the artifacts it implies must be present in the same
+    # prefix and plausibly sized.
+    prefix = str(newest.get("Key", "")).rsplit("/", 1)[0]
+    siblings = [o for o in contents if str(o.get("Key", "")).rsplit("/", 1)[0] == prefix]
 
-dumps = [o for o in siblings if str(o.get("Key", "")).endswith(".sql.gz")
-         and "grants" not in str(o.get("Key", "")).rsplit("/", 1)[-1]]
-grants = [o for o in siblings if "grants" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
+    dumps = [o for o in siblings if str(o.get("Key", "")).endswith(".sql.gz")
+             and "grants" not in str(o.get("Key", "")).rsplit("/", 1)[-1]]
+    grants = [o for o in siblings if "grants" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
 
-if not dumps:
-    print(f"STALE: manifest {newest.get('Key')} is fresh but no dump object "
-          "sits beside it.")
-    raise SystemExit(1)
-if not grants:
-    print(f"STALE: manifest {newest.get('Key')} is fresh but no grants object "
-          "sits beside it. A restore would yield tables and zero logins.")
-    raise SystemExit(1)
+    if not dumps:
+        return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no dump object "
+              "sits beside it.")
+    if not grants:
+        return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no grants object "
+              "sits beside it. A restore would yield tables and zero logins.")
 
-biggest = max(int(o.get("Size", 0)) for o in dumps)
-if biggest < min_dump_bytes:
-    print(f"STALE: newest dump is {biggest} bytes, below the {min_dump_bytes} "
-          "byte floor. A plausible-looking but tiny dump is the failure mode a "
-          "presence check cannot see.")
-    raise SystemExit(1)
+    biggest = max(int(o.get("Size", 0)) for o in dumps)
+    if biggest < min_dump_bytes:
+        return 1, (f"STALE: newest dump is {biggest} bytes, below the {min_dump_bytes} "
+              "byte floor. A plausible-looking but tiny dump is the failure mode a "
+              "presence check cannot see.")
 
-print(f"fresh: manifest {newest.get('Key')} is {age:.1f}h old, dump {biggest} bytes")
-raise SystemExit(0)
+    return 0, (f"fresh: manifest {newest.get('Key')} is {age:.1f}h old, dump {biggest} bytes")
+
+
+# Each prefix is judged alone, on its own floor, and the run reports the worst
+# verdict (could not run > STALE > fresh) naming every prefix that is not fresh.
+# Kills: one stale database hiding behind a fresh one in the same bucket.
+results = [(p, *judge([o for o in contents if str(o.get("Key", "")).startswith(p + "/")], f))
+           for p, f in floors]
+worst = max(rc for _, rc, _ in results)
+bad = [p for p, rc, _ in results if rc]
+print({0: "fresh: " + ", ".join(p for p, _, _ in results),
+       1: "STALE: " + ", ".join(bad),
+       2: "could not run: " + ", ".join(bad)}[worst])
+for p, _, msg in results:
+    print(f"  {p}: {msg}")
+raise SystemExit(worst)
 PY
 
-python3 "$PROG" "$MAX_AGE_HOURS" "$MIN_DUMP_BYTES" "$NOW_EPOCH"
+python3 "$PROG" "$MAX_AGE_HOURS" "$NOW_EPOCH" "$@"

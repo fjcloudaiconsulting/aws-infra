@@ -13,7 +13,7 @@
 set -euo pipefail
 
 TITLE_PREFIX="[backup-stale]"
-TITLE="${TITLE_PREFIX} off-host MySQL backup is not fresh"
+TITLE="${TITLE_PREFIX} off-host database backup is not fresh"
 RUN_URL="https://github.com/${GH_REPO}/actions/runs/${RUN_ID}"
 
 BODY="$(cat <<BODY_EOF
@@ -29,9 +29,10 @@ Probe run: ${RUN_URL}
 
 ---
 
-**What this means.** The nightly \`mysqldump\` on the data droplet is the
-durability floor, and the copy in S3 is the only part of it that survives losing
-that droplet. A \`stale\` verdict means at least one night has not completed end
+**What this means.** The nightly dumps (\`pfv-data-01/\` from the data droplet,
+\`tbd-mysql/\` and \`ziftbook-postgres/\` from the k3s \`db-backup\` CronJob) are
+the durability floor, and the copy in S3 is the only part that survives losing
+the machine. A \`stale\` verdict means at least one night has not completed end
 to end. A \`could-not-run\` verdict means the probe could not answer the question
 at all, which is not evidence of health.
 
@@ -42,6 +43,7 @@ at all, which is not evidence of health.
    an unconverged droplet uploads nothing, and this alarm is the intended way to
    find that out.
 3. Whether the \`FlamaCorp/tbd-backups\` workspace has been applied.
+4. For a k3s prefix: \`kubectl -n data get jobs\` and the failed job's logs.
 
 ⚠ Do not silence this by widening the probe's thresholds.
 BODY_EOF
