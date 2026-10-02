@@ -24,7 +24,8 @@ Cloudflare).
 
 ## 2. Enrol the node (once, or after losing the state volume)
 
-On a Mac with `sops` and the repo checked out, with the setup key in the clipboard:
+On a Mac with `sops`, from the repo root (the path must match `.sops.yaml`), with the setup key in
+the clipboard:
 
 ```bash
 read -rs NB_KEY   # paste the setup key, press Enter (nothing is shown)
@@ -35,6 +36,9 @@ read -rs NB_KEY   # paste the setup key, press Enter (nothing is shown)
 unset NB_KEY
 grep -c 'NB_SETUP_KEY: ENC\[AES256' clusters/platform/netbird/setup-key.secret.yaml   # expect 1
 ```
+
+If it prints `0`, restore the file (`git checkout -- clusters/platform/netbird/setup-key.secret.yaml`)
+and run the block again.
 
 Commit `setup-key.secret.yaml` in a PR and merge. Within a few minutes the dashboard shows
 `platform-node` Connected in group `k3s`; turn off login expiration for that peer.
@@ -65,7 +69,7 @@ kubectl -n netbird create token owner-admin --duration=2160h
 
 ```bash
 read -rs PASS && export PASS   # type a passphrase, press Enter
-CT="$(sudo k3s kubectl -n netbird create token owner-admin --duration=2160h | openssl enc -aes-256-cbc -pbkdf2 -a -A -pass env:PASS)"; unset PASS
+CT="$(sudo k3s kubectl -n netbird create token owner-admin --duration=2160h | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -a -A -pass env:PASS)"; unset PASS
 echo "$CT"; echo "length: ${#CT}"
 ```
 
@@ -79,11 +83,13 @@ curl -sfk "https://$NODE:6443/cacerts" > ~/.kube/platform-ca.crt && grep -c 'BEG
 kubectl config set-cluster platform --server="https://$NODE:6443" \
   --certificate-authority="$HOME/.kube/platform-ca.crt" --embed-certs --tls-server-name=kubernetes
 
-# Console route: decrypt. Handed-over token: skip to `read -rs TOKEN` instead.
-read -rs CT                     # paste the ciphertext, press Enter
+# Either (a) console route: decrypt the ciphertext.
+read -rs CT                     # paste the ciphertext, press Enter (nothing is shown)
 read -rs PASS && export PASS    # type the passphrase, press Enter
 printf '%s' "$CT" | tr -d ' \r\n' | wc -c   # must equal the length printed on the node
-TOKEN="$(printf '%s' "$CT" | tr -d ' \r\n' | openssl enc -d -aes-256-cbc -pbkdf2 -a -A -pass env:PASS)"; unset PASS CT
+TOKEN="$(printf '%s' "$CT" | tr -d ' \r\n' | openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -a -A -pass env:PASS)"; unset PASS CT
+# Or (b) handed-over token:
+#   read -rs TOKEN              # paste the token, press Enter
 
 [ -n "$TOKEN" ] && kubectl config set-credentials owner-admin --token="$TOKEN" && echo "token set (${#TOKEN} chars)"; unset TOKEN
 kubectl config set-context platform --cluster=platform --user=owner-admin
@@ -93,21 +99,25 @@ kubectl get nodes   # expect the node Ready
 ```
 
 `tls-server-name: kubernetes` is needed because the NetBird name is not in the k3s certificate;
-`kubernetes` is a built-in SAN, so k3s needs no change.
+`kubernetes` is a built-in SAN, so k3s needs no change. Fetching the CA with `curl -k` is trust on
+first use; it is acceptable because the NetBird tunnel already authenticates the peer. Add
+`export KUBECONFIG=~/.kube/platform` to your shell profile. `set-credentials --token` puts the
+token in argv for a moment, so do this on a single-user machine.
 
-Check that only 6443 is reachable (10250 and 443 must time out or refuse):
+Check that only 6443 is reachable (10250 and 443 must time out or refuse; `-G` is macOS nc):
 
 ```bash
+NODE=platform-node.netbird.cloud
 for p in 6443 10250 443; do nc -z -G 3 "$NODE" $p && echo "$p open" || echo "$p closed"; done
 ```
 
 ## 5. Renew and revoke
 
 - Renew before the 90 days run out: `kubectl -n netbird create token owner-admin --duration=2160h`
-  from a working kubeconfig, then `kubectl config set-credentials owner-admin --token=...` via
-  `read -rs TOKEN` as above.
+  from a working kubeconfig, then route (b) above.
 - Revoke every token at once: `kubectl -n netbird delete sa owner-admin`. Flux recreates the
-  account within its interval; mint a new token through the console route.
+  account within its interval. You lose access too: mint a new token through the console route
+  and update every kubeconfig that used the old one (Headlamp included).
 - Anyone who can create pods or tokens in namespace `netbird` holds cluster-admin: never grant
   namespace-scoped rights there.
 
