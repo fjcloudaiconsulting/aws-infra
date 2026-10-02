@@ -1,0 +1,31 @@
+# Traefik ships with k3s. Cloudflare proxies to it on 443 (the only port the Lightsail
+# firewall opens, Cloudflare ranges only) in Full (strict) mode, so Traefik must serve a
+# Cloudflare Origin CA certificate for every proxied hostname (INFRA-25).
+# The one store Traefik reads must be named default. Its secret lives in the same namespace,
+# in origin-cert.secret.yaml. Until that file exists Traefik logs an error and keeps serving
+# its self-signed default certificate; nothing else breaks.
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: kube-system
+spec:
+  defaultCertificate:
+    secretName: origin-cert
+---
+# ping.thebetterdecision.com/ping answers 200 from Traefik itself (no pod): the end-to-end
+# check that Cloudflare reaches the node in Full (strict), and the target of the external
+# uptime check (INFRA-26).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ping
+  namespace: kube-system
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`ping.thebetterdecision.com`) && Path(`/ping`)
+      kind: Rule
+      services:
+        - name: ping@internal
+          kind: TraefikService

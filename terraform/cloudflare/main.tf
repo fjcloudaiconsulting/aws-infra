@@ -120,6 +120,31 @@ resource "cloudflare_zone_setting" "app" {
   value      = local.app_zone_settings[each.value.setting]
 }
 
+# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate
+# for thebetterdecision.com and *.thebetterdecision.com, so this zone runs in Full (strict).
+# Safe to flip now: no other record in the zone is proxied, and a DNS-only record never
+# reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
+# custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
+# the cluster, ping below answers 526 under strict; merge only with the secret files in.
+# ziftbook.com stays on Automatic SSL/TLS until it has a proxied hostname on the node.
+resource "cloudflare_zone_setting" "tbd_ssl" {
+  zone_id    = cloudflare_zone.tbd.id
+  setting_id = "ssl"
+  value      = "strict"
+}
+
+# Traefik answers /ping here itself: the end-to-end check through Cloudflare to the node, and
+# the target of the external uptime check (INFRA-26). Content is the platform workspace's
+# node_static_ip output.
+resource "cloudflare_dns_record" "tbd_ping" {
+  zone_id = cloudflare_zone.tbd.id
+  name    = "ping.thebetterdecision.com"
+  type    = "A"
+  content = "52.57.109.122"
+  ttl     = 1 # automatic, required for proxied records
+  proxied = true
+}
+
 output "tbd_name_servers" {
   description = "Set these at the registrar (Route 53 Domains, old AWS account) to switch DNS to Cloudflare."
   value       = cloudflare_zone.tbd.name_servers
