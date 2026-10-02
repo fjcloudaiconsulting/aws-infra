@@ -200,10 +200,8 @@ resource "aws_lightsail_instance" "node" {
   availability_zone = "eu-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "medium_3_0" # 2 vCPU, 4 GB, 80 GB, IPv4 included. The IPv6-only bundle cannot reach GitHub or GHCR.
-  # dualstack until the firewall carries no IPv6 ranges (the `firewall` Put removes them); ipv4 in
-  # the same apply would run SetIpAddressType first, against the rule Lightsail failed to close.
-  ip_address_type = "dualstack"
-  user_data       = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
+  ip_address_type   = "ipv4"       # Cloudflare reaches the static IPv4; the dynamic IPv6 address only added exposure.
+  user_data         = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
 
   add_on {
     type          = "AutoSnapshot"
