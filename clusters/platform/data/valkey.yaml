@@ -1,0 +1,99 @@
+# Valkey 8: TBD session store, rate-limit counters and MFA codes. Not migrated at cutover (users log in again).
+# Clients use redis://:<password>@valkey.data.svc.cluster.local:6379/0.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: data
+spec:
+  clusterIP: None
+  selector:
+    app: valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey
+  namespace: data
+spec:
+  serviceName: valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        # The image's valkey user.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+          # AOF because this is the session store: a restart without it logs every user out.
+          # noeviction: a full store must refuse writes, never silently drop live sessions.
+          args:
+            - --requirepass
+            - $(REDISCLI_AUTH)
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --maxmemory
+            - 64mb
+            - --maxmemory-policy
+            - noeviction
+          env:
+            # Also read by valkey-cli, so probes authenticate. It is in the server's argv (hidden from ps by setproctitle).
+            # Hex only: TBD embeds it in REDIS_URL userinfo.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: valkey
+                  key: password
+          ports:
+            - name: valkey
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "valkey-cli ping | grep -q PONG"]
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          # 192Mi: AOF-rewrite fork copy-on-write plus fragmentation above the 64mb dataset.
+          resources:
+            requests:
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
