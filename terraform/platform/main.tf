@@ -12,6 +12,21 @@ provider "aws" {
   }
 }
 
+# Route 53 health-check metrics exist only in us-east-1, so the uptime alarm and the topic it
+# notifies live there (INFRA-26).
+provider "aws" {
+  alias               = "use1"
+  region              = "us-east-1"
+  allowed_account_ids = ["884686184019"]
+
+  default_tags {
+    tags = {
+      managed_by = "terraform"
+      stack      = "platform"
+    }
+  }
+}
+
 locals {
   account_id  = "884686184019"
   owner_email = "flamarion@fjconsulting.io"
@@ -331,6 +346,89 @@ resource "aws_cloudformation_stack" "node_alarms" {
       }
     }
   })
+}
+
+# External uptime check (INFRA-26): Route 53 checkers in several regions fetch Traefik's /ping
+# through Cloudflare, so a dead node, broken DNS, proxy or origin certificate all alarm.
+# HTTPS (not HTTP): Cloudflare would answer plain HTTP with a 301 itself, and 3xx counts as healthy.
+# No string matching: each optional feature costs $2/month on a non-AWS endpoint, and every
+# Cloudflare failure (52x, a 403 challenge) is already a non-2xx/3xx status.
+# If Bot Fight Mode, a higher security level or WAF challenges are ever enabled, skip the ping host:
+# Route 53 checkers would get a 403 and page as an outage.
+resource "aws_route53_health_check" "ping" {
+  type              = "HTTPS"
+  fqdn              = "ping.thebetterdecision.com"
+  port              = 443
+  resource_path     = "/ping"
+  enable_sni        = true # Cloudflare needs SNI to pick the certificate
+  request_interval  = 30
+  failure_threshold = 3
+
+  tags = { Name = "platform-ping" }
+}
+
+resource "aws_sns_topic" "platform_alerts_use1" {
+  provider     = aws.use1
+  name         = "platform-alerts-use1"
+  display_name = "FJ Consulting platform alerts"
+}
+
+# A second confirmation email for the owner: this subscription also stays pending until clicked.
+resource "aws_sns_topic_subscription" "owner_email_use1" {
+  provider  = aws.use1
+  topic_arn = aws_sns_topic.platform_alerts_use1.arn
+  protocol  = "email"
+  endpoint  = local.owner_email
+}
+
+data "aws_iam_policy_document" "platform_alerts_use1" {
+  statement {
+    sid       = "CloudWatchAlarmsPublish"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.platform_alerts_use1.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:cloudwatch:us-east-1:${local.account_id}:alarm:platform-*"]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "platform_alerts_use1" {
+  provider = aws.use1
+  arn      = aws_sns_topic.platform_alerts_use1.arn
+  policy   = data.aws_iam_policy_document.platform_alerts_use1.json
+}
+
+# Unhealthy for two straight minutes (the checkers themselves need about 90 s of failures first).
+# No data counts as down, so a deleted or stuck check alarms too.
+resource "aws_cloudwatch_metric_alarm" "ping" {
+  provider            = aws.use1
+  alarm_name          = "platform-ping-unhealthy"
+  alarm_description   = "ping.thebetterdecision.com/ping failed the Route 53 health check (INFRA-26)"
+  namespace           = "AWS/Route53"
+  metric_name         = "HealthCheckStatus"
+  dimensions          = { HealthCheckId = aws_route53_health_check.ping.id }
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.platform_alerts_use1.arn]
+  ok_actions          = [aws_sns_topic.platform_alerts_use1.arn]
+
+  depends_on = [aws_sns_topic_policy.platform_alerts_use1]
 }
 
 output "node_static_ip" {
