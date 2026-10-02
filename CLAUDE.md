@@ -18,7 +18,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
   from Cloudflare ranges.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
-- Namespaces: `tbd-prod`, `ziftbook-staging`, `data`.
+- Namespaces: `tbd-prod`, `ziftbook-staging`, `data`, plus `netbird` (owner kubectl access over NetBird, runbook
+  `clusters/platform/netbird/README.md`).
 
 ## Layout and commands
 
