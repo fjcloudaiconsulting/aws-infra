@@ -57,6 +57,19 @@
       ]
     },
     {
+      "Sid": "ManageOnlyPlatformStacks",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:GetTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:eu-central-1:884686184019:stack/platform-*/*"
+    },
+    {
       "Sid": "ManagePlatformBuckets",
       "Effect": "Allow",
       "Action": "s3:*",

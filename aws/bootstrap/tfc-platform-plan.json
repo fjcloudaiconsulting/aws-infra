@@ -24,6 +24,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "ReadPlatformStacks",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:eu-central-1:884686184019:stack/platform-*/*"
+    },
+    {
       "Sid": "ReadPlatformBucketConfig",
       "Effect": "Allow",
       "Action": [
