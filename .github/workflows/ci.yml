@@ -3,13 +3,13 @@ name: CI
 on:
   pull_request:
   push:
-    # renovate/** reports checks on branches Renovate automerges without a PR (staging bumps).
-    branches: [main, "renovate/**"]
+    # Staging bumps automerge as branches without a PR (INFRA-36): CI must report checks there.
+    branches: [main, "renovate/ziftbook-staging-**"]
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Never cancel main runs; superseded PR runs are safe to drop.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Never cancel main runs; superseded PR and Renovate branch runs are safe to drop.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
