@@ -1,0 +1,153 @@
+# TBD's MySQL. Single replica on local-path storage; nightly dumps are the backup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql
+  namespace: data
+data:
+  # Sized for the 640Mi container limit; each knob below says why it is set.
+  tbd.cnf: |
+    [mysqld]
+    # Ticket budget: the two largest fixed allocations.
+    performance_schema = OFF
+    innodb_buffer_pool_size = 128M
+    # No replica, so binlogs only fill the disk (worst during the INFRA-48 import).
+    disable_log_bin
+    # X Protocol is unused; saves its listener threads.
+    mysqlx = OFF
+    # 8.4 defaults: 64M log buffer and a 1G in-memory temptable pool, both too big for 640Mi.
+    innodb_log_buffer_size = 8M
+    temptable_max_ram = 64M
+    # TBD: 2 backend workers + mcp at 15 pooled connections each, plus migrate and the dump job.
+    max_connections = 80
+    # Default 4000 open-table handles; TBD has under 100 tables.
+    table_open_cache = 400
+    # Same as the droplet (TBD my.cnf.j2).
+    character-set-server = utf8mb4
+    collation-server = utf8mb4_0900_ai_ci
+    # TBD-416: never wait 365 days on a metadata lock.
+    lock_wait_timeout = 30
+  # Runs once, on an empty datadir only; a failed first boot needs the PVC deleted before it runs again.
+  # The image creates pfv2 and pfv_app (ALL on pfv2.*, no GRANT OPTION). Its entrypoint has no SQL escape helper, so escape \ and ' here.
+  10-backup-user.sh: |
+    pw=${MYSQL_BACKUP_PASSWORD//\\/\\\\}; pw=${pw//\'/\'\'}
+    docker_process_sql --database=mysql <<-EOSQL
+    CREATE USER 'pfv_backup'@'%' IDENTIFIED BY '${pw}';
+    GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, PROCESS, REPLICATION CLIENT ON *.* TO 'pfv_backup'@'%';
+    EOSQL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: data
+spec:
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+---
+# Rotate: change the key in mysql.secret.yaml, run ALTER USER ... IDENTIFIED BY via `kubectl -n data exec -it mysql-0 -- mysql -uroot -p`,
+# then restart the consumers (tbd-prod holds its own copy of the app password).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: data
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      # InnoDB needs time for a clean shutdown.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mysql
+          image: mysql:8.4.11@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
+          env:
+            # Root only over the in-pod socket; nothing remote logs in as root.
+            - name: MYSQL_ROOT_HOST
+              value: localhost
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql
+                  key: root-password
+            - name: MYSQL_DATABASE
+              value: pfv2
+            - name: MYSQL_USER
+              value: pfv_app
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql
+                  key: app-password
+            - name: MYSQL_BACKUP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql
+                  key: backup-password
+          ports:
+            - name: mysql
+              containerPort: 3306
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              memory: 640Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # The entrypoint's first-boot server has networking off, so TCP probes wait for the real one.
+          startupProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [mysqladmin, ping, -h, 127.0.0.1]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: [mysqladmin, ping, -h, 127.0.0.1]
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: config
+              mountPath: /etc/mysql/conf.d/tbd.cnf
+              subPath: tbd.cnf
+            - name: config
+              mountPath: /docker-entrypoint-initdb.d/10-backup-user.sh
+              subPath: 10-backup-user.sh
+      volumes:
+        - name: config
+          configMap:
+            name: mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi

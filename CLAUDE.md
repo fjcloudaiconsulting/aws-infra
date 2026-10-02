@@ -35,7 +35,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 
 ## Constraints that are easy to break
 
-- AWS account `884686184019` holds the TBD backup chain (bucket, KMS key, `pfv-backup-uploader`,
+- AWS account `884686184019` holds the TBD backup chain (bucket, KMS key, `pfv-backup-uploader`, `k3s-backup-uploader`,
   `tfc-backups-*` roles, OIDC providers). The TFC role trust is pinned to workspace name `tbd-backups`:
   do not rename it. If a rename is ever unavoidable, or any trust statement must change, add the new
   statement, apply, then remove the old one; never edit in place.

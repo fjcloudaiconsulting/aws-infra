@@ -40,12 +40,22 @@
       "Action": "iam:*",
       "Resource": [
         "arn:aws:iam::884686184019:user/pfv-backup-uploader",
+        "arn:aws:iam::884686184019:user/k3s-backup-uploader",
         "arn:aws:iam::884686184019:role/github-actions-backup-probe",
         "arn:aws:iam::884686184019:role/tfc-backups-provisioner",
         "arn:aws:iam::884686184019:role/tfc-backups-plan",
         "arn:aws:iam::884686184019:oidc-provider/app.terraform.io",
         "arn:aws:iam::884686184019:oidc-provider/token.actions.githubusercontent.com"
       ]
+    },
+    {
+      "Sid": "NeverMintTheK3sUploaderCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile"
+      ],
+      "Resource": "arn:aws:iam::884686184019:user/k3s-backup-uploader"
     },
     {
       "Sid": "ReadOwnIdentity",
