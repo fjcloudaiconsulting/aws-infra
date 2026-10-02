@@ -33,7 +33,7 @@ data:
     pw=${MYSQL_BACKUP_PASSWORD//\\/\\\\}; pw=${pw//\'/\'\'}
     docker_process_sql --database=mysql <<-EOSQL
     CREATE USER 'pfv_backup'@'%' IDENTIFIED BY '${pw}';
-    GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, RELOAD, PROCESS, REPLICATION CLIENT ON *.* TO 'pfv_backup'@'%';
+    GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, PROCESS, REPLICATION CLIENT ON *.* TO 'pfv_backup'@'%';
     EOSQL
 ---
 apiVersion: v1
