@@ -8,6 +8,10 @@ locals {
   # unverified on every path -- a trust document naming a different org would
   # have applied cleanly and locked the workspace out the TBD-372 way.
   tfc_sub_fragment = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_name}:run_phase:"
+
+  # Key prefixes the k3s CronJobs write under (INFRA-30). Each gets its own copy of
+  # policies/backup-uploader.json, so the F3 fence still covers every grant.
+  k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres"]
 }
 
 # ---------------------------------------------------------------------------
@@ -187,6 +191,7 @@ data "aws_iam_policy_document" "kms" {
       variable = "aws:PrincipalArn"
       values = [
         "arn:aws:iam::${var.aws_account_id}:user/pfv-backup-uploader",
+        "arn:aws:iam::${var.aws_account_id}:user/k3s-backup-uploader",
         "arn:aws:iam::${var.aws_account_id}:role/github-actions-backup-probe",
       ]
     }
@@ -364,7 +369,7 @@ data "aws_iam_policy_document" "bucket" {
     condition {
       test     = "ArnEquals"
       variable = "aws:PrincipalArn"
-      values   = [aws_iam_user.uploader.arn]
+      values   = [aws_iam_user.uploader.arn, aws_iam_user.k3s_uploader.arn]
     }
   }
 
@@ -434,6 +439,33 @@ resource "aws_iam_access_key" "uploader" {
 }
 
 # ---------------------------------------------------------------------------
+# The k3s node's put-only identity (INFRA-30): one user for the MySQL and
+# Postgres dump CronJobs, same put + encrypt grant as above, one copy per prefix.
+#
+# ⚠ No aws_iam_access_key here on purpose. The owner mints the key with the CLI
+# and pipes it straight into a SOPS-encrypted Secret (see README), so the secret
+# never lands in TFC state.
+# ---------------------------------------------------------------------------
+resource "aws_iam_user" "k3s_uploader" {
+  name = "k3s-backup-uploader"
+
+  # The provisioner may only touch this user once its policy names it.
+  depends_on = [aws_iam_role_policy.tfc_backups_provisioner]
+}
+
+resource "aws_iam_user_policy" "k3s_uploader" {
+  for_each = toset(local.k3s_backup_prefixes)
+
+  name = "k3s-backup-uploader-put-only-${each.key}"
+  user = aws_iam_user.k3s_uploader.name
+  policy = templatefile("${path.module}/policies/backup-uploader.json", {
+    bucket      = var.bucket_name
+    prefix      = each.key
+    kms_key_arn = aws_kms_key.backups.arn
+  })
+}
+
+# ---------------------------------------------------------------------------
 # The off-host freshness probe's read-only identity.
 # ---------------------------------------------------------------------------
 resource "aws_iam_openid_connect_provider" "github" {
@@ -489,7 +521,7 @@ resource "aws_iam_role_policy" "backup_probe" {
   role = aws_iam_role.backup_probe.id
 
   policy = templatefile("${path.module}/policies/backup-probe.json", {
-    bucket = var.bucket_name
-    prefix = var.backup_prefix
+    bucket   = var.bucket_name
+    prefixes = jsonencode([for p in concat([var.backup_prefix], local.k3s_backup_prefixes) : "${p}/*"])
   })
 }
