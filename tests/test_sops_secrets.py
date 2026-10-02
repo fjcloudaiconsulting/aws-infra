@@ -104,6 +104,13 @@ class SopsSecrets(unittest.TestCase):
             "s.yml: Secret outside",
         )
 
+    def test_upper_case_extension_is_scanned(self):
+        # fence: kills a case-sensitive suffix filter.
+        self.assertFails(
+            {"app/S.YAML": SECRET_HEAD + "stringData:\n  pw: hunter2\n"},
+            "S.YAML: Secret outside",
+        )
+
     def test_sops_block_without_mac_fails(self):
         # fence: kills a metadata check that accepts any sops: block.
         tail = "".join(l + "\n" for l in SOPS_TAIL.splitlines() if "mac:" not in l)

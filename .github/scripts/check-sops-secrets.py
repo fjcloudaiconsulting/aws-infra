@@ -21,7 +21,7 @@ def problems(path):
     out = []
     if re.search(r"^\s*secretGenerator:", text, re.M):
         out.append("secretGenerator writes plaintext; use a *.secret.yaml file")
-    if not path.name.endswith(".secret.yaml"):
+    if not path.name.lower().endswith(".secret.yaml"):
         if KIND_SECRET.search(text):
             out.append("Secret outside a *.secret.yaml file; move it and run `sops encrypt -i`")
         return out
@@ -44,7 +44,7 @@ def problems(path):
 def main(root):
     failed = False
     files = sorted(
-        p for p in pathlib.Path(root).rglob("*") if p.suffix in (".yaml", ".yml", ".json")
+        p for p in pathlib.Path(root).rglob("*") if p.suffix.lower() in (".yaml", ".yml", ".json")
     )
     for path in files:
         for p in problems(path):
