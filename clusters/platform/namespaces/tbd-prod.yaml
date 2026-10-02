@@ -28,3 +28,17 @@ spec:
   hard:
     requests.memory: 512Mi
     limits.memory: 768Mi
+---
+# Every pod here pulls private GHCR images with ghcr-pull (tbd-prod-ghcr-pull.secret.yaml), so
+# workloads need no imagePullSecrets of their own. Until the secret exists the kubelet logs a
+# warning and pulls anonymously; public images still work.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: tbd-prod
+  annotations:
+    # Removing this file must not make Flux delete the namespace's default account.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+imagePullSecrets:
+  - name: ghcr-pull
