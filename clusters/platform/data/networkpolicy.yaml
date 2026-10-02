@@ -1,5 +1,6 @@
 # Ingress to `data` is deny-by-default; egress stays open (bootstrap fetches from GitHub, backups go to S3).
-# Kubelet TCP probes need no rule: k3s's kube-router accepts traffic from the local node to its pods.
+# kube-router accepts anything from the node itself first (kubelet probes, but also hostNetwork pods
+# such as netbird and host processes), so that path is guarded by DB auth and the NetBird ACL, not here.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
