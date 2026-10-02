@@ -200,8 +200,10 @@ resource "aws_lightsail_instance" "node" {
   availability_zone = "eu-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "medium_3_0" # 2 vCPU, 4 GB, 80 GB, IPv4 included. The IPv6-only bundle cannot reach GitHub or GHCR.
-  ip_address_type   = "ipv4"       # Cloudflare reaches the static IPv4; the dynamic IPv6 address would only add exposure.
-  user_data         = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
+  # dualstack until the firewall carries no IPv6 ranges (the `firewall` Put removes them); ipv4 in
+  # the same apply would run SetIpAddressType first, against the rule Lightsail failed to close.
+  ip_address_type = "dualstack"
+  user_data       = templatefile("${path.module}/node-init.sh.tftpl", { k3s_version = var.k3s_version })
 
   add_on {
     type          = "AutoSnapshot"
@@ -242,11 +244,29 @@ data "http" "cloudflare_ips" {
 
 # Replaces the instance's default rules (22 and 80 open to all). 443 only from Cloudflare,
 # 22 only through the Lightsail console (and any owner CIDR), 6443 and 80 closed.
-# port_info is ForceNew: a change (say, Cloudflare adding a range) closes and reopens the
-# ports, so 443 is down for a few seconds during that apply.
-resource "aws_lightsail_instance_public_ports" "node" {
+# ⚠ Never let Terraform destroy this resource. port_info is ForceNew, and the provider's
+# delete calls CloseInstancePublicPorts per rule: on 2026-10-01 Lightsail failed every close of
+# the 443 rule with "ServiceException: ... trouble with your network settings", and the apply
+# hung until cancelled. PutInstancePublicPorts (create) replaces the whole rule set and works.
+# So a port_info change goes in as a new resource address plus a `removed` block with
+# destroy = false for the old one: the new Put overwrites the old rules, nothing is closed.
+removed {
+  from = aws_lightsail_instance_public_ports.node
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+resource "aws_lightsail_instance_public_ports" "firewall" {
   instance_name = aws_lightsail_instance.node.name
   depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
+
+  # A port_info change would plan destroy+create and hang on Close; fail the plan instead and use
+  # the new-address pattern above.
+  lifecycle {
+    prevent_destroy = true
+  }
 
   port_info {
     protocol  = "tcp"
