@@ -3,6 +3,11 @@
 Infrastructure that hosts FJ Consulting applications (TBD, Ziftbook). App repos keep app code,
 Dockerfiles and their own CI; everything about where and how the apps run lives here.
 
+## Architecture
+
+The end-to-end map (diagram, ingress, data, backups, access, monitoring, cost):
+[`docs/architecture.md`](docs/architecture.md).
+
 ## Layout
 
 | Path | What | Applied by |
