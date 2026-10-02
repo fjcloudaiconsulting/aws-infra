@@ -353,6 +353,8 @@ resource "aws_cloudformation_stack" "node_alarms" {
 # HTTPS (not HTTP): Cloudflare would answer plain HTTP with a 301 itself, and 3xx counts as healthy.
 # No string matching: each optional feature costs $2/month on a non-AWS endpoint, and every
 # Cloudflare failure (52x, a 403 challenge) is already a non-2xx/3xx status.
+# If Bot Fight Mode, a higher security level or WAF challenges are ever enabled, skip the ping host:
+# Route 53 checkers would get a 403 and page as an outage.
 resource "aws_route53_health_check" "ping" {
   type              = "HTTPS"
   fqdn              = "ping.thebetterdecision.com"

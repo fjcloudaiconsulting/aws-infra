@@ -77,7 +77,8 @@ Never set `TFC_AWS_RUN_ROLE_ARN`: it would give unapproved PR plans the apply ro
 
 ## Uptime check (INFRA-26)
 
-Before merging, re-mint both role policies as root (same shell as Genesis, from the PR branch):
+Before merging, re-mint both role policies as root (same shell as Genesis), from this PR's branch
+rebased on current `main`: other PRs edit the same documents, and a stale branch would drop their entries:
 
 ```bash
 cd aws/bootstrap
@@ -87,7 +88,7 @@ aws iam put-role-policy --role-name tfc-platform-apply \
   --policy-name tfc-platform-apply --policy-document file://tfc-platform-apply.json
 ```
 
-Merge only after the INFRA-25 Traefik PR (#39) is live and the ping URL answers:
+Merge only after the INFRA-25 Traefik change is live and the ping URL answers:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping   # 200
