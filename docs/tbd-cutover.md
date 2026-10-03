@@ -70,10 +70,10 @@ for k in JWT_SECRET_KEY MFA_ENCRYPTION_KEY AI_CREDENTIAL_ENCRYPTION_KEY AI_CREDE
   done
   [ -n "$V" ] && J=$(J=$J K=$(printf %s "$k" | tr 'A-Z_' 'a-z-') V=$V jq -nc 'env.J | fromjson | .[env.K] = env.V')
 done
-unset V
+unset V; pbcopy </dev/null   # empty the clipboard the values went through
 # Fingerprints of what was pasted: must equal the DO console output of step 1, line by line.
-for k in $(jq -r 'keys[]' <<<"$J" | grep -v -e database-url -e redis-url); do
-  printf '%s %s\n' "$(printf %s "$k" | tr 'a-z-' 'A-Z_')" "$(jq -r --arg k "$k" '.[$k]' <<<"$J" | shasum -a 256 | cut -c1-12)"
+for k in $(printf %s "$J" | jq -r 'keys[]' | grep -v -e database-url -e redis-url); do
+  printf '%s %s\n' "$(printf %s "$k" | tr 'a-z-' 'A-Z_')" "$(printf %s "$J" | jq -r --arg k "$k" '.[$k]' | shasum -a 256 | cut -c1-12)"
 done
 # Encrypt straight from memory to the file: the plaintext never touches the disk.
 printf %s "$J" | jq '{apiVersion: "v1", kind: "Secret", metadata: {name: "tbd", namespace: "tbd-prod"}, type: "Opaque", stringData: .}' |
@@ -82,7 +82,9 @@ grep -c ': ENC\[' "$F"                                  # 14 (13 keys + mac), or
 python3 .github/scripts/check-sops-secrets.py clusters  # exit 0
 ```
 
-A fingerprint that differs: rerun the block (it regenerates the whole file). Then commit and push to the A1 branch:
+A fingerprint that differs: rerun the block (it regenerates the whole file). Fingerprints are unsalted short hashes
+and some values are guessable (usernames, the Google client id): compare them on screen, never paste them into Jira
+or a PR. Then commit and push to the A1 branch:
 
 ```bash
 git add "$F" && git commit -m "feat(clusters): tbd-prod secret from the DigitalOcean app (INFRA-48)" && git push
@@ -98,6 +100,8 @@ kubectl top node --no-headers | awk '{print $4}'                        # under 
 aws sts get-caller-identity --query Account --output text               # 884686184019
 TAG=$(gh release view -R fjcloudaiconsulting/tbd --json tagName --jq .tagName); echo "$TAG"   # the release in the A1 pins
 gh release view "$TAG" -R fjcloudaiconsulting/tbd --json body --jq .body | grep -c INFRA-83     # 1 or more
+CIP=<the client-IP env name from the INFRA-83 PR>
+grep -c "name: $CIP" clusters/platform/tbd-prod/backend.yaml clusters/platform/tbd-prod/scheduler.yaml   # 1 each: without it every user shares Traefik's IP (one rate-limit bucket)
 curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok",... "version":"<TAG without v>" ...}
 grep -rhoE 'ghcr\.io/fjcloudaiconsulting/tbd/[a-z]+:v[0-9.]+' clusters/ | sort -u   # backend, frontend, migrations, all :$TAG
 kubectl -n tbd-prod get secret tbd -o json | jq '.data | length'        # 13 (12 without ..._PREV)
@@ -126,7 +130,8 @@ loads into `$DB` whatever the droplet called it.
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 aws s3 cp "s3://$B/$M" manifest.json && jq '{date, tables, database}' manifest.json
 # Gate: tbd-prod has never served the public (no tbd IngressRoute), so $DB holds nothing worth keeping.
-kubectl get ingressroute -A | grep -c thebetterdecision.com             # 1 (ping only)
+kubectl -n tbd-prod get ingressroute -o name | wc -l                   # 0
+kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.replicas}'; echo   # 0
 my <<<"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB'"   # 0, or the rehearsal's count
 # Empty it (a no-op on a fresh database, the rehearsal's copy otherwise). Grants on $DB.* survive DROP DATABASE.
 my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`"
@@ -182,23 +187,29 @@ EOF
 kubectl -n tbd-prod scale deploy/backend deploy/frontend --replicas=1
 kubectl -n tbd-prod rollout status deploy/backend --timeout=5m && kubectl -n tbd-prod rollout status deploy/frontend --timeout=5m
 kubectl -n tbd-prod logs deploy/backend -c migrate | tail -5             # no error; nothing to apply when DO runs $TAG
-kubectl -n tbd-prod exec deploy/backend -- python -c "import socket; socket.create_connection(('api.eu.mailgun.net', 443), timeout=5)" 2>&1 | tail -1   # TimeoutError: timed out
+kubectl -n tbd-prod exec deploy/backend -- python -c "
+import socket
+try:
+    socket.create_connection(('api.eu.mailgun.net', 443), timeout=5); print('OPEN')
+except OSError as e:
+    print('blocked', type(e).__name__)"                                  # blocked (TimeoutError or ConnectionRefusedError); OPEN: stop
 kubectl -n tbd-prod exec deploy/backend -- sh -c "$FP"                  # equal to the DO console output (section 1)
 # 5. Smoke over port-forward with TBD's own scripts/smoke-test.sh (its login writes only to this copy).
 kubectl -n tbd-prod port-forward svc/backend 8000:8000 >/dev/null & PF1=$!
 kubectl -n tbd-prod port-forward svc/frontend 3000:3000 >/dev/null & PF2=$!; sleep 3
 curl -s localhost:8000/health                                           # {"status":"ok","version":"<TAG without v>",...}
 curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/login           # 200
-read -r SMOKE_USERNAME; read -rs SMOKE_PASSWORD; export SMOKE_USERNAME SMOKE_PASSWORD   # the smoke account (no MFA)
-SMOKE_BASE_URL=http://localhost:8000 ~/src/tbd/scripts/smoke-test.sh   # every line ✓, exit 0
+read -r SU; read -rs SP   # the smoke account (no MFA); not exported, handed to the script only
+SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=http://localhost:8000 ~/src/tbd/scripts/smoke-test.sh   # every line ✓, exit 0
 kill $PF1 $PF2
 # 6. Rollback path: DO still serves the domain directly, and C is exactly B reversed.
 curl -s --connect-to app.thebetterdecision.com:443:pfv-xccvs.ondigitalocean.app:443 https://app.thebetterdecision.com/health   # {"status":"ok"...}
 git fetch origin && git diff "$(git merge-base origin/main origin/feat/INFRA-48-tbd-dns)" origin/revert/INFRA-48-tbd-dns-rollback --stat   # empty
-# 7. Tear down: back to replicas 0 and the normal egress policy.
+# 7. Tear down: back to replicas 0 and the normal egress policy (Flux first, so egress is never fully open).
+kubectl -n tbd-prod scale deploy/backend deploy/frontend --replicas=0
+flux resume kustomization flux-system   # waits for the apply: recreates egress-no-imds
 kubectl -n tbd-prod delete networkpolicy rehearsal-cluster-only
-flux resume kustomization flux-system
-kubectl -n tbd-prod get deploy,networkpolicy --no-headers | awk '{print $1, $2}'   # deployments 0/0; egress-no-imds back
+kubectl -n tbd-prod get deploy,networkpolicy --no-headers | awk '{print $1, $2}'   # deployments 0/0; egress-no-imds back, no rehearsal policy
 ```
 
 Leave the restored copy in `$DB`: the real run empties it (section 3). Record the durations and the table count in
@@ -208,8 +219,8 @@ Rehearsal rollback at any point: step 7. Nothing in the rehearsal touches Digita
 
 ## 5. Real run (Sunday evening window, about 1h45)
 
-Times from the window start (T). Each go/no-go (**G**) is the owner's call. Keep `SMOKE_USERNAME` and
-`SMOKE_PASSWORD` exported as in rehearsal step 5.
+Times from the window start (T). Each go/no-go (**G**) is the owner's call. Read `SU` and `SP` once as in
+rehearsal step 5; `unset SP` at the end of the window.
 
 | T | Step | Who |
 |---|---|---|
@@ -224,12 +235,14 @@ Times from the window start (T). Each go/no-go (**G**) is the owner's call. Keep
 ### Step 1. Freeze DigitalOcean (15 min)
 
 1. Stop TBD releases from deploying to DO: the release workflow's `deploy` job pushes `.do/app.yaml`, which would
-   un-archive the app. Overwrite its token in GitHub (the token itself stays valid in DO):
+   un-archive the app. Overwrite its token in GitHub, then revoke the real one so no valid copy is left unheld:
 
    ```bash
    gh secret set DIGITALOCEAN_ACCESS_TOKEN -R fjcloudaiconsulting/tbd --body disabled-by-INFRA-48
    gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN   # updated just now
    ```
+
+   DO control panel > API > Tokens: delete the token the tbd repo used (a rollback mints a new one, R1).
 2. DO control panel > Apps > `pfv` > Settings > Archive mode > **Archive**, type the app name, confirm. Wait for the
    deployment to finish.
 
@@ -300,7 +313,7 @@ harm; revert A2 later in daylight).
    curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=app.thebetterdecision.com&type=A' | jq -r '.Answer[].data'   # Cloudflare IPs (104.x / 172.6x.x), no ondigitalocean.app
    curl -s https://app.thebetterdecision.com/health                       # {"status":"ok","version":"<TAG without v>",...} from k3s
    kubectl -n tbd-prod get deploy scheduler --no-headers | awk '{print $2}'   # 1/1
-   SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh   # all ✓
+   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh   # all ✓
    ```
 3. Browser (private window): `https://app.thebetterdecision.com`, log in (Google SSO and password), open the
    dashboard and a report. A local resolver can hold the old CNAME for up to 60 seconds.
@@ -311,7 +324,8 @@ After G4, rebuild C on the merged B so it is ready (still no PR):
 
 ```bash
 git fetch origin && git switch -C revert/INFRA-48-tbd-dns-rollback origin/main
-git revert --no-edit "$(gh pr view feat/INFRA-48-tbd-dns --json mergeCommit --jq .mergeCommit.oid)"
+git revert --no-commit "$(gh pr view feat/INFRA-48-tbd-dns --json mergeCommit --jq .mergeCommit.oid)"
+git commit -m "revert(cloudflare): app.thebetterdecision.com back to DigitalOcean, scheduler off (INFRA-48)"
 git diff origin/main --stat   # terraform/cloudflare/main.tf, clusters/platform/tbd-prod/scheduler.yaml and docs only
 git push --force-with-lease origin revert/INFRA-48-tbd-dns-rollback
 ```
@@ -325,7 +339,7 @@ kubectl -n data logs job/db-backup-cutover -c mysql-dump | tail -1      # ok: tb
 kubectl -n data logs job/db-backup-cutover -c upload | grep -c uploaded  # 6
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.complete   # 1 or more (a tick every 15 min)
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.error      # 0
-kubectl -n tbd-prod get events --field-selector type=Warning --no-headers | wc -l         # 0
+kubectl -n tbd-prod get events --field-selector type=Warning --sort-by=.lastTimestamp | tail -3   # nothing newer than step 4
 ```
 
 Then comment the result on INFRA-48. Monday: the 02:00 UTC `db-backup` and the 04:17 UTC freshness probe must be
@@ -343,9 +357,11 @@ Do the steps in order; each names its check.
    (prints 1).
 2. DO control panel > Apps > `pfv` > Settings > Archive mode > **Restore**. Check:
    `curl -s https://app.thebetterdecision.com/health` prints `{"status":"ok"...`.
-3. DO control panel > API > Tokens > Generate New Token (`tbd-release-deploy`, read and write), then
+3. DO control panel > API > Tokens > Generate New Token (`tbd-release-deploy`, custom scopes: app read and
+   update only), then
    `read -rs T; printf %s "$T" | gh secret set DIGITALOCEAN_ACCESS_TOKEN -R fjcloudaiconsulting/tbd; unset T`.
-   Check: `gh workflow run deploy-drift-probe.yml -R fjcloudaiconsulting/tbd` goes green.
+   Check: `gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN` shows it updated just now; the next
+   release deploys to DO again.
 4. If A2 was merged: open a revert PR of A2 for later; the k3s pods idle until then.
 
 **R2: B merged, apply not yet approved.** Discard the run in HCP Terraform (Discard Run), then R3 step 1 (its plan
