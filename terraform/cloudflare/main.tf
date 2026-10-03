@@ -177,27 +177,24 @@ resource "cloudflare_zone_setting" "ziftbook_ssl" {
 
 # Shared Mailgun sending domain for every dev/staging environment (INFRA-47, owner ruling 2026-10-03):
 # m.fjconsulting.dev, EU region. Only production gets per-app m.<appdomain> domains. The zone is
-# read, not managed: its other records (Google mail, site) live outside Terraform. MX, SPF and
-# tracking are fixed by Mailgun's EU endpoints. The DKIM TXT is generated when the owner adds the
-# domain in Mailgun: step two is setting fjdev_mail_dkim below to
-# { name = "<selector>._domainkey.m.fjconsulting.dev", content = "\"k=rsa; p=...\"" } in a follow-up
-# commit (a public key, not a secret). Until then Mailgun cannot verify the domain. A second dev app
-# only needs a new Mailgun sending key, no change here.
+# read, not managed: its other records (Google mail, site) live outside Terraform. The record set
+# mirrors TBD's m.thebetterdecision.com above (MX, SPF, DKIM, DMARC with Mailgun reporting, tracking).
+# Mailgun's Cloudflare auto-setup created all but the MX on 2026-10-03; the import blocks below adopt
+# them (remove the blocks after the first apply). A second dev app only needs a new Mailgun sending
+# key, no change here. The DKIM value is a public key, split in two strings (TXT 255-char limit).
 data "cloudflare_zone" "fjdev" {
   filter = { name = "fjconsulting.dev", account = { id = var.account_id } }
 }
 
 locals {
-  fjdev_mail_dkim = null
-
-  fjdev_mail_records = merge(
-    {
-      mx_a = { type = "MX", name = "m.fjconsulting.dev", content = "mxa.eu.mailgun.org", priority = 10 }
-      mx_b = { type = "MX", name = "m.fjconsulting.dev", content = "mxb.eu.mailgun.org", priority = 10 }
-      spf  = { type = "TXT", name = "m.fjconsulting.dev", content = "\"v=spf1 include:mailgun.org ~all\"" }
-    tracking = { type = "CNAME", name = "email.m.fjconsulting.dev", content = "eu.mailgun.org" } },
-    local.fjdev_mail_dkim == null ? {} : { dkim = merge({ type = "TXT" }, local.fjdev_mail_dkim) }
-  )
+  fjdev_mail_records = {
+    mx_a     = { type = "MX", name = "m.fjconsulting.dev", content = "mxa.eu.mailgun.org", priority = 10 }
+    mx_b     = { type = "MX", name = "m.fjconsulting.dev", content = "mxb.eu.mailgun.org", priority = 10 }
+    spf      = { type = "TXT", name = "m.fjconsulting.dev", content = "\"v=spf1 include:mailgun.org ~all\"" }
+    dmarc    = { type = "TXT", name = "_dmarc.m.fjconsulting.dev", content = "\"v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com; ruf=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com;\"" }
+    dkim     = { type = "TXT", name = "mta._domainkey.m.fjconsulting.dev", content = "\"k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApsCPgZz8EKnXqDFkGDP2gBc1qxfcyT3zD18o+I7HaGzq4zV4Ib76F6vOFPJjrxwBya74NdLXp+vClblG75xFcVAMkg17RPVu0kIJ+9SNWox2H2cVs1P4s2WL3a22uVoZnod/ORjtpYUT99xKbsjYM89i7byAJiwHG5TDtevNxtjws1ZgwVJcCNbJg58LEq9VxpLIR+26ft\" \"r7Y2z5mSNQuZ0erEDYGpuLaVehCIX81XqqpPpl51VDpE+/ZYZ1UINGzc1BxeEKu4w/HT1dloRwx9ebkwnjA3IK0r1tfhffO6uaxjKc0CCpCZKnCuvuhwiF4cKemLiF/SMBP7joNZPH7QIDAQAB\"" }
+    tracking = { type = "CNAME", name = "email.m.fjconsulting.dev", content = "eu.mailgun.org" }
+  }
 }
 
 resource "cloudflare_dns_record" "fjdev_mail" {
@@ -210,6 +207,24 @@ resource "cloudflare_dns_record" "fjdev_mail" {
   priority = try(each.value.priority, null)
   ttl      = 300
   proxied  = false
+}
+
+# Adopt the records Mailgun's Cloudflare auto-setup created (zone ff907e2dae27da386ae2f24dd51e76b2).
+import {
+  to = cloudflare_dns_record.fjdev_mail["spf"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/2be86a27659511602e15ae3a83b5c921"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["dmarc"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/3b2da5ee87320f05a150e37d390ce4a0"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["dkim"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/cc7274fdeb69d1d72829519836471c15"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["tracking"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/be9b055d3ce54ce45c30e9ba089c2560"
 }
 
 output "tbd_name_servers" {

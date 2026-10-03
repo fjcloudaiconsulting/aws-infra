@@ -149,7 +149,7 @@ own role.
   `*.ziftbook.com`; add a hostname for any new domain before proxying it.
 - Mail: Mailgun EU for every app and environment (owner ruling 2026-10-03). All dev/staging environments share one
   sending domain, `m.fjconsulting.dev` (zone `fjconsulting.dev`, read but not managed by `terraform/cloudflare`, which
-  owns only the `m.` records; the DKIM value is added after Mailgun issues it). Each dev environment has its own
+  owns only the `m.` records: MX, SPF, DKIM `mta._domainkey.m`, DMARC with Mailgun reporting, tracking, same set as TBD). Each dev environment has its own
   send-only sending key scoped to that domain. Production gets per-app `m.<appdomain>` domains (TBD:
   `m.thebetterdecision.com`). The domain and the keys are made by hand (below). Env names `ZIF_MAILGUN_DOMAIN`,
   `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
