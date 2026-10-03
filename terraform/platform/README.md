@@ -12,7 +12,8 @@ contact method that the owner verifies once through the link AWS sends). The nod
 `prevent_destroy` blocks a replace.
 
 The external uptime check (INFRA-26) is a Route 53 HTTPS health check on
-`https://ping.thebetterdecision.com/ping` (Traefik answers it itself, through Cloudflare), 30 s
+`https://app.thebetterdecision.com/health/dependencies` (TBD through Cloudflare, since the INFRA-48 cutover;
+`ping.thebetterdecision.com/ping`, which Traefik answers itself, before), 30 s
 interval, failure threshold 3, about $2.75/month (non-AWS endpoint $0.75 plus $2 for HTTPS; no
 string matching, which would add $2). Its metric exists only in us-east-1, so the alarm
 `platform-ping-unhealthy` and its topic `platform-alerts-use1` (email to the owner) live there:
@@ -104,7 +105,7 @@ aws sns list-subscriptions-by-topic --profile tbd --region us-east-1 \
   --query 'Subscriptions[].SubscriptionArn' --output text
 # an ARN ending in a UUID, not PendingConfirmation
 aws route53 get-health-check-status --profile tbd --health-check-id "$(aws route53 list-health-checks \
-  --profile tbd --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='ping.thebetterdecision.com'].Id" \
+  --profile tbd --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" \
   --output text)" --query 'HealthCheckObservations[].StatusReport.Status' --output text
 # every line starts with "Success: HTTP Status Code 200"
 aws cloudwatch describe-alarms --profile tbd --region us-east-1 \

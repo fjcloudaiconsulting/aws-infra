@@ -48,7 +48,7 @@ flowchart LR
   probe -->|"list-only role"| bucket
 
   subgraph useast["AWS us-east-1 (terraform/platform)"]
-    hc["Route 53 health check<br/>ping.thebetterdecision.com/ping"]
+    hc["Route 53 health check<br/>app.thebetterdecision.com/health/dependencies"]
   end
   hc --> cf
 
