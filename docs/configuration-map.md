@@ -166,8 +166,8 @@ State left by the INFRA-48 cutover window, all by hand. Undo it only to roll bac
 | Item | State | Why |
 |---|---|---|
 | App Platform app `pfv` | Archived (Settings > Archive mode); its default domain still answers for `app.thebetterdecision.com` with the offline page | No component runs, so neither the old API nor its scheduler can act on the old data |
-| tbd repo secret `DIGITALOCEAN_ACCESS_TOKEN` | Overwritten with a dummy value | The release `deploy` job pushes `.do/app.yaml`, which would restore the archived app |
-| Droplet `pfv-data-01` MySQL | `super_read_only = ON`, set at runtime (a mysqld restart clears it) | The data stays exactly as dumped; the droplet's 02:00 dump to `pfv-data-01/` continues |
+| tbd repo secret `DIGITALOCEAN_ACCESS_TOKEN` | Overwritten with a dummy value; the real token deleted in DO > API > Tokens | The release `deploy` job pushes `.do/app.yaml`, which would restore the archived app. A rollback mints a new token scoped to app read and update |
+| Droplet `pfv-data-01` MySQL | `super_read_only = ON`, set at runtime as root (`mysql --no-defaults`; a mysqld restart clears it) | The data stays exactly as dumped; the droplet's 02:00 dump to `pfv-data-01/` continues |
 | Droplet Redis key `scheduler:tick:lock` | Set for 8 days | A DigitalOcean scheduler that comes back skips every tick |
 
 ## Cluster out-of-band material
