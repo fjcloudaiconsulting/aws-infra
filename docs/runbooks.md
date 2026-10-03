@@ -191,10 +191,11 @@ HCP Terraform > workspace `cloudflare` > Variables > Add variable: Terraform var
 pbcopy < /dev/null && cd ~ && diskutil eject INFRA93   # "Disk INFRA93 ejected": the CA and leaf keys are gone
 ```
 
-`~/Downloads/origin-pull-<G>/` now holds only the two public certificates, for the repo side:
+`~/Downloads/origin-pull-<G>/` now holds only the two public certificates, for the repo side (from the repo root, on
+the PR branch, with `G` set again if this is a new shell):
 
 ```sh
-cp ~/Downloads/origin-pull-$G/client.crt terraform/cloudflare/origin-pull/$G.crt
+mkdir -p terraform/cloudflare/origin-pull && cp ~/Downloads/origin-pull-$G/client.crt terraform/cloudflare/origin-pull/$G.crt
 kubectl create secret generic origin-pull-ca-$G -n kube-system --from-file=ca.crt=$HOME/Downloads/origin-pull-$G/ca.crt \
   --dry-run=client -o yaml > clusters/platform/traefik/origin-pull-ca-$G.secret.yaml \
   && sops --encrypt --in-place clusters/platform/traefik/origin-pull-ca-$G.secret.yaml
