@@ -149,7 +149,8 @@ resource "cloudflare_dns_record" "tbd_ping" {
 # Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Under
 # strict, Traefik must serve an Origin CA cert that covers ziftbook.com, or this host answers 526
 # (the apex and www are a Worker and do not use the origin). Same node IP as ping above.
-# If the next plan shows ssl drifting (the zone was on Automatic, ssl_automatic_mode), read the zone and set it to custom.
+# The zone was read 2026-10-03 as ssl = full, ssl_automatic_mode = auto: auto re-scans and could move the mode
+# back, so it is pinned to custom first. Merge the origin-cert secret before approving this apply.
 resource "cloudflare_dns_record" "ziftbook_dev" {
   zone_id = data.cloudflare_zone.ziftbook.id
   name    = "dev.ziftbook.com"
@@ -159,10 +160,18 @@ resource "cloudflare_dns_record" "ziftbook_dev" {
   proxied = true
 }
 
+resource "cloudflare_zone_setting" "ziftbook_ssl_mode" {
+  zone_id    = data.cloudflare_zone.ziftbook.id
+  setting_id = "ssl_automatic_mode"
+  value      = "custom"
+}
+
 resource "cloudflare_zone_setting" "ziftbook_ssl" {
   zone_id    = data.cloudflare_zone.ziftbook.id
   setting_id = "ssl"
   value      = "strict"
+
+  depends_on = [cloudflare_zone_setting.ziftbook_ssl_mode]
 }
 
 output "tbd_name_servers" {
