@@ -247,3 +247,17 @@ until the new one is active.
    certificate per zone. Run the check, then delete the workspace variable `origin_pull_private_key_<N>`.
 6. Remove `origin-pull-ca-<N>` from `secretNames`. Merge. Delete its Secret file. Merge. Run the check and update the
    expiry row in the configuration map.
+
+## Uptime alarm emails during a TBD deploy
+
+The Route 53 uptime check reads `https://app.thebetterdecision.com/health/dependencies` (INFRA-48), not Traefik's
+`/ping`. That is deliberate: a down app, MySQL or Valkey now alarms. The trade is that planned outages alarm too.
+`platform-ping-unhealthy` fires after about 2 to 3 minutes of failures, so any of these send an ALARM email and then
+an OK email:
+
+- a TBD release (the Deployments use `Recreate`, and the backend's migrate init container runs first),
+- a MySQL or Valkey restart (a version bump, a node reboot).
+
+`/ping` never did that. An ALARM followed by OK within minutes of a merge in `tbd-prod` or `data` is expected. An
+ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` and `curl -s https://app.thebetterdecision.com/health/dependencies`
+(it names the failing dependency).
