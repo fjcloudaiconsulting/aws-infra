@@ -16,7 +16,8 @@ terraform {
   }
 }
 
-# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. Account-scoped
+# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. It must also cover zone
+# fjconsulting.dev (read for the shared dev Mailgun records, INFRA-47). Account-scoped
 # token with Zone:Edit, DNS:Edit and Zone Settings:Edit; a zone-scoped token cannot create
 # the zone and only fails at apply.
 provider "cloudflare" {}
@@ -191,12 +192,10 @@ locals {
 
   fjdev_mail_records = merge(
     {
-      mx_a     = { type = "MX", name = "m.fjconsulting.dev", content = "mxa.eu.mailgun.org", priority = 10 }
-      mx_b     = { type = "MX", name = "m.fjconsulting.dev", content = "mxb.eu.mailgun.org", priority = 10 }
-      spf      = { type = "TXT", name = "m.fjconsulting.dev", content = "\"v=spf1 include:mailgun.org ~all\"" }
-      tracking = { type = "CNAME", name = "email.m.fjconsulting.dev", content = "eu.mailgun.org" }
-      dmarc    = { type = "TXT", name = "_dmarc.m.fjconsulting.dev", content = "\"v=DMARC1; p=none\"" }
-    },
+      mx_a = { type = "MX", name = "m.fjconsulting.dev", content = "mxa.eu.mailgun.org", priority = 10 }
+      mx_b = { type = "MX", name = "m.fjconsulting.dev", content = "mxb.eu.mailgun.org", priority = 10 }
+      spf  = { type = "TXT", name = "m.fjconsulting.dev", content = "\"v=spf1 include:mailgun.org ~all\"" }
+    tracking = { type = "CNAME", name = "email.m.fjconsulting.dev", content = "eu.mailgun.org" } },
     local.fjdev_mail_dkim == null ? {} : { dkim = merge({ type = "TXT" }, local.fjdev_mail_dkim) }
   )
 }
