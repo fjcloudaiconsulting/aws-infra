@@ -129,6 +129,10 @@ curl -s --connect-to app.thebetterdecision.com:443:pfv-xccvs.ondigitalocean.app:
 echo | openssl s_client -connect pfv-xccvs.ondigitalocean.app:443 -servername app.thebetterdecision.com 2>/dev/null | openssl x509 -noout -enddate   # after 2026-10-12 (Nov 19 2026 on 2026-10-03)
 kubectl -n kube-system get secret origin-cert -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -text | grep -A1 "Subject Alternative Name" | tail -1   # DNS:thebetterdecision.com, DNS:*.thebetterdecision.com (or the reverse)
 git ls-remote origin refs/heads/revert/INFRA-48-tbd-dns-rollback | wc -l | tr -d " "   # 1
+# INFRA-93 live (#72 applied, #73 merged): Traefik refuses a TLS client without Cloudflare's origin-pull cert, so only
+# our zones reach the origin. A throwaway pod tries the app host straight at Traefik, without that cert.
+kubectl --kubeconfig ~/.kube/platform -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to app.thebetterdecision.com:443:traefik.kube-system.svc.cluster.local:443 https://app.thebetterdecision.com/
+# Expected: 000 and curl's exit 56 (curl: (56) ... the TLS handshake is refused). A 200, 3xx or 404: no-go for step 5.
 ```
 
 At the window start also: A1 merged; A2 and B open with CI green; B's `Terraform Cloud/FlamaCorp/cloudflare` check
@@ -324,6 +328,10 @@ Users still get DO's offline page: the `app` record is DNS-only to DO. Rollback:
 harm; revert A2 later in daylight).
 
 ### Step 5. DNS and scheduler (20 min)
+
+Gate: INFRA-93 (#72 applied, #73 merged) must be live before this step, because `CLIENT_IP_HEADER` is safe only
+when the origin accepts our zones alone (Authenticated Origin Pulls). Re-run the preflight `aop-probe` line: `000`
+and exit 56, or no-go.
 
 **MERGE B**: the owner marks it ready and merges it. Flux starts the scheduler within a minute or two; the
 `cloudflare` workspace queues an apply.
