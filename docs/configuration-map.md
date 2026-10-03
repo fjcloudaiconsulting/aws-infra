@@ -29,12 +29,13 @@ in the same PR or right after.
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
+| tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. INFRA-49 removes the DO jobs. Never restore the token except in a rollback |
 
 ## Release and deploy chain
 
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
-staging (v0.20.2, 2026-10-03). There is no production deploy yet; a production bump is meant to arrive
-as a PR and is never automerged (proven by Renovate dry run only, check it on the first TBD bump).
+staging (v0.20.2, 2026-10-03). TBD production (`tbd-prod`, since the INFRA-48 cutover) bumps arrive as
+PRs and are never automerged (proven by Renovate dry run only, check it on the first TBD bump).
 
 | # | Step | Needs |
 |---|---|---|
@@ -48,7 +49,7 @@ as a PR and is never automerged (proven by Renovate dry run only, check it on th
 | 8 | Renovate fast-forwards the branch into `main` without a PR | Renovate app in the `main protection` bypass list |
 | 9 | Flux applies the commit; Deployments use `Recreate` | `sops-age`, `ghcr-pull` |
 
-Drift watch: workflow `release-drift-probe.yml` (daily) opens or updates one `[release-drift]` issue when an app's latest GitHub release has been absent from `clusters/` for 2+ days (production bump PR unmerged, or Renovate never opened it), and closes it when clear. No credentials; it reads the app repos' releases because GHCR is private. It depends on `tbd` and `ziftbook` staying public repos (GITHUB_TOKEN reads); the run goes red if either goes private. Only repos in `WATCH_REPOS` (default `ziftbook`) are checked: add tbd to the watch list at cutover (INFRA-48).
+Drift watch: workflow `release-drift-probe.yml` (daily) opens or updates one `[release-drift]` issue when an app's latest GitHub release has been absent from `clusters/` for 2+ days (production bump PR unmerged, or Renovate never opened it), and closes it when clear. No credentials; it reads the app repos' releases because GHCR is private. It depends on `tbd` and `ziftbook` staying public repos (GITHUB_TOKEN reads); the run goes red if either goes private. Only repos in `WATCH_REPOS` (default `ziftbook tbd`, tbd since the INFRA-48 cutover) are checked.
 
 ## GitHub
 
@@ -156,6 +157,18 @@ own role.
 - Shared-domain webhooks: Mailgun delivers every dev app's events to every webhook URL registered on `m.fjconsulting.dev`,
   so an app must ignore events for messages it did not send (apps tag their messages; handled in the ZIF tickets).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
+
+## DigitalOcean (rollback target until INFRA-49)
+
+State left by the INFRA-48 cutover window, all by hand. Undo it only to roll back
+([tbd-cutover.md, R1](tbd-cutover.md#rollback)); INFRA-49 decommissions all of it, not before 2026-10-11.
+
+| Item | State | Why |
+|---|---|---|
+| App Platform app `pfv` | Archived (Settings > Archive mode); its default domain still answers for `app.thebetterdecision.com` with the offline page | No component runs, so neither the old API nor its scheduler can act on the old data |
+| tbd repo secret `DIGITALOCEAN_ACCESS_TOKEN` | Overwritten with a dummy value; the real token deleted in DO > API > Tokens | The release `deploy` job pushes `.do/app.yaml`, which would restore the archived app. A rollback mints a new token scoped to app read and update |
+| Droplet `pfv-data-01` MySQL | `super_read_only = ON`, set at runtime as root (`mysql --no-defaults`; a mysqld restart clears it) | The data stays exactly as dumped; the droplet's 02:00 dump to `pfv-data-01/` continues |
+| Droplet Redis key `scheduler:tick:lock` | Set for 8 days | A DigitalOcean scheduler that comes back skips every tick |
 
 ## Cluster out-of-band material
 
