@@ -154,7 +154,7 @@ own role.
 | NetBird | Policy `owner-to-k3s-api` (owner devices to TCP 6443), setup key `platform-node` (7-day expiry, stored as Secret `netbird-setup-key`), kubeconfig `~/.kube/platform` | `owner-admin` token expires about 2026-12-31. Runbook: [`netbird/README.md`](../clusters/platform/netbird/README.md) |
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
-| TBD app secret | `tbd-prod/tbd` (to be written as `clusters/platform/tbd-prod/tbd.secret.yaml`, INFRA-48) | Values come from the DigitalOcean app (same keys as today, or logins and encrypted columns break). Key list: header of `tbd-prod/backend.yaml` env. Deployments there stay at replicas 0 until cutover |
+| TBD app secret | `tbd-prod/tbd` (to be written as `clusters/platform/tbd-prod/tbd.secret.yaml`, INFRA-48) | Values come from the DigitalOcean app (same keys as today, or logins and encrypted columns break). Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). Deployments there stay at replicas 0 until cutover |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
 ## Jira

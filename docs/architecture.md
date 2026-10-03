@@ -22,7 +22,7 @@ flowchart LR
         tbdapp["TBD (INFRA-43 manifests, scaled to 0 until cutover)"]
       end
       subgraph ns_zif["ziftbook-staging"]
-        zifapp["Ziftbook staging (INFRA-7, not yet deployed)"]
+        zifapp["Ziftbook staging (INFRA-7)"]
       end
       subgraph ns_data["data (clusters/platform/data)"]
         mysql[("MySQL 8.4")]

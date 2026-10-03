@@ -8,7 +8,8 @@
 # automerge rule matches ziftbook-staging paths only). Tag v0.0.0 is a placeholder until the first tbd image
 # is on GHCR; bump backend, migrations, scheduler and frontend together.
 # The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
-# PFV_RUNTIME is deliberately unset (DigitalOcean only): see the INFRA-48 note on client IPs in the PR.
+# PFV_RUNTIME is deliberately unset (DigitalOcean only). Until INFRA-83 teaches the app about Cloudflare, the
+# client IP seen here is Traefik's, so per-IP rate limits and audit IPs collapse: fix before cutover.
 apiVersion: v1
 kind: Service
 metadata:
