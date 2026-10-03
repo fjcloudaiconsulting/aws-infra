@@ -1,0 +1,77 @@
+# TBD web (Next.js standalone) in production (INFRA-43). INERT: replicas 0 until the INFRA-48 cutover, while TBD
+# still runs on DigitalOcean. No IngressRoute either: INFRA-48 adds app.thebetterdecision.com.
+# NEXT_PUBLIC_* values are baked into the image at build time (frontend/Dockerfile ARGs), not set here.
+# Image tag v0.0.0 is a placeholder: no tbd image is on GHCR yet. The first real release makes Renovate open the
+# bump PR; production bumps never automerge (renovate.json).
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: tbd-prod
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: tbd-prod
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # nextjs in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.0.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: HOSTNAME
+              value: 0.0.0.0
+            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
+            - name: BACKEND_INTERNAL_URL
+              value: http://backend:8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}

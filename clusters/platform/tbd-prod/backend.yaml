@@ -1,0 +1,228 @@
+# TBD API in production (INFRA-43). INERT: replicas 0 until the INFRA-48 cutover, while TBD still runs on
+# DigitalOcean (flip to 1 there, together with the tbd secret, data import, IngressRoute and DNS).
+# The migrate init container (the `migrations` image target, INFRA-39) runs `python /app/scripts/migrate.py`
+# (alembic upgrade head) before every start, so a new version never serves on an old schema. A Job named by
+# version cannot work under Flux (immutable pod template, no ordering before Deployments). Only this pod migrates:
+# migrate.py takes no lock, so a second migrator racing it (e.g. the scheduler) could double-apply DDL on MySQL.
+# Images track vX.Y.Z only. Production bumps arrive as PRs and never automerge (renovate.json: the staging
+# automerge rule matches ziftbook-staging paths only). Tag v0.0.0 is a placeholder until the first tbd image
+# is on GHCR; bump backend, migrations, scheduler and frontend together.
+# The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
+# PFV_RUNTIME is deliberately unset (DigitalOcean only). Until INFRA-83 teaches the app about Cloudflare, the
+# client IP seen here is Traefik's, so per-IP rate limits and audit IPs collapse: fix before cutover.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: tbd-prod
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: tbd-prod
+spec:
+  replicas: 0
+  # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.0.0
+          env:
+            - name: APP_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: redis-url
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: jwt-secret-key
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: backend
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: APP_URL
+              value: "https://app.thebetterdecision.com"
+            - name: BACKEND_CORS_ORIGINS
+              value: "https://app.thebetterdecision.com,https://thebetterdecision.com,https://www.thebetterdecision.com"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: MAILGUN_DOMAIN
+              value: "m.thebetterdecision.com"
+            - name: MAILGUN_REGION
+              value: "eu"
+            - name: EMAIL_FROM
+              value: "The Better Decision <noreply@m.thebetterdecision.com>"
+            - name: AI_NATIVE_ENABLED
+              value: "false"
+            - name: AI_DISPATCH_TIMEOUT_S
+              value: "30"
+            - name: AI_NATIVE_CURRENT_CONSENT_VERSION
+              value: "ai-tos-2026-05-22"
+            - name: CAPTCHA_REQUIRED
+              value: "true"
+            - name: CAPTCHA_PROVIDER
+              value: "turnstile"
+            - name: CAPTCHA_VERIFY_URL
+              value: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+            - name: CAPTCHA_VERIFY_TIMEOUT_S
+              value: "5"
+            - name: CAPTCHA_VERIFY_TOTAL_TIMEOUT_S
+              value: "20"
+            - name: CAPTCHA_EXPECTED_HOSTNAME
+              value: "app.thebetterdecision.com"
+            - name: CAPTCHA_EXPECTED_ACTION
+              value: "register"
+            - name: BILLING_UI_ENABLED
+              value: "false"
+            - name: FEATURE_REPORTS_V2
+              value: "true"
+            - name: FEATURE_PLANS
+              value: "false"
+            - name: FEATURE_CUSTOM_DASHBOARD
+              value: "true"
+            - name: SCHEDULER_ENABLED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: redis-url
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: jwt-secret-key
+            - name: MFA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mfa-encryption-key
+            - name: AI_CREDENTIAL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: ai-credential-encryption-key
+            - name: AI_CREDENTIAL_ENCRYPTION_KEY_PREV
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: ai-credential-encryption-key-prev
+                  optional: true
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+            - name: MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mailgun-api-key
+            - name: MAILGUN_WEBHOOK_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mailgun-webhook-signing-key
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: google-client-id
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: google-client-secret
+            - name: CAPTCHA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: captcha-secret
+            - name: FOUNDER_COUNT_EXCLUDE_USERNAMES
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: founder-count-exclude-usernames
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi # near the working set, so staging (over its request sooner) is evicted first
+            limits:
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

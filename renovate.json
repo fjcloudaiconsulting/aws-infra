@@ -36,6 +36,13 @@
       "groupName": "ziftbook images",
       "automerge": true,
       "automergeType": "branch"
+    },
+    {
+      "description": "TBD production (INFRA-43): backend, scheduler, migrations and frontend move together in one PR, so a merge never runs a schema/code skew. No automerge: the PR is the deploy gate.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/fjcloudaiconsulting/**"],
+      "matchFileNames": ["clusters/**/tbd-prod/**"],
+      "groupName": "tbd images"
     }
   ]
 }
