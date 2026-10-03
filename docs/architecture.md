@@ -35,7 +35,7 @@ flowchart LR
     end
     alarms["Lightsail alarms, budget, CloudTrail"]
   end
-  cf -->|"proxied hosts: ping today, apps after cutover"| fw --> traefik
+  cf -->|"proxied hosts: ping, app (TBD), dev.ziftbook.com"| fw --> traefik
   traefik --> tbdapp & zifapp
   tbdapp --> mysql & valkey
   zifapp --> postgres
@@ -70,9 +70,8 @@ flowchart LR
 
 ## Ingress
 
-Proxied hostnames go through Cloudflare to the node's static IP. Today that is only
-`ping.thebetterdecision.com`; the TBD app records stay DNS-only to DigitalOcean until cutover
-(INFRA-48), after which they are proxied the same way. The thebetterdecision.com zone is in Full
+Proxied hostnames go through Cloudflare to the node's static IP: `ping.thebetterdecision.com` and, since the
+INFRA-48 cutover, `app.thebetterdecision.com` (TBD production, a proxied CNAME to `ping`). The thebetterdecision.com zone is in Full
 (strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. ziftbook.com is in Full
 (strict) too, with `dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node. An Origin CA
 certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the

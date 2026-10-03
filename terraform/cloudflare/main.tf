@@ -28,9 +28,8 @@ variable "account_id" {
 }
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
-# Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and stays
-# DNS-only (proxied = false), so the nameserver switch changes nothing for clients.
-# Proxying `app` is a separate change at the Lightsail cutover.
+# Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
+# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48).
 resource "cloudflare_zone" "tbd" {
   account = { id = var.account_id }
   name    = "thebetterdecision.com"
@@ -49,8 +48,10 @@ locals {
 
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }
 
-    # App on DigitalOcean until the Lightsail cutover (INFRA-48).
-    app = { name = "app.thebetterdecision.com", type = "CNAME", content = "pfv-xccvs.ondigitalocean.app", ttl = 60 }
+    # TBD on the k3s node (INFRA-48): proxied, so clients see Cloudflare and Cloudflare reaches the node through
+    # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update; the
+    # rollback (revert) is one too, back to DNS-only `pfv-xccvs.ondigitalocean.app` with ttl 60.
+    app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
 
     # ACM DNS validation for the apex CloudFront certificate (tbd-apex workspace, us-east-1).
     # Must keep resolving or ACM renewal fails.
@@ -76,12 +77,12 @@ resource "cloudflare_dns_record" "tbd" {
   content  = each.value.content
   priority = try(each.value.priority, null)
   ttl      = each.value.ttl
-  proxied  = false
+  proxied  = try(each.value.proxied, false)
 }
 
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com is proxied today, thebetterdecision.com picks them up when `app` is
-# proxied at the Lightsail cutover. ziftbook.com's zone is read here, not managed.
+# hostnames: ziftbook.com (dev), thebetterdecision.com (ping, and `app` since the INFRA-48 cutover).
+# ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
   filter = { name = "ziftbook.com", account = { id = var.account_id } }
 }
@@ -137,7 +138,7 @@ resource "cloudflare_zone_setting" "tbd_ssl" {
 
 # Traefik answers /ping here itself: the end-to-end check through Cloudflare to the node, and
 # the target of the external uptime check (INFRA-26). Content is the platform workspace's
-# node_static_ip output.
+# node_static_ip output. `app` is a CNAME to this record: changing it moves TBD production too.
 resource "cloudflare_dns_record" "tbd_ping" {
   zone_id = cloudflare_zone.tbd.id
   name    = "ping.thebetterdecision.com"
