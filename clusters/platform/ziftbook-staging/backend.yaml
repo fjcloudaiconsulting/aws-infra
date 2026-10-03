@@ -1,4 +1,4 @@
-# Ziftbook API on staging (INFRA-46). Only the frontend talks to it (networkpolicy.yaml); no IngressRoute until INFRA-47.
+# Ziftbook API on staging (INFRA-46). Only the frontend talks to it (networkpolicy.yaml); no IngressRoute (ingress.yaml routes the frontend only).
 # The migrate init container runs `alembic upgrade head` before every start (no-op at head, advisory-locked), so
 # a new version never serves on an old schema. The worker runs the same init container.
 # Images track vX.Y.Z only; Renovate bumps all three in one branch and automerges it (INFRA-36).

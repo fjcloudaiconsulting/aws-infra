@@ -1,6 +1,7 @@
 # Ziftbook background worker on staging (INFRA-46): the backend image, polling Postgres for jobs.
-# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes nowhere until INFRA-47
-# picks staging SMTP: the default Mailgun host has no credentials here.
+# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes out through the Mailgun
+# HTTP API (INFRA-47 wiring, ZIF-151 code); the key is in its own Secret ziftbook-mailgun (api-key), so it can be
+# written with the public SOPS key alone and rotated without touching the ziftbook Secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,9 +66,21 @@ spec:
                 secretKeyRef:
                   name: ziftbook
                   key: database-url
-            # Working assumption until INFRA-47 picks the staging hostname; only used in email links.
-            - name: ZIF_APP_URL
-              value: https://staging.ziftbook.com
+            - name: ZIF_APP_URL # only used in email links
+              value: https://dev.ziftbook.com
+            # Mailgun HTTP API like TBD: EU region, the shared dev sending domain m.fjconsulting.dev (own sending key per environment). ZIF-151 consumes these names;
+            # until it ships no mail is delivered (v0.20.2 still tries SMTP and the job retries). Only the worker sends mail. optional: the worker keeps
+            # running before the owner adds the key.
+            - name: ZIF_MAILGUN_DOMAIN
+              value: m.fjconsulting.dev
+            - name: ZIF_MAILGUN_REGION
+              value: eu
+            - name: ZIF_MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-mailgun
+                  key: api-key
+                  optional: true
             - name: OTEL_TRACES_EXPORTER
               value: none
             - name: OTEL_LOGS_EXPORTER

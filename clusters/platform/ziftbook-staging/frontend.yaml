@@ -1,6 +1,6 @@
 # Ziftbook web (Next.js standalone) on staging (INFRA-46). It proxies /api/* to the backend and passes the visitor IP
 # from cf-connecting-ip: every request reaches the node through Cloudflare (the firewall opens 443 to Cloudflare only).
-# Traefik routes to it once INFRA-47 adds the hostname.
+# Traefik routes to it from ingress.yaml (dev.ziftbook.com).
 apiVersion: v1
 kind: Service
 metadata:

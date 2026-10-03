@@ -16,7 +16,8 @@ terraform {
   }
 }
 
-# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. Account-scoped
+# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. It must also cover zone
+# fjconsulting.dev (read for the shared dev Mailgun records, INFRA-47). Account-scoped
 # token with Zone:Edit, DNS:Edit and Zone Settings:Edit; a zone-scoped token cannot create
 # the zone and only fails at apply.
 provider "cloudflare" {}
@@ -121,13 +122,13 @@ resource "cloudflare_zone_setting" "app" {
   value      = local.app_zone_settings[each.value.setting]
 }
 
-# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate
+# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate (since INFRA-47 it should cover both zones, see docs/configuration-map.md)
 # for thebetterdecision.com and *.thebetterdecision.com, so this zone runs in Full (strict).
 # Safe to flip now: no other record in the zone is proxied, and a DNS-only record never
 # reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
 # custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
 # the cluster, ping below answers 526 under strict; merge only with the secret files in.
-# ziftbook.com stays on Automatic SSL/TLS until it has a proxied hostname on the node.
+# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47, below).
 resource "cloudflare_zone_setting" "tbd_ssl" {
   zone_id    = cloudflare_zone.tbd.id
   setting_id = "ssl"
@@ -144,6 +145,86 @@ resource "cloudflare_dns_record" "tbd_ping" {
   content = "52.57.109.122"
   ttl     = 1 # automatic, required for proxied records
   proxied = true
+}
+
+# Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Under
+# strict, Traefik must serve an Origin CA cert that covers ziftbook.com, or this host answers 526
+# (the apex and www are a Worker and do not use the origin). Same node IP as ping above.
+# The zone was read 2026-10-03 as ssl = full, ssl_automatic_mode = auto: auto re-scans and could move the mode
+# back, so it is pinned to custom first. Merge the origin-cert secret before approving this apply.
+resource "cloudflare_dns_record" "ziftbook_dev" {
+  zone_id = data.cloudflare_zone.ziftbook.id
+  name    = "dev.ziftbook.com"
+  type    = "A"
+  content = "52.57.109.122"
+  ttl     = 1 # automatic, required for proxied records
+  proxied = true
+}
+
+resource "cloudflare_zone_setting" "ziftbook_ssl_mode" {
+  zone_id    = data.cloudflare_zone.ziftbook.id
+  setting_id = "ssl_automatic_mode"
+  value      = "custom"
+}
+
+resource "cloudflare_zone_setting" "ziftbook_ssl" {
+  zone_id    = data.cloudflare_zone.ziftbook.id
+  setting_id = "ssl"
+  value      = "strict"
+
+  depends_on = [cloudflare_zone_setting.ziftbook_ssl_mode]
+}
+
+# Shared Mailgun sending domain for every dev/staging environment (INFRA-47, owner ruling 2026-10-03):
+# m.fjconsulting.dev, EU region. Only production gets per-app m.<appdomain> domains. The zone is
+# read, not managed: its other records (Google mail, site) live outside Terraform. The record set
+# mirrors TBD's m.thebetterdecision.com above (MX, SPF, DKIM, DMARC with Mailgun reporting, tracking).
+# Mailgun's Cloudflare auto-setup created all but the MX on 2026-10-03; the import blocks below adopt
+# them (remove the blocks after the first apply). A second dev app only needs a new Mailgun sending
+# key, no change here. The DKIM value is a public key, split in two strings (TXT 255-char limit).
+data "cloudflare_zone" "fjdev" {
+  filter = { name = "fjconsulting.dev", account = { id = var.account_id } }
+}
+
+locals {
+  fjdev_mail_records = {
+    mx_a     = { type = "MX", name = "m.fjconsulting.dev", content = "mxa.eu.mailgun.org", priority = 10 }
+    mx_b     = { type = "MX", name = "m.fjconsulting.dev", content = "mxb.eu.mailgun.org", priority = 10 }
+    spf      = { type = "TXT", name = "m.fjconsulting.dev", content = "\"v=spf1 include:mailgun.org ~all\"" }
+    dmarc    = { type = "TXT", name = "_dmarc.m.fjconsulting.dev", content = "\"v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com; ruf=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com;\"" }
+    dkim     = { type = "TXT", name = "mta._domainkey.m.fjconsulting.dev", content = "\"k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApsCPgZz8EKnXqDFkGDP2gBc1qxfcyT3zD18o+I7HaGzq4zV4Ib76F6vOFPJjrxwBya74NdLXp+vClblG75xFcVAMkg17RPVu0kIJ+9SNWox2H2cVs1P4s2WL3a22uVoZnod/ORjtpYUT99xKbsjYM89i7byAJiwHG5TDtevNxtjws1ZgwVJcCNbJg58LEq9VxpLIR+26ft\" \"r7Y2z5mSNQuZ0erEDYGpuLaVehCIX81XqqpPpl51VDpE+/ZYZ1UINGzc1BxeEKu4w/HT1dloRwx9ebkwnjA3IK0r1tfhffO6uaxjKc0CCpCZKnCuvuhwiF4cKemLiF/SMBP7joNZPH7QIDAQAB\"" }
+    tracking = { type = "CNAME", name = "email.m.fjconsulting.dev", content = "eu.mailgun.org" }
+  }
+}
+
+resource "cloudflare_dns_record" "fjdev_mail" {
+  for_each = local.fjdev_mail_records
+
+  zone_id  = data.cloudflare_zone.fjdev.id
+  name     = each.value.name
+  type     = each.value.type
+  content  = each.value.content
+  priority = try(each.value.priority, null)
+  ttl      = 300
+  proxied  = false
+}
+
+# Adopt the records Mailgun's Cloudflare auto-setup created (zone ff907e2dae27da386ae2f24dd51e76b2).
+import {
+  to = cloudflare_dns_record.fjdev_mail["spf"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/2be86a27659511602e15ae3a83b5c921"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["dmarc"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/3b2da5ee87320f05a150e37d390ce4a0"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["dkim"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/cc7274fdeb69d1d72829519836471c15"
+}
+import {
+  to = cloudflare_dns_record.fjdev_mail["tracking"]
+  id = "ff907e2dae27da386ae2f24dd51e76b2/be9b055d3ce54ce45c30e9ba089c2560"
 }
 
 output "tbd_name_servers" {
