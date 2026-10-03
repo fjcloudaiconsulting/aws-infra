@@ -179,9 +179,9 @@ resource "cloudflare_zone_setting" "ziftbook_ssl" {
 # m.fjconsulting.dev, EU region. Only production gets per-app m.<appdomain> domains. The zone is
 # read, not managed: its other records (Google mail, site) live outside Terraform. The record set
 # mirrors TBD's m.thebetterdecision.com above (MX, SPF, DKIM, DMARC with Mailgun reporting, tracking).
-# Mailgun's Cloudflare auto-setup created all but the MX on 2026-10-03; the import blocks below adopt
-# them (remove the blocks after the first apply). A second dev app only needs a new Mailgun sending
-# key, no change here. The DKIM value is a public key, split in two strings (TXT 255-char limit).
+# Mailgun's Cloudflare auto-setup created all but the MX on 2026-10-03; they were adopted with import
+# blocks, removed once applied. A second dev app only needs a new Mailgun sending key, no change
+# here. The DKIM value is a public key, split in two strings (TXT 255-char limit).
 data "cloudflare_zone" "fjdev" {
   filter = { name = "fjconsulting.dev", account = { id = var.account_id } }
 }
@@ -207,24 +207,6 @@ resource "cloudflare_dns_record" "fjdev_mail" {
   priority = try(each.value.priority, null)
   ttl      = 300
   proxied  = false
-}
-
-# Adopt the records Mailgun's Cloudflare auto-setup created (zone ff907e2dae27da386ae2f24dd51e76b2).
-import {
-  to = cloudflare_dns_record.fjdev_mail["spf"]
-  id = "ff907e2dae27da386ae2f24dd51e76b2/2be86a27659511602e15ae3a83b5c921"
-}
-import {
-  to = cloudflare_dns_record.fjdev_mail["dmarc"]
-  id = "ff907e2dae27da386ae2f24dd51e76b2/3b2da5ee87320f05a150e37d390ce4a0"
-}
-import {
-  to = cloudflare_dns_record.fjdev_mail["dkim"]
-  id = "ff907e2dae27da386ae2f24dd51e76b2/cc7274fdeb69d1d72829519836471c15"
-}
-import {
-  to = cloudflare_dns_record.fjdev_mail["tracking"]
-  id = "ff907e2dae27da386ae2f24dd51e76b2/be9b055d3ce54ce45c30e9ba089c2560"
 }
 
 output "tbd_name_servers" {

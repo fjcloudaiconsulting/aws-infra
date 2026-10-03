@@ -93,7 +93,7 @@ reporting, and the tracking CNAME `email.m` to `eu.mailgun.org`.
 
 If Mailgun's "automatic setup" for Cloudflare was used instead, the records already exist outside Terraform. Adopt
 them with `import` blocks (id `<zone_id>/<record_id>`, from the Cloudflare API) rather than deleting them, as
-INFRA-47 did.
+INFRA-47 did. Once the apply has adopted them, remove the blocks in a follow-up PR (its plan must show no changes).
 
 The domain `m.fjconsulting.dev` is shared, so Mailgun webhooks on it deliver every dev app's events to every
 registered URL. Each app tags its messages and ignores events for messages it did not send.
