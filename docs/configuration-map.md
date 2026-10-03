@@ -141,10 +141,13 @@ own role.
 - `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
 - `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
-  minimum TLS 1.2) are managed there; SSL stays on Automatic until it has a proxied host on the node. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
+  minimum TLS 1.2, SSL Full strict) and the proxied record `dev.ziftbook.com` are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
 - Hostnames (owner ruling 2026-10-03): staging `dev.<domain>`, production `app.<domain>`, other services
-  by the same pattern (`docs.`, `blog.`). Ziftbook staging becomes `dev.ziftbook.com` in INFRA-47; until
-  then `ZIF_APP_URL` in the `worker` Deployment is a placeholder.
+  by the same pattern (`docs.`, `blog.`). Ziftbook staging is `dev.ziftbook.com` (INFRA-47).
+- The Origin CA certificate must list `thebetterdecision.com`, `*.thebetterdecision.com`, `ziftbook.com` and
+  `*.ziftbook.com`; add a hostname for any new domain before proxying it.
+- Staging mail: Mailpit in `ziftbook-staging` catches everything from the worker, no account. Read it with
+  `kubectl -n ziftbook-staging port-forward svc/mailpit 8025` over NetBird. Real SMTP would be a new decision.
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material

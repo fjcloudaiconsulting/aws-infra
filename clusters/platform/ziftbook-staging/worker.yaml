@@ -1,6 +1,6 @@
 # Ziftbook background worker on staging (INFRA-46): the backend image, polling Postgres for jobs.
-# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes nowhere until INFRA-47
-# picks staging SMTP: the default Mailgun host has no credentials here.
+# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes to the in-cluster
+# Mailpit sink (mailpit.yaml, INFRA-47); nothing leaves the cluster.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,9 +65,14 @@ spec:
                 secretKeyRef:
                   name: ziftbook
                   key: database-url
-            # Working assumption until INFRA-47 picks the staging hostname; only used in email links.
-            - name: ZIF_APP_URL
-              value: https://staging.ziftbook.com
+            - name: ZIF_APP_URL # only used in email links
+              value: https://dev.ziftbook.com
+            - name: ZIF_SMTP_HOST
+              value: mailpit
+            - name: ZIF_SMTP_PORT
+              value: "1025"
+            - name: ZIF_SMTP_STARTTLS
+              value: "false"
             - name: OTEL_TRACES_EXPORTER
               value: none
             - name: OTEL_LOGS_EXPORTER

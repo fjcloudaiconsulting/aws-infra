@@ -127,7 +127,7 @@ resource "cloudflare_zone_setting" "app" {
 # reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
 # custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
 # the cluster, ping below answers 526 under strict; merge only with the secret files in.
-# ziftbook.com stays on Automatic SSL/TLS until it has a proxied hostname on the node.
+# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47, below).
 resource "cloudflare_zone_setting" "tbd_ssl" {
   zone_id    = cloudflare_zone.tbd.id
   setting_id = "ssl"
@@ -144,6 +144,24 @@ resource "cloudflare_dns_record" "tbd_ping" {
   content = "52.57.109.122"
   ttl     = 1 # automatic, required for proxied records
   proxied = true
+}
+
+# Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Under
+# strict, Traefik must serve an Origin CA cert that covers ziftbook.com, or this host answers 526
+# (the apex and www are a Worker and do not use the origin). Same node IP as ping above.
+resource "cloudflare_dns_record" "ziftbook_dev" {
+  zone_id = data.cloudflare_zone.ziftbook.id
+  name    = "dev.ziftbook.com"
+  type    = "A"
+  content = "52.57.109.122"
+  ttl     = 1 # automatic, required for proxied records
+  proxied = true
+}
+
+resource "cloudflare_zone_setting" "ziftbook_ssl" {
+  zone_id    = data.cloudflare_zone.ziftbook.id
+  setting_id = "ssl"
+  value      = "strict"
 }
 
 output "tbd_name_servers" {
