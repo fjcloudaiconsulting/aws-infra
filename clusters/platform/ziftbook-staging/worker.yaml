@@ -1,6 +1,7 @@
 # Ziftbook background worker on staging (INFRA-46): the backend image, polling Postgres for jobs.
 # 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes out through the Mailgun
-# HTTP API (INFRA-47 wiring, ZIF-151 code); the key is in the ziftbook Secret (mailgun-api-key).
+# HTTP API (INFRA-47 wiring, ZIF-151 code); the key is in its own Secret ziftbook-mailgun (api-key), so it can be
+# written with the public SOPS key alone and rotated without touching the ziftbook Secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,8 +78,8 @@ spec:
             - name: ZIF_MAILGUN_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: ziftbook
-                  key: mailgun-api-key
+                  name: ziftbook-mailgun
+                  key: api-key
                   optional: true
             - name: OTEL_TRACES_EXPORTER
               value: none
