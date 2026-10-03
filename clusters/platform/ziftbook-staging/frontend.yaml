@@ -1,0 +1,77 @@
+# Ziftbook web (Next.js standalone) on staging (INFRA-46). It proxies /api/* to the backend and passes the visitor IP
+# from cf-connecting-ip: every request reaches the node through Cloudflare (the firewall opens 443 to Cloudflare only).
+# Traefik routes to it once INFRA-47 adds the hostname.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ziftbook-staging
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ziftbook-staging
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000 # node in the image
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/frontend:v0.20.1
+          ports:
+            - containerPort: 3000
+          env:
+            - name: ZIF_API_URL
+              value: http://backend:8000
+            - name: ZIF_CLIENT_IP_HEADER
+              value: cf-connecting-ip
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
