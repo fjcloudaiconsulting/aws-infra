@@ -1,0 +1,91 @@
+# Ziftbook background worker on staging (INFRA-46): the backend image, polling Postgres for jobs.
+# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes nowhere until INFRA-47
+# picks staging SMTP: the default Mailgun host has no credentials here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ziftbook-staging
+spec:
+  replicas: 1
+  # One worker at a time, and no surge over the quota.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.20.1
+          env:
+            - name: ZIF_MIGRATE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: migrate-database-url
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: worker
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.20.1
+          command: [python, -m, app.worker]
+          env:
+            - name: ZIF_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: database-url
+            # Working assumption until INFRA-47 picks the staging hostname; only used in email links.
+            - name: ZIF_APP_URL
+              value: https://staging.ziftbook.com
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
