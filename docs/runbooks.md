@@ -140,3 +140,49 @@ SMOKE_PASSWORD -R fjcloudaiconsulting/tbd` and rewrite `tbd-smoke.secret.yaml` w
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
 
+## Origin pull client certificate (Authenticated Origin Pulls)
+
+The Lightsail firewall admits every Cloudflare IP, so any Cloudflare zone could reach the node. Zone-level
+Authenticated Origin Pulls closes that (INFRA-93): Cloudflare presents our own client certificate when it connects to
+the origin for thebetterdecision.com and ziftbook.com, and Traefik's `TLSOption default`
+([`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)) fails the TLS handshake of any
+client without a certificate signed by our CA.
+
+| Piece | Where |
+|---|---|
+| Leaf certificate and key (one for both zones) | `cloudflare` workspace variables `origin_pull_certificate` and `origin_pull_private_key` (sensitive), uploaded to each zone by [`terraform/cloudflare/origin_pull.tf`](../terraform/cloudflare/origin_pull.tf) |
+| CA certificate (public) | Secret `kube-system/origin-pull-ca`, key `ca.crt`, file `clusters/platform/traefik/origin-pull-ca.secret.yaml` |
+| CA private key | Deleted after signing the leaf. Nobody can mint another certificate the origin trusts |
+
+Order matters, because the origin fails closed: **Cloudflare presents the certificate first, the origin requires it
+after.** A missing `origin-pull-ca` Secret, or a `TLSOption default` that cannot load it, takes every host down.
+
+**Check** (run both; the in-cluster probe stands in for a direct connection, which the firewall drops before TLS):
+
+```sh
+curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/                 # 200: our zones pass
+curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the uptime check passes
+kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
+  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to dev.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://dev.ziftbook.com/
+# 000 and "curl: (56) ... certificate required": enforced. Any HTTP code (307, 200, 404) means the origin is open.
+```
+
+**Rollback** (origin first, then Cloudflare; never the other way round):
+
+1. Revert the PR that added `TLSOption default`. Flux applies it within a few minutes. Faster, while the revert is in
+   review: `flux suspend kustomization flux-system && kubectl -n kube-system delete tlsoption default`, then
+   `flux resume kustomization flux-system` once the revert is merged. Keep the `origin-pull-ca` Secret.
+2. Only if Cloudflare itself must stop presenting the certificate: set `enabled = false` in
+   `cloudflare_authenticated_origin_pulls_settings.app` and apply. Deleting that resource does not turn it off.
+
+**Rotate** (before the expiry in [configuration-map.md](configuration-map.md#expiries-and-rotation), or at once if the
+leaf key may have leaked):
+
+1. Generate a new CA and leaf with the INFRA-93 owner steps, part A, in a new directory.
+2. Write the new CA as a second Secret `origin-pull-ca-next` (`kubectl create secret generic origin-pull-ca-next -n
+   kube-system --from-file=ca.crt=ca.crt --dry-run=client -o yaml`, then encrypt as in the Secret section) and add it
+   under `clientAuth.secretNames` next to `origin-pull-ca`. Merge. Traefik now trusts both CAs.
+3. Replace both workspace variables with the new leaf and key, delete the local key, and apply `cloudflare`. The new
+   certificate is uploaded before the old one is deleted. Wait until each zone shows it `active`, then run the check.
+4. Regenerate `origin-pull-ca.secret.yaml` from the new CA, drop `origin-pull-ca-next` (file and list entry), merge, run
+   the check, and update the expiry row in the configuration map.

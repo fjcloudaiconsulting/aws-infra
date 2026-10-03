@@ -25,6 +25,7 @@ in the same PR or right after.
 | Flux cannot apply a `*.secret.yaml` | `flux-system/sops-age` missing or holds the wrong key | README, Kubernetes secrets | Recreate the secret from the offline key |
 | Ziftbook staging sends no mail (once ZIF-151 ships) | Secret `ziftbook-mailgun` (key `api-key`) missing (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Write `ziftbook-mailgun.secret.yaml` (INFRA-47 guide, part D), then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
+| Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by the CA in `kube-system/origin-pull-ca`, or that Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
@@ -112,7 +113,7 @@ name is pinned in an AWS trust policy: never rename it.
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev); variable `account_id` |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev, with SSL and Certificates: Edit on the first two for origin pulls); variable `account_id`; variables `origin_pull_certificate` (PEM leaf, public) and `origin_pull_private_key` (**sensitive**, its key; exists nowhere else) (INFRA-93) |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
@@ -155,6 +156,12 @@ own role.
   `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
 - Shared-domain webhooks: Mailgun delivers every dev app's events to every webhook URL registered on `m.fjconsulting.dev`,
   so an app must ignore events for messages it did not send (apps tag their messages; handled in the ZIF tickets).
+- Origin pulls (INFRA-93): zone-level Authenticated Origin Pulls is on for thebetterdecision.com and ziftbook.com
+  (`terraform/cloudflare/origin_pull.tf`), with one leaf certificate of our own for both zones. Traefik's `TLSOption
+  default` accepts only clients with a certificate signed by our CA (`kube-system/origin-pull-ca`), so the node
+  serves no one but our zones: a direct connection, or another Cloudflare account's zone pointed at the node, fails
+  the TLS handshake. Health checks are unaffected because they go through Cloudflare. The CA key was deleted after
+  signing. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material
@@ -185,6 +192,7 @@ commit body only.
 | `ghcr-pull` credentials | with their token | Cluster section |
 | NetBird `owner-admin` token | about 2026-12-31 | NetBird runbook |
 | Origin CA certificates (one per zone: thebetterdecision.com, ziftbook.com) | see Cloudflare dashboard of each zone | Issue, re-encrypt `origin-cert.secret.yaml` or `origin-cert-ziftbook.secret.yaml` (namespace `kube-system`), push |
+| Origin pull client certificate (one leaf for both zones) and its CA (INFRA-93) | leaf EXPIRY-PENDING, CA 10 days later (`terraform output origin_pull_certificates`; Cloudflare emails 30 and 14 days before) | New CA and leaf, Traefik trusts both during the swap: [runbook](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
