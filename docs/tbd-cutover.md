@@ -149,16 +149,19 @@ kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.replicas}'; echo   # 
 my <<<"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB'"   # 0, or the rehearsal's count
 key=$(jq -r .dump.key manifest.json) sha=$(jq -r .dump.sha256 manifest.json)
 aws s3 cp "s3://$B/$key" - | kubectl -n "$NS" exec -i "$POD" -- sh -c 'cat >/tmp/dump.sql.gz'
-kubectl -n "$NS" exec "$POD" -- sh -c "echo '$sha  /tmp/dump.sql.gz' | sha256sum -c && gzip -t /tmp/dump.sql.gz"   # /tmp/dump.sql.gz: OK
-kubectl -n "$NS" exec "$POD" -- sh -c 'gzip -dc /tmp/dump.sql.gz | grep -cE "DEFINER=|^USE |^CREATE DATABASE"'      # 0
-# Only now, with a verified dump in the pod: empty $DB (a no-op on a fresh database, the rehearsal's copy otherwise).
-# One && chain: the DROP runs only if the gate above still holds (no tbd IngressRoute, backend at 0 replicas).
-# Grants on $DB.* survive DROP DATABASE.
-[ "$(kubectl -n tbd-prod get ingressroute -o name | wc -l | tr -d ' ')" = 0 ] &&
+# One && chain from the dump checks to the restore: any failed link stops every link after it, so a pasted block
+# can never empty or overwrite $DB unguarded. In order: checksum and gzip, no DEFINER/USE/CREATE DATABASE, the gate
+# above still holds (no tbd IngressRoute, backend at 0), then empty $DB (a no-op on a fresh database, the
+# rehearsal's copy otherwise; grants on $DB.* survive DROP DATABASE) and load the dump.
+kubectl -n "$NS" exec "$POD" -- sh -c "echo '$sha  /tmp/dump.sql.gz' | sha256sum -c && gzip -t /tmp/dump.sql.gz" &&
+  [ "$(kubectl -n "$NS" exec "$POD" -- sh -c 'gzip -dc /tmp/dump.sql.gz | grep -cE "DEFINER=|^USE |^CREATE DATABASE"')" = 0 ] &&
+  [ "$(kubectl -n tbd-prod get ingressroute -o name | wc -l | tr -d ' ')" = 0 ] &&
   [ "$(kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.replicas}')" = 0 ] &&
-  my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`" && echo emptied || echo "STOP: not emptied, do not restore"   # emptied
-kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
-  gzip -dc /tmp/dump.sql.gz | mysql -uroot "$1" && echo restored' sh "$DB"                                         # restored
+  my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`" && echo emptied &&
+  kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+    gzip -dc /tmp/dump.sql.gz | mysql -uroot "$1" && echo restored' sh "$DB" ||
+  echo "STOP: a check or step failed (the last line above says which); do not start the app"
+# Expected: /tmp/dump.sql.gz: OK, emptied, restored
 jq .tables manifest.json
 my <<<"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB' AND table_type = 'BASE TABLE'"     # same number
 my <<<"SHOW GRANTS FOR '$DBUSER'@'%'" | grep -c "ON \`$DB\`"             # 1
