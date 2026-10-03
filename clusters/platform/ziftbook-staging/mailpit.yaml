@@ -1,5 +1,5 @@
 # Staging mail sink (INFRA-47): Mailpit accepts every message from the worker and delivers nothing. No external
-# account and no credentials; messages live in memory and vanish on restart. The UI (8025) has no Ingress: read it with
+# account and no credentials; messages sit in an emptyDir and vanish on restart. The UI (8025) has no Ingress: read it with
 # `kubectl -n ziftbook-staging port-forward svc/mailpit 8025` over NetBird.
 apiVersion: v1
 kind: Service
@@ -43,6 +43,9 @@ spec:
       containers:
         - name: mailpit
           image: axllent/mailpit:v1.31.4
+          env:
+            - name: MP_DISABLE_VERSION_CHECK
+              value: "true"
           ports:
             - containerPort: 1025
             - containerPort: 8025
@@ -65,4 +68,5 @@ spec:
               mountPath: /tmp
       volumes:
         - name: tmp
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 256Mi

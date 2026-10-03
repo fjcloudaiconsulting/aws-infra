@@ -75,7 +75,7 @@ Proxied hostnames go through Cloudflare to the node's static IP. Today that is o
 (INFRA-48), after which they are proxied the same way. The thebetterdecision.com zone is in Full
 (strict), so Cloudflare only accepts the Cloudflare Origin CA certificate that Traefik serves as its
 default (`TLSStore default`). ziftbook.com is in Full (strict) too, with
-`dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node; the cert must cover both domains. The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
+`dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node; that host answers 526 until the Origin CA cert is reissued to cover ziftbook.com. The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
 endpoint served by Traefik itself. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
 repo.

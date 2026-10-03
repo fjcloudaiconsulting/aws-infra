@@ -121,7 +121,7 @@ resource "cloudflare_zone_setting" "app" {
   value      = local.app_zone_settings[each.value.setting]
 }
 
-# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate
+# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate (since INFRA-47 it should cover both zones, see docs/configuration-map.md)
 # for thebetterdecision.com and *.thebetterdecision.com, so this zone runs in Full (strict).
 # Safe to flip now: no other record in the zone is proxied, and a DNS-only record never
 # reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
@@ -149,6 +149,7 @@ resource "cloudflare_dns_record" "tbd_ping" {
 # Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Under
 # strict, Traefik must serve an Origin CA cert that covers ziftbook.com, or this host answers 526
 # (the apex and www are a Worker and do not use the origin). Same node IP as ping above.
+# If the next plan shows ssl drifting (the zone was on Automatic, ssl_automatic_mode), read the zone and set it to custom.
 resource "cloudflare_dns_record" "ziftbook_dev" {
   zone_id = data.cloudflare_zone.ziftbook.id
   name    = "dev.ziftbook.com"
