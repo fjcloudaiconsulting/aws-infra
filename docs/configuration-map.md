@@ -57,7 +57,7 @@ private repositories cannot have branch protection, so every repo that must be p
 | Repo | Mechanism | Rules |
 |---|---|---|
 | aws-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
-| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. **No tag ruleset**: the moving tag `v1` is unprotected until INFRA-76 |
+| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Ruleset `tag protection` (INFRA-76) on `refs/tags/v*`: restrict creations, updates, deletions; bypass org admin only (the owner moves `v1`; the release App is not installed here) |
 | app-template | Ruleset `main protection` (id 24384611) | Same as `.github`: PR with 1 approval, linear history, no required checks |
 | ziftbook | Classic branch protection | 1 review, strict checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced. **Force-push and deletion of `main` are allowed** |
 | tbd | Classic branch protection | 1 review, checks `Backend Checks`, `Frontend Checks`, admins enforced |
