@@ -349,11 +349,12 @@ Do the steps in order; each names its check.
 4. If A2 was merged: open a revert PR of A2 for later; the k3s pods idle until then.
 
 **R2: B merged, apply not yet approved.** Discard the run in HCP Terraform (Discard Run), then R3 step 1 (its plan
-then shows no DNS change; Flux stops the scheduler), then R1.
+shows no changes, since the record never moved; Flux stops the scheduler), then R1.
 
 **R3: after DNS (step 5, and the rollback week until INFRA-49).**
 
-1. Rebuild C as at the end of step 5 if not done, then `gh pr create --head revert/INFRA-48-tbd-dns-rollback --fill`;
+1. Rebuild C as at the end of step 5 if not done, then
+   `gh pr create --head revert/INFRA-48-tbd-dns-rollback --title "revert(cloudflare): TBD back to DigitalOcean (INFRA-48)" --body "Rollback, docs/tbd-cutover.md R3."`;
    **MERGE C**; approve the `cloudflare` apply (`1 to change`). Flux stops the k3s scheduler (check: scheduler
    `0/0`); the record goes back to the DNS-only CNAME `pfv-xccvs.ondigitalocean.app` (check: the DoH query of step 5
    with `type=CNAME` returns it; resolvers follow within 5 minutes).
