@@ -1,0 +1,41 @@
+# Release drift (INFRA-38): a released vX.Y.Z of an app whose image is in clusters/ but whose
+# tag in clusters/ is older for more than GRACE_DAYS, i.e. the Renovate bump PR is still open
+# or Renovate never opened it. Reads git and the app repos' GitHub releases only (GHCR is
+# private, so no anonymous tag listing; promote retags the image when it publishes the release,
+# the grace period covers the gap). Needs the app repos to stay public (GITHUB_TOKEN reads
+# their releases); the run goes red if one goes private. Logic: .github/scripts/check-release-drift.sh.
+# Add tbd to the watch list at cutover (INFRA-48). Opens or updates ONE issue; closes it when drift clears.
+name: Release Drift Probe
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      grace_days:
+        description: Days a newer release may be absent from clusters/ (0 to test)
+        default: "2"
+
+concurrency:
+  group: release-drift-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare clusters/ with latest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GRACE_DAYS: ${{ inputs.grace_days || '2' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/check-release-drift.sh
