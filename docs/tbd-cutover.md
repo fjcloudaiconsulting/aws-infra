@@ -106,7 +106,8 @@ kubectl get nodes --no-headers | awk '{print $2}'                       # Ready
 kubectl top node --no-headers | awk '{print $4}'                        # under 2600Mi
 aws sts get-caller-identity --query Account --output text               # 884686184019
 TAG=$(gh release view -R fjcloudaiconsulting/tbd --json tagName --jq .tagName); echo "$TAG"   # the release in the A1 pins
-# INFRA-42 (version in /health) and INFRA-83 (client IP, migrate lock) are both in $TAG:
+# INFRA-42 (tbd#823, version in /health) and INFRA-83 (tbd#824, client IP, migrate lock) are merged and in $TAG
+# (an unmerged PR has no merge commit: the compare fails, which is a no-go):
 for t in INFRA-42 INFRA-83; do
   sha=$(gh pr list -R fjcloudaiconsulting/tbd --state merged --search "$t in:title" --json mergeCommit --jq '.[0].mergeCommit.oid')
   gh api "repos/fjcloudaiconsulting/tbd/compare/$sha...$TAG" --jq "\"$t \" + .status"
