@@ -24,7 +24,7 @@ in the same PR or right after.
 | Flux shows the Kustomization Ready but a workload is down | `flux-system` has no `healthChecks`: pod, quota or PSA failures do not turn it red | `kubectl -n <ns> get pods,events` | Fix the manifest. Namespace limits: [`namespaces/ziftbook-staging.yaml`](../clusters/platform/namespaces/ziftbook-staging.yaml) |
 | Flux cannot apply a `*.secret.yaml` | `flux-system/sops-age` missing or holds the wrong key | README, Kubernetes secrets | Recreate the secret from the offline key |
 | Ziftbook staging sends no mail (once ZIF-151 ships) | `mailgun-api-key` missing from Secret `ziftbook` (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Add the key, re-encrypt, then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
-| Cloudflare 526 on a proxied host | Traefik serves the self-signed default: Secret `kube-system/origin-cert` missing or the Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server | Issue a new Origin CA cert, re-encrypt `origin-cert.secret.yaml` |
+| Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
@@ -183,7 +183,7 @@ commit body only.
 | `GHCR_READ_TOKEN` (Mend) | about 2026-12-31 | Mend section |
 | `ghcr-pull` credentials | with their token | Cluster section |
 | NetBird `owner-admin` token | about 2026-12-31 | NetBird runbook |
-| Origin CA certificate | see Cloudflare dashboard | Issue, re-encrypt `origin-cert.secret.yaml` (namespace `kube-system`), push |
+| Origin CA certificates (one per zone: thebetterdecision.com, ziftbook.com) | see Cloudflare dashboard of each zone | Issue, re-encrypt `origin-cert.secret.yaml` or `origin-cert-ziftbook.secret.yaml` (namespace `kube-system`), push |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
