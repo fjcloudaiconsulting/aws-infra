@@ -35,8 +35,9 @@ FP='for k in JWT_SECRET_KEY MFA_ENCRYPTION_KEY AI_CREDENTIAL_ENCRYPTION_KEY AI_C
 echo "$DB $DBUSER"   # tbd tbd_app
 ```
 
-The droplet commands run as root on `pfv-data-01` (`doctl compute ssh pfv-data-01`); its `mysql` reads
-`/root/.my.cnf`.
+The droplet commands run as root on `pfv-data-01` (`doctl compute ssh pfv-data-01`). There, `mysql --no-defaults`
+is MySQL root over the socket; a plain `mysql` reads `/root/.my.cnf`, the low-privilege backup user, and cannot
+`SET GLOBAL`.
 
 ## 1. Write the tbd secret (owner, before the rehearsal, about 30 minutes)
 
@@ -72,8 +73,10 @@ for k in JWT_SECRET_KEY MFA_ENCRYPTION_KEY AI_CREDENTIAL_ENCRYPTION_KEY AI_CREDE
 done
 unset V; pbcopy </dev/null   # empty the clipboard the values went through
 # Fingerprints of what was pasted: must equal the DO console output of step 1, line by line.
-for k in $(printf %s "$J" | jq -r 'keys[]' | grep -v -e database-url -e redis-url); do
-  printf '%s %s\n' "$(printf %s "$k" | tr 'a-z-' 'A-Z_')" "$(printf %s "$J" | jq -r --arg k "$k" '.[$k]' | shasum -a 256 | cut -c1-12)"
+for n in JWT_SECRET_KEY MFA_ENCRYPTION_KEY AI_CREDENTIAL_ENCRYPTION_KEY AI_CREDENTIAL_ENCRYPTION_KEY_PREV API_TOKEN_HMAC_KEY \
+         MAILGUN_API_KEY MAILGUN_WEBHOOK_SIGNING_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET CAPTCHA_SECRET FOUNDER_COUNT_EXCLUDE_USERNAMES; do
+  k=$(printf %s "$n" | tr 'A-Z_' 'a-z-')   # same order as FP; a left-out key hashes like an unset variable
+  printf '%s %s\n' "$n" "$(printf %s "$J" | jq -r --arg k "$k" '.[$k] // empty' | shasum -a 256 | cut -c1-12)"
 done
 # Encrypt straight from memory to the file: the plaintext never touches the disk.
 printf %s "$J" | jq '{apiVersion: "v1", kind: "Secret", metadata: {name: "tbd", namespace: "tbd-prod"}, type: "Opaque", stringData: .}' |
@@ -102,9 +105,12 @@ TAG=$(gh release view -R fjcloudaiconsulting/tbd --json tagName --jq .tagName); 
 gh release view "$TAG" -R fjcloudaiconsulting/tbd --json body --jq .body | grep -c INFRA-83     # 1 or more
 CIP=<the client-IP env name from the INFRA-83 PR>
 grep -c "name: $CIP" clusters/platform/tbd-prod/backend.yaml clusters/platform/tbd-prod/scheduler.yaml   # 1 each: without it every user shares Traefik's IP (one rate-limit bucket)
-curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok",... "version":"<TAG without v>" ...}
+curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok"} (DO builds report no version)
 grep -rhoE 'ghcr\.io/fjcloudaiconsulting/tbd/[a-z]+:v[0-9.]+' clusters/ | sort -u   # backend, frontend, migrations, all :$TAG
+kubectl -n tbd-prod get deploy -o jsonpath='{..image}' | tr ' ' '\n' | sort -u   # the same three, :$TAG (what Flux applied)
 kubectl -n tbd-prod get secret tbd -o json | jq '.data | length'        # 13 (12 without ..._PREV)
+# The secret points at the live names (INFRA-73 after the secret was written would break logins).
+kubectl -n tbd-prod get secret tbd -o jsonpath='{.data.database-url}' | base64 -d | sed 's/:[^:@]*@/:***@/'; echo   # mysql+aiomysql://$DBUSER:***@mysql.data.svc.cluster.local:3306/$DB
 kubectl -n tbd-prod get deploy --no-headers | awk '{print $1, $2}'      # backend 0/0, frontend 0/0, scheduler 0/0
 kubectl get ingressroute -A --no-headers | awk '{print $1"/"$2}'        # kube-system/ping, ziftbook-staging/frontend: no tbd route
 kubectl -n data get pod mysql-0 valkey-0 --no-headers | awk '{print $1, $2}'   # 1/1 each
@@ -113,8 +119,8 @@ kubectl -n data get jobs --sort-by=.status.startTime --no-headers | tail -1   # 
 # The rollback target: DO still serves the custom domain on its own address, whatever our DNS says.
 curl -s --connect-to app.thebetterdecision.com:443:pfv-xccvs.ondigitalocean.app:443 https://app.thebetterdecision.com/health   # {"status":"ok"...}
 echo | openssl s_client -connect pfv-xccvs.ondigitalocean.app:443 -servername app.thebetterdecision.com 2>/dev/null | openssl x509 -noout -enddate   # after 2026-10-12 (Nov 19 2026 on 2026-10-03)
-kubectl -n kube-system get secret origin-cert -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -ext subjectAltName   # *.thebetterdecision.com
-git ls-remote origin refs/heads/revert/INFRA-48-tbd-dns-rollback | wc -l   # 1
+kubectl -n kube-system get secret origin-cert -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -text | grep -A1 "Subject Alternative Name" | tail -1   # DNS:thebetterdecision.com, DNS:*.thebetterdecision.com (or the reverse)
+git ls-remote origin refs/heads/revert/INFRA-48-tbd-dns-rollback | wc -l | tr -d " "   # 1
 ```
 
 At the window start also: A1 merged; A2 and B open with CI green; B's `Terraform Cloud/FlamaCorp/cloudflare` check
@@ -130,15 +136,16 @@ loads into `$DB` whatever the droplet called it.
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 aws s3 cp "s3://$B/$M" manifest.json && jq '{date, tables, database}' manifest.json
 # Gate: tbd-prod has never served the public (no tbd IngressRoute), so $DB holds nothing worth keeping.
-kubectl -n tbd-prod get ingressroute -o name | wc -l                   # 0
+kubectl -n tbd-prod get ingressroute -o name | wc -l | tr -d " "                   # 0
 kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.replicas}'; echo   # 0
 my <<<"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB'"   # 0, or the rehearsal's count
-# Empty it (a no-op on a fresh database, the rehearsal's copy otherwise). Grants on $DB.* survive DROP DATABASE.
-my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`"
 key=$(jq -r .dump.key manifest.json) sha=$(jq -r .dump.sha256 manifest.json)
 aws s3 cp "s3://$B/$key" - | kubectl -n "$NS" exec -i "$POD" -- sh -c 'cat >/tmp/dump.sql.gz'
 kubectl -n "$NS" exec "$POD" -- sh -c "echo '$sha  /tmp/dump.sql.gz' | sha256sum -c && gzip -t /tmp/dump.sql.gz"   # /tmp/dump.sql.gz: OK
 kubectl -n "$NS" exec "$POD" -- sh -c 'gzip -dc /tmp/dump.sql.gz | grep -cE "DEFINER=|^USE |^CREATE DATABASE"'      # 0
+# Only now, with a verified dump in the pod: empty $DB (a no-op on a fresh database, the rehearsal's copy otherwise).
+# Grants on $DB.* survive DROP DATABASE.
+my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`"
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   gzip -dc /tmp/dump.sql.gz | mysql -uroot "$1" && echo restored' sh "$DB"                                         # restored
 jq .tables manifest.json
@@ -186,7 +193,7 @@ EOF
 # 4. Backend and frontend only. The scheduler stays 0.
 kubectl -n tbd-prod scale deploy/backend deploy/frontend --replicas=1
 kubectl -n tbd-prod rollout status deploy/backend --timeout=5m && kubectl -n tbd-prod rollout status deploy/frontend --timeout=5m
-kubectl -n tbd-prod logs deploy/backend -c migrate | tail -5             # no error; nothing to apply when DO runs $TAG
+kubectl -n tbd-prod logs deploy/backend -c migrate | tail -5             # no error (alembic upgrade head; a no-op when DO already ran the same schema)
 kubectl -n tbd-prod exec deploy/backend -- python -c "
 import socket
 try:
@@ -252,12 +259,12 @@ rehearsal step 5; `unset SP` at the end of the window.
 3. On the droplet (`doctl compute ssh pfv-data-01`):
 
    ```bash
-   mysql -NBe "SELECT COUNT(*) FROM information_schema.processlist WHERE user = 'pfv_app'"   # 0 (repeat until 0)
+   mysql --no-defaults -NBe "SELECT COUNT(*) FROM information_schema.processlist WHERE user = 'pfv_app'"   # 0 (repeat until 0)
    # Belt for the rollback week: a DO scheduler that comes back skips its ticks for 8 days...
    REDISCLI_AUTH=$(awk '/^requirepass/{print $2}' /etc/redis/conf.d/00-static.conf) \
      redis-cli --no-auth-warning SET scheduler:tick:lock INFRA-48 EX 691200   # OK (exactly; NOAUTH means nothing was set)
    # ...and nothing can write to the droplet's data (until a mysqld restart).
-   mysql -e "SET GLOBAL super_read_only = ON"; mysql -NBe "SELECT @@global.read_only, @@global.super_read_only"   # 1	1
+   mysql --no-defaults -e "SET GLOBAL super_read_only = ON"; mysql --no-defaults -NBe "SELECT @@global.read_only, @@global.super_read_only"   # 1	1
    ```
 
 Rollback from here: [R1](#rollback).
@@ -292,7 +299,7 @@ flux reconcile source git flux-system && flux reconcile kustomization flux-syste
 kubectl -n tbd-prod rollout status deploy/backend --timeout=5m && kubectl -n tbd-prod rollout status deploy/frontend --timeout=5m
 kubectl -n tbd-prod get deploy --no-headers | awk '{print $1, $2}'      # backend 1/1, frontend 1/1, scheduler 0/0
 kubectl -n tbd-prod logs deploy/backend -c migrate | tail -5             # no error
-kubectl -n tbd-prod get ingressroute app --no-headers | wc -l            # 1
+kubectl -n tbd-prod get ingressroute app --no-headers | wc -l | tr -d " "            # 1
 ```
 
 Then rehearsal step 5 again (`/health` shows `$TAG`, `/login` 200, `smoke-test.sh` all ✓). **G3**.
@@ -339,7 +346,7 @@ kubectl -n data logs job/db-backup-cutover -c mysql-dump | tail -1      # ok: tb
 kubectl -n data logs job/db-backup-cutover -c upload | grep -c uploaded  # 6
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.complete   # 1 or more (a tick every 15 min)
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.error      # 0
-kubectl -n tbd-prod get events --field-selector type=Warning --sort-by=.lastTimestamp | tail -3   # nothing newer than step 4
+kubectl -n tbd-prod get pods --no-headers | awk '{print $1, $2, $3, $4}'   # backend, frontend, scheduler: 1/1 Running, 0 restarts
 ```
 
 Then comment the result on INFRA-48. Monday: the 02:00 UTC `db-backup` and the 04:17 UTC freshness probe must be
@@ -351,8 +358,8 @@ Do the steps in order; each names its check.
 
 **R1: before DNS (steps 1 to 4).** DigitalOcean comes back; k3s holds no public traffic.
 
-1. Droplet: `mysql -e "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF"` (check:
-   `mysql -NBe "SELECT @@global.read_only"` prints 0), then
+1. Droplet: `mysql --no-defaults -e "SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF"` (check:
+   `mysql --no-defaults -NBe "SELECT @@global.read_only"` prints 0), then
    `REDISCLI_AUTH=$(awk '/^requirepass/{print $2}' /etc/redis/conf.d/00-static.conf) redis-cli --no-auth-warning DEL scheduler:tick:lock`
    (prints 1).
 2. DO control panel > Apps > `pfv` > Settings > Archive mode > **Restore**. Check:
@@ -363,6 +370,10 @@ Do the steps in order; each names its check.
    Check: `gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN` shows it updated just now; the next
    release deploys to DO again.
 4. If A2 was merged: open a revert PR of A2 for later; the k3s pods idle until then.
+
+Mail after B: the k3s scheduler ticks within minutes of B's merge. On any rollback after that, mail it already sent
+from the restored data can go out again once DO's scheduler runs (R1 step 1 removes its tick lock). Accepted (few
+users); to avoid it, re-set the lock with `EX 86400` instead of the `DEL`, so DO's scheduler resumes a day later.
 
 **R2: B merged, apply not yet approved.** Discard the run in HCP Terraform (Discard Run), then R3 step 1 (its plan
 shows no changes, since the record never moved; Flux stops the scheduler), then R1.
