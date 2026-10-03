@@ -102,9 +102,13 @@ kubectl get nodes --no-headers | awk '{print $2}'                       # Ready
 kubectl top node --no-headers | awk '{print $4}'                        # under 2600Mi
 aws sts get-caller-identity --query Account --output text               # 884686184019
 TAG=$(gh release view -R fjcloudaiconsulting/tbd --json tagName --jq .tagName); echo "$TAG"   # the release in the A1 pins
-gh release view "$TAG" -R fjcloudaiconsulting/tbd --json body --jq .body | grep -c INFRA-83     # 1 or more
-CIP=<the client-IP env name from the INFRA-83 PR>
-grep -c "name: $CIP" clusters/platform/tbd-prod/backend.yaml clusters/platform/tbd-prod/scheduler.yaml   # 1 each: without it every user shares Traefik's IP (one rate-limit bucket)
+# INFRA-42 (version in /health) and INFRA-83 (client IP, migrate lock) are both in $TAG:
+for t in INFRA-42 INFRA-83; do
+  sha=$(gh pr list -R fjcloudaiconsulting/tbd --state merged --search "$t in:title" --json mergeCommit --jq '.[0].mergeCommit.oid')
+  gh api "repos/fjcloudaiconsulting/tbd/compare/$sha...$TAG" --jq "\"$t \" + .status"
+done                                                                    # INFRA-42 ahead, INFRA-83 ahead (or identical)
+CIP=""   # set to the client-IP env name from the INFRA-83 PR
+: "${CIP:?set CIP first}"; grep -c "name: $CIP$" clusters/platform/tbd-prod/backend.yaml clusters/platform/tbd-prod/scheduler.yaml   # 1 each: without it every user shares Traefik's IP (one rate-limit bucket)
 curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok"} (DO builds report no version)
 grep -rhoE 'ghcr\.io/fjcloudaiconsulting/tbd/[a-z]+:v[0-9.]+' clusters/ | sort -u   # backend, frontend, migrations, all :$TAG
 kubectl -n tbd-prod get deploy -o jsonpath='{..image}' | tr ' ' '\n' | sort -u   # the same three, :$TAG (what Flux applied)
@@ -249,7 +253,9 @@ rehearsal step 5; `unset SP` at the end of the window.
    gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN   # updated just now
    ```
 
-   DO control panel > API > Tokens: delete the token the tbd repo used (a rollback mints a new one, R1).
+   DO control panel > API > Tokens: delete the token the tbd repo used (a rollback mints a new one, R1). First check
+   it is not the one your `doctl` uses (`doctl auth list`, and the token name in the control panel): this runbook
+   still needs `doctl compute ssh` until the end of the window.
 2. DO control panel > Apps > `pfv` > Settings > Archive mode > **Archive**, type the app name, confirm. Wait for the
    deployment to finish.
 
@@ -367,8 +373,8 @@ Do the steps in order; each names its check.
 3. DO control panel > API > Tokens > Generate New Token (`tbd-release-deploy`, custom scopes: app read and
    update only), then
    `read -rs T; printf %s "$T" | gh secret set DIGITALOCEAN_ACCESS_TOKEN -R fjcloudaiconsulting/tbd; unset T`.
-   Check: `gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN` shows it updated just now; the next
-   release deploys to DO again.
+   Check: `gh secret list -R fjcloudaiconsulting/tbd | grep DIGITALOCEAN` shows it updated just now, and
+   `gh workflow run deploy-drift-probe.yml -R fjcloudaiconsulting/tbd` (it reads the app with this token) goes green.
 4. If A2 was merged: open a revert PR of A2 for later; the k3s pods idle until then.
 
 Mail after B: the k3s scheduler ticks within minutes of B's merge. On any rollback after that, mail it already sent
