@@ -17,8 +17,8 @@ The external uptime check (INFRA-26) is a Route 53 HTTPS health check on
 interval, failure threshold 3, about $2.75/month (non-AWS endpoint $0.75 plus $2 for HTTPS; no
 string matching, which would add $2). Its metric exists only in us-east-1, so the alarm
 `platform-ping-unhealthy` and its topic `platform-alerts-use1` (email to the owner) live there:
-two unhealthy minutes, or missing data, alarm; recovery sends OK. Since INFRA-48 a TBD release or a MySQL or Valkey
-restart longer than about 2 to 3 minutes sends ALARM then OK on purpose ([docs/runbooks.md](../../docs/runbooks.md#uptime-alarm-emails-during-a-tbd-deploy)).
+two unhealthy minutes, or missing data, alarm; recovery sends OK. Since INFRA-48 an outage longer than about 3 to 4
+minutes (a slow TBD release, a MySQL or Valkey restart) sends ALARM then OK on purpose ([docs/runbooks.md](../../docs/runbooks.md#uptime-alarm-emails-during-a-tbd-deploy)).
 
 ## Roles
 

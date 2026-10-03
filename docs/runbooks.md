@@ -252,11 +252,12 @@ until the new one is active.
 
 The Route 53 uptime check reads `https://app.thebetterdecision.com/health/dependencies` (INFRA-48), not Traefik's
 `/ping`. That is deliberate: a down app, MySQL or Valkey now alarms. The trade is that planned outages alarm too.
-`platform-ping-unhealthy` fires after about 2 to 3 minutes of failures, so any of these send an ALARM email and then
-an OK email:
+`platform-ping-unhealthy` fires after about 3 to 4 minutes of failures (the checkers need about 90 s, then the alarm
+two 1-minute periods), so an outage longer than that sends an ALARM email and then an OK email:
 
-- a TBD release (the Deployments use `Recreate`, and the backend's migrate init container runs first),
-- a MySQL or Valkey restart (a version bump, a node reboot).
+- a slow TBD release (the Deployments use `Recreate`, and the backend's migrate init container runs first; a normal
+  30 to 60 s release does not alarm),
+- a MySQL or Valkey restart that takes that long (a version bump, a node reboot).
 
 `/ping` never did that. An ALARM followed by OK within minutes of a merge in `tbd-prod` or `data` is expected. An
 ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` and `curl -s https://app.thebetterdecision.com/health/dependencies`
