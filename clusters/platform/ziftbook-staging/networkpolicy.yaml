@@ -1,6 +1,6 @@
 # Ingress to ziftbook-staging is deny-by-default. Traefik reaches the frontend; only the frontend reaches the backend,
-# which is what makes trusting X-Forwarded-For from the pod CIDR safe (backend.yaml). Egress stays open (Postgres in
-# data, mail, telemetry). Node-local traffic bypasses these policies (see data/networkpolicy.yaml).
+# which is what makes trusting X-Forwarded-For from the pod CIDR safe (backend.yaml). Egress is open except instance
+# metadata (egress-no-imds). Node-local traffic bypasses these policies (see data/networkpolicy.yaml).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -48,3 +48,20 @@ spec:
               app: frontend
       ports:
         - port: 8000
+---
+# Egress is open except the instance metadata endpoint: staging images automerge, and nothing here needs IMDS.
+# Pods are listed separately because ipBlock is meant for addresses outside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-no-imds
+  namespace: ziftbook-staging
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
