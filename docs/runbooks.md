@@ -192,6 +192,7 @@ if it sees a `secretNames` entry before its Secret. Name the new Secret after it
    plans an update that does nothing), wipe the local key, and apply `cloudflare`. Terraform uploads the new
    certificate, then deletes the old one without waiting for the new one to become active, so expect proxied hosts to
    answer 52x for a few minutes, until each zone shows the new certificate **Active** in the dashboard. Then run the
-   check.
-5. Remove the old Secret's name from `secretNames`. Merge. Delete its file. Merge. Run the check and update the expiry
-   row in the configuration map.
+   check. Not Active within about 15 minutes (or `deployment_timed_out`): delete `tlsoption default` as in Rollback 1
+   and investigate.
+5. Remove the old Secret's name from `secretNames`. Merge. Delete its file. Merge. Run the check, then update the
+   expiry row and every mention of the Secret name in the configuration map and this runbook.
