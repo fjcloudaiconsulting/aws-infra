@@ -150,16 +150,19 @@ client without a certificate signed by our CA.
 
 | Piece | Where |
 |---|---|
-| Leaf certificate and key (one for both zones) | `cloudflare` workspace variables `origin_pull_certificate` and `origin_pull_private_key` (sensitive), uploaded to each zone by [`terraform/cloudflare/origin_pull.tf`](../terraform/cloudflare/origin_pull.tf) |
+| Leaf certificate and key (one for both zones) | `cloudflare` workspace variables `origin_pull_certificate` and `origin_pull_private_key` (sensitive), uploaded to each zone by [`terraform/cloudflare/origin_pull.tf`](../terraform/cloudflare/origin_pull.tf). The key is also in that workspace's state, in clear inside the state file: keep remote state sharing off |
 | CA certificate (public) | Secret `kube-system/origin-pull-ca`, key `ca.crt`, file `clusters/platform/traefik/origin-pull-ca.secret.yaml` |
-| CA private key | Deleted after signing the leaf. Nobody can mint another certificate the origin trusts |
+| CA private key | Made on a RAM disk that was then ejected, so no further certificate the origin trusts can be signed |
 
 Order matters, because the origin fails closed: **Cloudflare presents the certificate first, the origin requires it
-after.** A missing `origin-pull-ca` Secret, or a `TLSOption default` that cannot load it, takes every host down.
+after.** A missing `origin-pull-ca` Secret, or a `TLSOption default` that cannot load it, takes every host down. It
+fails open, silently, if a second `TLSOption` named `default` appears in any namespace or a router names its own
+`tls.options`; `tests/test_origin_pull.py` rejects both in CI.
 
 **Check** (run both; the in-cluster probe stands in for a direct connection, which the firewall drops before TLS):
 
 ```sh
+export KUBECONFIG=~/.kube/platform
 curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/                 # 200: our zones pass
 curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the thebetterdecision.com zone passes too
 kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
@@ -171,19 +174,24 @@ kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlima
 **Rollback** (origin first, then Cloudflare; never the other way round):
 
 1. Revert the PR that added `TLSOption default`. Flux applies it within a few minutes. Faster, while the revert is in
-   review: `flux suspend kustomization flux-system && kubectl -n kube-system delete tlsoption default`, then
-   `flux resume kustomization flux-system` once the revert is merged. Keep the `origin-pull-ca` Secret.
+   review, with `KUBECONFIG=~/.kube/platform`: `flux suspend kustomization flux-system && kubectl -n kube-system
+   delete tlsoption default`, then `flux resume kustomization flux-system` once the revert is merged. Keep the `origin-pull-ca` Secret.
 2. Only if Cloudflare itself must stop presenting the certificate: set `enabled = false` in
    `cloudflare_authenticated_origin_pulls_settings.app` and apply. Deleting that resource does not turn it off.
 
 **Rotate** (before the expiry in [configuration-map.md](configuration-map.md#expiries-and-rotation), or at once if the
-leaf key may have leaked):
+leaf key may have leaked). Each step is its own merge: Flux applies a commit as one batch, and Traefik fails closed
+if it sees a `secretNames` entry before its Secret. Name the new Secret after its year, for example
+`origin-pull-ca-2036`.
 
-1. Generate a new CA and leaf with the INFRA-93 owner steps, part A, in a new directory.
-2. Write the new CA as a second Secret `origin-pull-ca-next` (`kubectl create secret generic origin-pull-ca-next -n
-   kube-system --from-file=ca.crt=ca.crt --dry-run=client -o yaml`, then encrypt as in the Secret section) and add it
-   under `clientAuth.secretNames` next to `origin-pull-ca`. Merge. Traefik now trusts both CAs.
-3. Replace both workspace variables with the new leaf and key, delete the local key, and apply `cloudflare`. The new
-   certificate is uploaded before the old one is deleted. Wait until each zone shows it `active`, then run the check.
-4. Regenerate `origin-pull-ca.secret.yaml` from the new CA, drop `origin-pull-ca-next` (file and list entry), merge, run
-   the check, and update the expiry row in the configuration map.
+1. Generate a new CA and leaf with the INFRA-93 owner steps, part A.
+2. Add the new CA as its own Secret file (`kubectl create secret generic origin-pull-ca-<year> -n kube-system
+   --from-file=ca.crt=ca.crt --dry-run=client -o yaml`, then encrypt as in the Secret section). Merge.
+3. Add `origin-pull-ca-<year>` under `clientAuth.secretNames`, next to the current one. Merge. Traefik trusts both CAs.
+4. In a quiet window, replace **both** workspace variables (always certificate and key together: a key-only change
+   plans an update that does nothing), wipe the local key, and apply `cloudflare`. Terraform uploads the new
+   certificate, then deletes the old one without waiting for the new one to become active, so expect proxied hosts to
+   answer 52x for a few minutes, until each zone shows the new certificate **Active** in the dashboard. Then run the
+   check.
+5. Remove the old Secret's name from `secretNames`. Merge. Delete its file. Merge. Run the check and update the expiry
+   row in the configuration map.

@@ -5,11 +5,12 @@
 # certificate is shared by every Cloudflare account.
 #
 # One leaf for both zones: Traefik trusts the CA, not a zone, so a leaf per zone would add a key and a rotation
-# without narrowing what the origin accepts. The CA key is deleted after signing; rotation is a new CA and leaf,
+# without narrowing what the origin accepts. The CA key is discarded after signing; rotation is a new CA and leaf,
 # with Traefik trusting both during the swap (docs/runbooks.md, origin pull certificate).
 #
-# Both values are workspace variables created by the owner; the key is sensitive and never in git.
-# The API token needs "SSL and Certificates: Edit" on both zones (Zone Settings does not cover these endpoints).
+# Both values are workspace variables created by the owner; the key is sensitive and never in git (it is in this
+# workspace's state, so remote state sharing stays off). The API token needs "SSL and Certificates: Edit" on both
+# zones (Zone Settings does not cover these endpoints).
 variable "origin_pull_certificate" {
   description = "PEM leaf certificate Cloudflare presents to the origin (public)."
   type        = string
@@ -21,8 +22,9 @@ variable "origin_pull_private_key" {
   sensitive   = true
 }
 
-# A new certificate replaces the resource; create_before_destroy uploads the new one before the old is deleted,
-# so the zone is never without one.
+# A new certificate replaces the resource. create_before_destroy uploads the new one first, but the old one is
+# deleted before the new one is active, so a rotation has a few minutes of 52x (rotation runbook, step 4).
+# Change certificate and key together: a key-only change plans an update that does nothing.
 resource "cloudflare_authenticated_origin_pulls_certificate" "app" {
   for_each = local.app_zones
 
@@ -47,7 +49,7 @@ resource "cloudflare_authenticated_origin_pulls_settings" "app" {
 }
 
 output "origin_pull_certificates" {
-  description = "Per zone: status (must be active before Traefik requires the certificate), issuer and expiry."
+  description = "Per zone: issuer and expiry, and status as of the last run (not a gate: check Active in the dashboard)."
   value = {
     for zone, c in cloudflare_authenticated_origin_pulls_certificate.app :
     zone => { status = c.status, issuer = c.issuer, expires_on = c.expires_on }

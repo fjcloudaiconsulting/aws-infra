@@ -113,7 +113,7 @@ name is pinned in an AWS trust policy: never rename it.
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev, with SSL and Certificates: Edit on the first two for origin pulls); variable `account_id`; variables `origin_pull_certificate` (PEM leaf, public) and `origin_pull_private_key` (**sensitive**, its key; exists nowhere else) (INFRA-93) |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev, with SSL and Certificates: Edit on the first two for origin pulls, which also lets it issue certificates for those zones); variable `account_id`; variables `origin_pull_certificate` (PEM leaf, public) and `origin_pull_private_key` (**sensitive**, its key; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) (INFRA-93) |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
@@ -160,8 +160,9 @@ own role.
   (`terraform/cloudflare/origin_pull.tf`), with one leaf certificate of our own for both zones. Traefik's `TLSOption
   default` accepts only clients with a certificate signed by our CA (`kube-system/origin-pull-ca`), so the node
   serves no one but our zones: a direct connection, or another Cloudflare account's zone pointed at the node, fails
-  the TLS handshake. Health checks are unaffected because they go through Cloudflare. The CA key was deleted after
-  signing. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
+  the TLS handshake. The Route 53 health check is unaffected because it resolves a proxied hostname, so it goes
+  through Cloudflare. The CA key was discarded after signing. A Worker or Snippet on our own zones can still set
+  `x-real-ip` on a same-zone subrequest, so review any that forwards to the node. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material
