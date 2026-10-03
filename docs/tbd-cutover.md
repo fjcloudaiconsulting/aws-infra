@@ -360,7 +360,7 @@ kubectl -n tbd-prod get pods --no-headers | awk '{print $1, $2, $3, $4}'   # bac
 ```
 
 **MERGE H** (the owner marks it ready and merges it), then approve the `aws-platform` apply in HCP Terraform: the
-plan must be `0 to add, 1 to change, 0 to destroy` on `aws_route53_health_check.ping` (plus the alarm description).
+plan must be `0 to add, 2 to change, 0 to destroy`: `aws_route53_health_check.ping` and the alarm's description.
 Check after about 2 minutes:
 
 ```bash
