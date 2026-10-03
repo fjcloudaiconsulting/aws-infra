@@ -73,9 +73,11 @@ flowchart LR
 Proxied hostnames go through Cloudflare to the node's static IP. Today that is only
 `ping.thebetterdecision.com`; the TBD app records stay DNS-only to DigitalOcean until cutover
 (INFRA-48), after which they are proxied the same way. The thebetterdecision.com zone is in Full
-(strict), so Cloudflare only accepts the Cloudflare Origin CA certificate that Traefik serves as its
-default (`TLSStore default`). ziftbook.com is in Full (strict) too, with
-`dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node; that host answers 526 until the Origin CA cert is reissued to cover ziftbook.com. The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
+(strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. ziftbook.com is in Full
+(strict) too, with `dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node. An Origin CA
+certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the
+default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
+[runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
 endpoint served by Traefik itself. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
 repo.
@@ -145,12 +147,20 @@ ServiceAccount `netbird/owner-admin`. Runbook (setup, new device, renew, revoke)
 NetBird's API server proxy is being evaluated (INFRA-71). SSH to the node goes through the
 Lightsail browser console.
 
+## Mail
+
+Mailgun HTTP API (SDK `mailgun-python`), EU region, for every app and environment; no SMTP and no mail server in the
+cluster. Dev and staging environments of every app share the sending domain `m.fjconsulting.dev`, each with its own
+send-only sending key in its own Secret; production gets `m.<appdomain>` per app. DNS for both is in
+`terraform/cloudflare`. Procedures: [runbooks.md](runbooks.md#mail-mailgun).
+
 ## Secrets
 
 Kubernetes Secrets live in git as `*.secret.yaml`, SOPS-encrypted to the cluster's age key, and
 Flux decrypts them in the cluster. CI fails on any unencrypted Secret. Terraform secrets are
 sensitive HCP Terraform variables. Procedures never display secret values: see
-[README.md, Kubernetes secrets](../README.md#kubernetes-secrets).
+[README.md, Kubernetes secrets](../README.md#kubernetes-secrets) and
+[runbooks.md](runbooks.md#write-or-rotate-a-kubernetes-secret) (a new file needs only the public key).
 
 ## Infrastructure as code
 

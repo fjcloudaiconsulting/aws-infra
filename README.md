@@ -11,6 +11,9 @@ The end-to-end map (diagram, ingress, data, backups, access, monitoring, cost):
 Settings that live outside git (GitHub Apps, rulesets, Renovate, HCP Terraform, AWS, Cloudflare, out-of-band
 secrets) and what breaks when one is wrong: [`docs/configuration-map.md`](docs/configuration-map.md).
 
+How to do the recurring changes (write or rotate a Secret, add a hostname or zone, add a dev environment's mail):
+[`docs/runbooks.md`](docs/runbooks.md).
+
 ## Layout
 
 | Path | What | Applied by |
