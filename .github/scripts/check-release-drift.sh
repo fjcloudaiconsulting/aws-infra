@@ -3,7 +3,7 @@
 # release has been absent from clusters/ for GRACE_DAYS or more.
 #
 # Inputs (env): GH_TOKEN, GH_REPO, GRACE_DAYS, RUN_URL; optional CLUSTERS_DIR (default clusters),
-# EXPECTED_REPOS (default "ziftbook"), NOW_EPOCH. Needs `gh`.
+# WATCH_REPOS (default "ziftbook"; refs of other repos are ignored), NOW_EPOCH. Needs `gh`.
 #
 # Fails CLOSED: any parse or API problem exits non-zero WITHOUT touching the issue, so a broken
 # probe can never read as "no drift" and close it. Depends on the app repos being public
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 DIR="${CLUSTERS_DIR:-clusters}"
-EXPECTED="${EXPECTED_REPOS-ziftbook}"
+WATCH="${WATCH_REPOS-ziftbook}"
 NOW="${NOW_EPOCH:-$(date +%s)}"
 title="[release-drift] app release not in clusters/"
 drift=""
@@ -19,8 +19,12 @@ drift=""
 [[ "$GRACE_DAYS" =~ ^[0-9]+$ ]] || { echo "bad grace_days" >&2; exit 1; }
 
 # Every app image ref, loose on the tag so rc tags and digest suffixes are seen, then validated.
-refs="$(grep -rhoE --include='*.yaml' 'ghcr\.io/fjcloudaiconsulting/[^/]+/[^:"[:space:]]+:[^"[:space:]]+' "$DIR")" \
-  || { echo "no app image refs in $DIR" >&2; exit 1; }
+all="$(grep -rhoE --include='*.yaml' 'ghcr\.io/fjcloudaiconsulting/[^/]+/[^:"[:space:]]+:[^"[:space:]]+' "$DIR" || true)"
+# Only watched repos are checked (placeholder pins of unwatched ones would be false drift).
+pat="$(printf '%s' "$WATCH" | tr -s ' ' '|')"
+refs="$(grep -E "ghcr\.io/fjcloudaiconsulting/($pat)/" <<<"$all" || true)"
+echo "ignoring unwatched repos: $(grep -vE "ghcr\.io/fjcloudaiconsulting/($pat)/" <<<"$all" | sed -E 's#ghcr\.io/fjcloudaiconsulting/([^/]+)/.*#\1#' | sort -u | tr '\n' ' ')"
+[[ -n "$refs" ]] || { echo "no watched app image refs in $DIR" >&2; exit 1; }
 bad="$(printf '%s\n' "$refs" | grep -vE ':v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
 [[ -z "$bad" ]] || { printf 'image tag is not a plain vX.Y.Z:\n%s\n' "$bad" >&2; exit 1; }
 
@@ -28,8 +32,8 @@ bad="$(printf '%s\n' "$refs" | grep -vE ':v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
 list="$(printf '%s\n' "$refs" | sed -E 's#ghcr\.io/fjcloudaiconsulting/([^/]+)/[^:]+:#\1\t#' \
         | sort -t$'\t' -k1,1 -k2,2V | awk -F'\t' '!s[$1]++')"
 [[ -n "$list" ]] || { echo "empty repo list" >&2; exit 1; }
-for r in $EXPECTED; do
-  grep -q "^$r"$'\t' <<<"$list" || { echo "expected repo $r missing from $DIR" >&2; exit 1; }
+for r in $WATCH; do
+  grep -q "^$r"$'\t' <<<"$list" || { echo "watched repo $r missing from $DIR" >&2; exit 1; }
 done
 
 while IFS=$'\t' read -r repo cur; do

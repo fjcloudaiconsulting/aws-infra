@@ -26,7 +26,7 @@ def iso(age_days):
     return datetime.datetime.fromtimestamp(NOW - age_days * DAY, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run(tags, *, latest="v0.21.0", age=3, grace=2, existing="", files=None, expected="ziftbook"):
+def run(tags, *, latest="v0.21.0", age=3, grace=2, existing="", files=None, watch="ziftbook"):
     """tags: image tags written to clusters/ (one image each); files overrides the raw file list."""
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
@@ -43,7 +43,7 @@ def run(tags, *, latest="v0.21.0", age=3, grace=2, existing="", files=None, expe
             ["bash", str(SCRIPT)], capture_output=True, text=True, cwd=d,
             env={**os.environ, "PATH": f"{d/'bin'}:{os.environ['PATH']}", "GH_LOG": str(d / "log"),
                  "GH_REPO": "o/r", "RUN_URL": "u", "GRACE_DAYS": str(grace), "NOW_EPOCH": str(NOW),
-                 "REL_TAG": latest, "REL_PUB": iso(age), "EXISTING": existing, "EXPECTED_REPOS": expected},
+                 "REL_TAG": latest, "REL_PUB": iso(age), "EXISTING": existing, "WATCH_REPOS": watch},
         )
         log = (d / "log").read_text() if (d / "log").exists() else ""
         return r, log
@@ -76,6 +76,13 @@ class Drift(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("issue close 7", log)
 
+    def test_unwatched_repo_far_behind_is_ignored(self):
+        # tbd placeholder pins (v0.0.0) must not open an issue until it is on the watch list.
+        r, log = run(["v0.21.0"], files={"t.yaml": "image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.0.0\n"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("issue create", log)
+        self.assertIn("ignoring unwatched repos: tbd", r.stdout)
+
     def test_older_latest_is_not_drift(self):
         self.assertNotIn("issue create", run(["v0.22.0"])[1])
 
@@ -98,11 +105,11 @@ class FailsClosed(unittest.TestCase):
     def test_expected_repo_missing_fails(self):
         r, log = run([], existing="7", files={"x.yaml": "image: ghcr.io/fjcloudaiconsulting/other/img:v1.0.0\n"})
         self.assert_closed(r, log)
-        self.assertIn("expected repo ziftbook", r.stderr)
+        self.assertIn("no watched app image refs", r.stderr)
 
     def test_empty_input_fails_even_without_the_repo_assertion(self):
         # Each guard alone must hold (kills a removed no-refs or empty-list check).
-        self.assert_closed(*run([], existing="7", expected=""))
+        self.assert_closed(*run([], existing="7", watch=""))
 
     def test_bad_grace_fails(self):
         self.assert_closed(*run(["v0.20.2"], grace="x", existing="7"))

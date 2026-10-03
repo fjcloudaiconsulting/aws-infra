@@ -3,7 +3,8 @@
 # or Renovate never opened it. Reads git and the app repos' GitHub releases only (GHCR is
 # private, so no anonymous tag listing; promote retags the image when it publishes the release,
 # the grace period covers the gap). Needs the app repos to stay public (GITHUB_TOKEN reads
-# their releases); the run goes red if one goes private. Logic: .github/scripts/check-release-drift.sh. Opens or updates ONE issue; closes it when drift clears.
+# their releases); the run goes red if one goes private. Logic: .github/scripts/check-release-drift.sh.
+# Add tbd to the watch list at cutover (INFRA-48). Opens or updates ONE issue; closes it when drift clears.
 name: Release Drift Probe
 
 on:
