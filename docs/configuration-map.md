@@ -23,7 +23,7 @@ in the same PR or right after.
 | A pod or Job in `ziftbook-staging` is never created (`FailedCreate`, "exceeded quota: staging-class-only") | Every pod there must set `priorityClassName: staging`; the quota rejects any other, Jobs and CronJobs included | `kubectl -n ziftbook-staging get events` | Add `priorityClassName: staging` and explicit memory requests that fit the `memory` quota |
 | Flux shows the Kustomization Ready but a workload is down | `flux-system` has no `healthChecks`: pod, quota or PSA failures do not turn it red | `kubectl -n <ns> get pods,events` | Fix the manifest. Namespace limits: [`namespaces/ziftbook-staging.yaml`](../clusters/platform/namespaces/ziftbook-staging.yaml) |
 | Flux cannot apply a `*.secret.yaml` | `flux-system/sops-age` missing or holds the wrong key | README, Kubernetes secrets | Recreate the secret from the offline key |
-| Ziftbook staging mail fails (worker logs `email failed`, jobs retry) | `smtp-username`/`smtp-password` missing from Secret `ziftbook` (the worker starts without them), or Mailgun domain not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Add the keys and re-encrypt, or fix the DNS records until Mailgun shows the domain verified |
+| Ziftbook staging sends no mail (once ZIF-151 ships) | `mailgun-api-key` missing from Secret `ziftbook` (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Add the key, re-encrypt, then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
 | Cloudflare 526 on a proxied host | Traefik serves the self-signed default: Secret `kube-system/origin-cert` missing or the Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server | Issue a new Origin CA cert, re-encrypt `origin-cert.secret.yaml` |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
@@ -149,7 +149,7 @@ own role.
   `*.ziftbook.com`; add a hostname for any new domain before proxying it.
 - Mail: Mailgun EU for every app and environment (owner ruling 2026-10-03). Sending domains follow TBD's `m.<host>`
   pattern: TBD `m.thebetterdecision.com`, Ziftbook staging `m.dev.ziftbook.com` (records in `terraform/cloudflare`,
-  the DKIM value is added after Mailgun issues it). The domain, its SMTP user and the Secret keys are made by hand (below).
+  the DKIM value is added after Mailgun issues it). The domain and the API key are made by hand (below). Env names `ZIF_MAILGUN_DOMAIN`, `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material
@@ -162,7 +162,7 @@ own role.
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd` (to be written as `clusters/platform/tbd-prod/tbd.secret.yaml`, INFRA-48) | Values come from the DigitalOcean app (same keys as today, or logins and encrypted columns break). Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). Deployments there stay at replicas 0 until cutover |
-| Mailgun domain `m.dev.ziftbook.com` (EU) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; SMTP user `staging` in that domain | Keys `smtp-username` and `smtp-password` of Secret `ziftbook` (`clusters/platform/ziftbook-staging/ziftbook.secret.yaml`); the worker reads them as optional. Rotate: reset the SMTP user's password, re-encrypt |
+| Mailgun domain `m.dev.ziftbook.com` (EU) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; sending API key for that domain | Key `mailgun-api-key` of Secret `ziftbook` (`clusters/platform/ziftbook-staging/ziftbook.secret.yaml`); the worker reads it as optional. Rotate: create a new key in Mailgun, re-encrypt, restart `deploy/worker`, delete the old one |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
 ## Jira
