@@ -49,24 +49,6 @@ spec:
       ports:
         - port: 8000
 ---
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: mailpit
-  namespace: ziftbook-staging
-spec:
-  podSelector:
-    matchLabels:
-      app: mailpit
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: worker
-      ports:
-        - port: 1025
----
 # Egress is open except the instance metadata endpoint: staging images automerge, and nothing here needs IMDS.
 # Pods are listed separately because ipBlock is meant for addresses outside the cluster.
 apiVersion: networking.k8s.io/v1
