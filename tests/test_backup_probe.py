@@ -17,7 +17,7 @@ PREFIX = "pfv-data-01/2026/08/27"
 NOW = 1000000000
 
 
-def night(age_hours, *, prefix=PREFIX, manifest=True, grants=True, dump=True, dump_size=620000, db="pfv2"):
+def night(age_hours, *, prefix=PREFIX, manifest=True, grants=True, dump=True, dump_size=620000, db="tbd"):
     ts = datetime.datetime.fromtimestamp(
         NOW - age_hours * 3600, datetime.timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
