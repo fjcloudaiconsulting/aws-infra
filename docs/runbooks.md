@@ -19,13 +19,13 @@ regenerate the whole file to change it. Example, a key read from a silent prompt
 the screen):
 
 ```sh
-read -rs K && printf %s "$K" | kubectl create secret generic <name> -n <namespace> \
-  --from-file=<key>=/dev/stdin --dry-run=client -o yaml > clusters/platform/<dir>/<name>.secret.yaml && unset K
-sops --encrypt --in-place clusters/platform/<dir>/<name>.secret.yaml
+read -rs K; printf %s "$K" | kubectl create secret generic <name> -n <namespace> \
+  --from-file=<key>=/dev/stdin --dry-run=client -o yaml > clusters/platform/<dir>/<name>.secret.yaml \
+  && sops --encrypt --in-place clusters/platform/<dir>/<name>.secret.yaml; unset K
 grep -c '<key>: ENC' clusters/platform/<dir>/<name>.secret.yaml   # must print 1; 0 means not encrypted: do not commit
 ```
 
-Commit, push, merge. Flux applies it within a minute or two. A pod reads env at start, so after a key change run
+Commit, push, merge. Flux applies it within a few minutes. A pod reads env at start, so after a key change run
 `kubectl -n <namespace> rollout restart deploy/<name>`. To edit a multi-key Secret instead, load the offline key
 first (`export SOPS_AGE_KEY_FILE=<path to the key file>`), then `sops edit <file>`.
 
