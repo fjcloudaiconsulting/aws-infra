@@ -147,9 +147,14 @@ own role.
   by the same pattern (`docs.`, `blog.`). Ziftbook staging is `dev.ziftbook.com` (INFRA-47).
 - The Origin CA certificate must list `thebetterdecision.com`, `*.thebetterdecision.com`, `ziftbook.com` and
   `*.ziftbook.com`; add a hostname for any new domain before proxying it.
-- Mail: Mailgun EU for every app and environment (owner ruling 2026-10-03). Sending domains follow TBD's `m.<host>`
-  pattern: TBD `m.thebetterdecision.com`, Ziftbook staging `m.dev.ziftbook.com` (records in `terraform/cloudflare`,
-  the DKIM value is added after Mailgun issues it). The domain and the API key are made by hand (below). Env names `ZIF_MAILGUN_DOMAIN`, `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
+- Mail: Mailgun EU for every app and environment (owner ruling 2026-10-03). All dev/staging environments share one
+  sending domain, `m.fjconsulting.dev` (zone `fjconsulting.dev`, read but not managed by `terraform/cloudflare`, which
+  owns only the `m.` records; the DKIM value is added after Mailgun issues it). Each dev environment has its own
+  send-only sending key scoped to that domain. Production gets per-app `m.<appdomain>` domains (TBD:
+  `m.thebetterdecision.com`). The domain and the keys are made by hand (below). Env names `ZIF_MAILGUN_DOMAIN`,
+  `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
+- Shared-domain webhooks: Mailgun delivers every dev app's events to every webhook URL registered on `m.fjconsulting.dev`,
+  so an app must ignore events for messages it did not send (apps tag their messages; handled in the ZIF tickets).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material
@@ -162,7 +167,7 @@ own role.
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd` (to be written as `clusters/platform/tbd-prod/tbd.secret.yaml`, INFRA-48) | Values come from the DigitalOcean app (same keys as today, or logins and encrypted columns break). Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). Deployments there stay at replicas 0 until cutover |
-| Mailgun domain `m.dev.ziftbook.com` (EU) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; sending API key for that domain | Key `mailgun-api-key` of Secret `ziftbook` (`clusters/platform/ziftbook-staging/ziftbook.secret.yaml`); the worker reads it as optional. Rotate: create a new key in Mailgun, re-encrypt, restart `deploy/worker`, delete the old one |
+| Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, later TBD staging) | Key `mailgun-api-key` of Secret `ziftbook` (`clusters/platform/ziftbook-staging/ziftbook.secret.yaml`); the worker reads it as optional. Rotate: create a new key in Mailgun, re-encrypt, restart `deploy/worker`, delete the old one |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
 ## Jira
