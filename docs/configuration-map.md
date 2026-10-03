@@ -72,13 +72,13 @@ installation, and the grant applies to **every repository in the installation**.
 
 | App | Repos | Notes |
 |---|---|---|
-| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
+| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
 | `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook | tbd is not installed yet. Repos are added on GitHub, not in Mend |
 | `terraform-cloud`, `digitalocean`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
 ### Per-repo settings
 
-- **Environment `release`** (Ziftbook; create the same in every new app repo, app-template does not ship
+- **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
