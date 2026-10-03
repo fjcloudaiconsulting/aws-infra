@@ -1,0 +1,65 @@
+# Release drift (INFRA-38): a released vX.Y.Z of an app whose image is in clusters/ but whose
+# tag in clusters/ is older for more than GRACE_DAYS, i.e. the Renovate bump PR is still open
+# or Renovate never opened it. Reads git and the app repos' GitHub releases only (GHCR is
+# private, so no anonymous tag listing; promote retags the image when it publishes the release,
+# the grace period covers the gap). Opens or updates ONE issue; closes it when drift clears.
+name: Release Drift Probe
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      grace_days:
+        description: Days a newer release may be absent from clusters/ (0 to test)
+        default: "2"
+
+concurrency:
+  group: release-drift-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare clusters/ with latest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GRACE_DAYS: ${{ inputs.grace_days || '2' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="[release-drift] app release not in clusters/"
+          drift=""
+          # repo<TAB>lowest deployed tag, per app repo (ghcr.io/<org>/<repo>/<image>:vX.Y.Z)
+          while IFS=$'\t' read -r repo cur; do
+            rel="$(gh api "repos/fjcloudaiconsulting/$repo/releases/latest" --jq '[.tag_name,.published_at]|@tsv')"
+            latest="${rel%%$'\t'*}"; pub="${rel#*$'\t'}"
+            [[ "$latest" == "$cur" ]] && continue
+            [[ "$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -1)" == "$latest" ]] || continue
+            age=$(( ( $(date +%s) - $(date -d "$pub" +%s) ) / 86400 ))
+            if (( age >= GRACE_DAYS )); then
+              drift+="- \`$repo\`: clusters/ has \`$cur\`, latest release \`$latest\` (${age}d old)"$'\n'
+            fi
+          done < <(grep -rhoE 'ghcr\.io/fjcloudaiconsulting/[^/]+/[^:"[:space:]]+:v[0-9]+\.[0-9]+\.[0-9]+' clusters \
+                   | sed -E 's#ghcr\.io/fjcloudaiconsulting/([^/]+)/[^:]+:#\1\t#' | sort -uV \
+                   | awk -F'\t' '!s[$1]++')
+          existing="$(gh issue list --state open --search "[release-drift] in:title" --json number,title \
+                      --jq '.[]|select(.title|startswith("[release-drift]"))|.number' | head -1)"
+          if [[ -z "$drift" ]]; then
+            echo "no drift"
+            if [[ -n "$existing" ]]; then gh issue close "$existing" --comment "Drift cleared ($RUN_URL)."; fi
+            exit 0
+          fi
+          printf '%s' "$drift"
+          body="$(printf 'Newer releases not in `clusters/` for at least %s days. Merge the Renovate bump PR, or check the Dependency Dashboard and `GHCR_READ_TOKEN` if there is none (docs/configuration-map.md).\n\n%s\nRun: %s' "$GRACE_DAYS" "$drift" "$RUN_URL")"
+          if [[ -n "$existing" ]]; then gh issue edit "$existing" --body "$body"
+          else gh issue create --title "$title" --body "$body"; fi

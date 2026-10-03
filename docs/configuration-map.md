@@ -47,6 +47,8 @@ as a PR and is never automerged (proven by Renovate dry run only, check it on th
 | 8 | Renovate fast-forwards the branch into `main` without a PR | Renovate app in the `main protection` bypass list |
 | 9 | Flux applies the commit; Deployments use `Recreate` | `sops-age`, `ghcr-pull` |
 
+Drift watch: workflow `release-drift-probe.yml` (daily) opens or updates one `[release-drift]` issue when an app's latest GitHub release has been absent from `clusters/` for 2+ days (production bump PR unmerged, or Renovate never opened it), and closes it when clear. No credentials; it reads the app repos' releases because GHCR is private.
+
 ## GitHub
 
 Org `fjcloudaiconsulting` is on the **Free** plan: no org-level rulesets (the API answers 403), and
