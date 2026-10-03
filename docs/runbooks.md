@@ -164,7 +164,8 @@ curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/            
 curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the uptime check passes
 kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
   curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to dev.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://dev.ziftbook.com/
-# 000 and "curl: (56) ... certificate required": enforced. Any HTTP code (307, 200, 404) means the origin is open.
+# 000 and a "curl: (56)" error (handshake refused; the verify-result text is about the server cert): enforced.
+# Any HTTP code (307, 200, 404) means the origin accepts clients without our certificate.
 ```
 
 **Rollback** (origin first, then Cloudflare; never the other way round):
