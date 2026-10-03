@@ -8,6 +8,9 @@ Dockerfiles and their own CI; everything about where and how the apps run lives 
 The end-to-end map (diagram, ingress, data, backups, access, monitoring, cost):
 [`docs/architecture.md`](docs/architecture.md).
 
+Settings that live outside git (GitHub Apps, rulesets, Renovate, HCP Terraform, AWS, Cloudflare, out-of-band
+secrets) and what breaks when one is wrong: [`docs/configuration-map.md`](docs/configuration-map.md).
+
 ## Layout
 
 | Path | What | Applied by |

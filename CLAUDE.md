@@ -51,6 +51,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
+`docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
+
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
 
