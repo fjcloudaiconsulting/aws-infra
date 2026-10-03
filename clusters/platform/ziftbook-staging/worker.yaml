@@ -68,7 +68,7 @@ spec:
             - name: ZIF_APP_URL # only used in email links
               value: https://dev.ziftbook.com
             # Mailgun HTTP API like TBD: EU region, sending domain m.dev.ziftbook.com. ZIF-151 consumes these names;
-            # until it ships the worker sends no mail. Only the worker sends mail. optional: the worker keeps
+            # until it ships no mail is delivered (v0.20.2 still tries SMTP and the job retries). Only the worker sends mail. optional: the worker keeps
             # running before the owner adds the key.
             - name: ZIF_MAILGUN_DOMAIN
               value: m.dev.ziftbook.com

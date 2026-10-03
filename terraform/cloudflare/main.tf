@@ -188,6 +188,7 @@ locals {
       mx_b     = { type = "MX", name = "m.dev.ziftbook.com", content = "mxb.eu.mailgun.org", priority = 10 }
       spf      = { type = "TXT", name = "m.dev.ziftbook.com", content = "\"v=spf1 include:mailgun.org ~all\"" }
       tracking = { type = "CNAME", name = "email.m.dev.ziftbook.com", content = "eu.mailgun.org" }
+      dmarc    = { type = "TXT", name = "_dmarc.m.dev.ziftbook.com", content = "\"v=DMARC1; p=none\"" }
     },
     local.ziftbook_dev_dkim == null ? {} : { dkim = merge({ type = "TXT" }, local.ziftbook_dev_dkim) }
   )
