@@ -5,6 +5,10 @@ Step-by-step procedures for the recurring changes. Why things are built this way
 [configuration-map.md](configuration-map.md). Every command below uses the owner's kubeconfig
 (`~/.kube/platform`, over NetBird) and never prints a secret value.
 
+One-off procedures have their own page: the TBD cutover from DigitalOcean, with rehearsal and rollback, is
+[tbd-cutover.md](tbd-cutover.md) (INFRA-48); database restores are
+[`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md).
+
 ## Write or rotate a Kubernetes Secret
 
 Secrets are `clusters/**/<name>.secret.yaml`, SOPS-encrypted to the cluster's age key (`.sops.yaml`). Flux decrypts
