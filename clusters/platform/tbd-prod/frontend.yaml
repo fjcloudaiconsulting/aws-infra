@@ -20,7 +20,7 @@ metadata:
   name: frontend
   namespace: tbd-prod
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
