@@ -15,14 +15,15 @@ in the same PR or right after.
 |---|---|---|---|
 | Release job fails with `Resource not accessible by integration` on create-a-release | The release App token lacks `workflows`. GitHub treats a new tag as creating workflow files when a later `main` commit changed one | [Release chain](#release-and-deploy-chain) step 4, [GitHub Apps](#github-apps) | Org owner: App permissions > Workflows: Read and write, then accept on the org installation. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
-| No release PR after a `feat`/`fix` merge | Only `fix`, `feat` and breaking commits release; `ci:`, `chore:` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
+| No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
 | Staging image bump sits on a `renovate/ziftbook-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
-| Renovate opens no PRs, Dependency Dashboard lists `ghcr.io` lookup failures | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, replace the Mend secret, tick "run again" on the dashboard |
+| No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into both files (see [Cluster](#cluster-out-of-band-material)) |
 | `kubectl`/`flux` cannot connect | NetBird client not connected, or the `owner-admin` token expired | [`netbird/README.md`](../clusters/platform/netbird/README.md) | Connect NetBird; renew the token per the runbook |
+| A pod or Job in `ziftbook-staging` is never created (`FailedCreate`, "exceeded quota: staging-class-only") | Every pod there must set `priorityClassName: staging`; the quota rejects any other, Jobs and CronJobs included | `kubectl -n ziftbook-staging get events` | Add `priorityClassName: staging` and explicit memory requests that fit the `memory` quota |
 | Flux shows the Kustomization Ready but a workload is down | `flux-system` has no `healthChecks`: pod, quota or PSA failures do not turn it red | `kubectl -n <ns> get pods,events` | Fix the manifest. Namespace limits: [`namespaces/ziftbook-staging.yaml`](../clusters/platform/namespaces/ziftbook-staging.yaml) |
 | Flux cannot apply a `*.secret.yaml` | `flux-system/sops-age` missing or holds the wrong key | README, Kubernetes secrets | Recreate the secret from the offline key |
-| Cloudflare 526 on a proxied host | Traefik serves the self-signed default: `origin-cert` secret missing or the Origin CA cert expired | `clusters/platform/traefik/`, Cloudflare SSL/TLS > Origin Server | Issue a new Origin CA cert, re-encrypt `origin-cert.secret.yaml` |
+| Cloudflare 526 on a proxied host | Traefik serves the self-signed default: Secret `kube-system/origin-cert` missing or the Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server | Issue a new Origin CA cert, re-encrypt `origin-cert.secret.yaml` |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
@@ -58,7 +59,7 @@ private repositories cannot have branch protection, so every repo that must be p
 | aws-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
 | .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. **No tag ruleset**: the moving tag `v1` is unprotected until INFRA-76 |
 | app-template | Ruleset `main protection` (id 24384611) | Same as `.github`: PR with 1 approval, linear history, no required checks |
-| ziftbook | Classic branch protection | 1 review, checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced |
+| ziftbook | Classic branch protection | 1 review, strict checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced. **Force-push and deletion of `main` are allowed** |
 | tbd | Classic branch protection | 1 review, checks `Backend Checks`, `Frontend Checks`, admins enforced |
 
 ### GitHub Apps
@@ -68,7 +69,7 @@ installation, and the grant applies to **every repository in the installation**.
 
 | App | Repos | Notes |
 |---|---|---|
-| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection: workflows write could move the `v1` tag or add a workflow |
+| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
 | `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook | tbd is not installed yet. Repos are added on GitHub, not in Mend |
 | `terraform-cloud`, `digitalocean`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
@@ -78,7 +79,7 @@ installation, and the grant applies to **every repository in the installation**.
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
-- Actions default workflow permission is read-only everywhere checked.
+- Actions default workflow permission is read-only everywhere checked; "allow Actions to approve PRs" is on in ziftbook, tbd and app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
   and moving `v1` (owner approval, public contract).
@@ -107,12 +108,14 @@ name is pinned in an AWS trust policy: never rename it.
 
 | Workspace | Stack | Auth |
 |---|---|---|
-| `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`; variable `ssh_allowed_cidrs` |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped) |
-| `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner) |
-| `tbd-apex` | `terraform/tbd-apex` | Old AWS account, see its README |
+| `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped); variable `account_id` |
+| `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
+| `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
-Never set `TFC_AWS_RUN_ROLE_ARN`: it would give unapproved PR plans the apply role. The IAM documents are
+The org also holds workspaces `tbd` (repo tbd, `infra/terraform`) and `fjconsulting-website`, which belong to those repos. CI pins Terraform 1.16.5; check the workspaces' Terraform version matches after a bump.
+
+Never set `TFC_AWS_RUN_ROLE_ARN` on `aws-platform` or `tbd-backups`: it would give unapproved PR plans the apply role. The IAM documents are
 in [`aws/bootstrap/`](../aws/bootstrap/); root creates the roles once and a workspace never manages its
 own role.
 
@@ -120,9 +123,10 @@ own role.
 
 - Local access is the root login session, profile `tbd` (`aws login --profile tbd`). It expires; the
   aws-mcp server stops working with it. Root MFA must stay on.
-- Created by hand once: OIDC provider `app.terraform.io`, the `tfc-*` roles, the backup chain (bucket
-  `tbd-mysql-backups-884686184019` with Object Lock, KMS key, uploader identities). Details:
-  `terraform/tbd-backups/README.md`.
+- Created by hand once (root): OIDC provider `app.terraform.io` and the `tfc-*` roles. Everything else in
+  the backup chain is managed by the `tbd-backups` stack: bucket `tbd-mysql-backups-884686184019` (Object
+  Lock), KMS key, the uploader users and keys, OIDC provider `token.actions.githubusercontent.com`, role
+  `github-actions-backup-probe`. Details: `terraform/tbd-backups/README.md`.
 - Lightsail instance `platform-node` with static IP `platform-node-ip`, IPv4 only (verified: no IPv6
   address). Firewall: 443 open to Cloudflare's IPv4 ranges only (fetched from Cloudflare at plan time, so a
   Cloudflare range change reaches the firewall at the next apply of `aws-platform`), 22 only to
@@ -134,9 +138,11 @@ own role.
 
 - `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
-- `ziftbook.com`: the zone is read, not managed, by Terraform; SSL stays on Automatic until it has a
-  proxied host on the node. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
-- Staging has no hostname yet (INFRA-47). `ZIF_APP_URL` in the worker is a placeholder.
+- `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
+  minimum TLS 1.2) are managed there; SSL stays on Automatic until it has a proxied host on the node. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
+- Hostnames (owner ruling 2026-10-03): staging `dev.<domain>`, production `app.<domain>`, other services
+  by the same pattern (`docs.`, `blog.`). Ziftbook staging becomes `dev.ziftbook.com` in INFRA-47; until
+  then `ZIF_APP_URL` in the `worker` Deployment is a placeholder.
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Cluster out-of-band material
@@ -145,8 +151,9 @@ own role.
 |---|---|---|
 | SOPS age private key | Owner's offline backup and `flux-system/sops-age` | Public key in `.sops.yaml`. Rotated once (2026-10-02). Never displayed in a shell or chat |
 | `ghcr-pull` credentials | `clusters/platform/namespaces/{tbd-prod,ziftbook-staging}-ghcr-pull.secret.yaml` | GHCR read credential; expires with the token behind it |
-| NetBird | Account policy (owner devices to TCP 6443), setup key `netbird-setup-key`, kubeconfig `~/.kube/platform` | `owner-admin` token expires about 2026-12-31. Runbook: [`netbird/README.md`](../clusters/platform/netbird/README.md) |
+| NetBird | Policy `owner-to-k3s-api` (owner devices to TCP 6443), setup key `platform-node` (7-day expiry, stored as Secret `netbird-setup-key`), kubeconfig `~/.kube/platform` | `owner-admin` token expires about 2026-12-31. Runbook: [`netbird/README.md`](../clusters/platform/netbird/README.md) |
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
+| Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
 ## Jira
@@ -162,6 +169,7 @@ commit body only.
 | `GHCR_READ_TOKEN` (Mend) | about 2026-12-31 | Mend section |
 | `ghcr-pull` credentials | with their token | Cluster section |
 | NetBird `owner-admin` token | about 2026-12-31 | NetBird runbook |
-| Origin CA certificate | see Cloudflare dashboard | Issue, re-encrypt, push |
+| Origin CA certificate | see Cloudflare dashboard | Issue, re-encrypt `origin-cert.secret.yaml` (namespace `kube-system`), push |
+| `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
