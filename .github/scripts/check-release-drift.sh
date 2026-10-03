@@ -3,7 +3,7 @@
 # release has been absent from clusters/ for GRACE_DAYS or more.
 #
 # Inputs (env): GH_TOKEN, GH_REPO, GRACE_DAYS, RUN_URL; optional CLUSTERS_DIR (default clusters),
-# WATCH_REPOS (default "ziftbook"; refs of other repos are ignored), NOW_EPOCH. Needs `gh`.
+# WATCH_REPOS (default "ziftbook tbd"; refs of other repos are ignored), NOW_EPOCH. Needs `gh`.
 #
 # Fails CLOSED: any parse or API problem exits non-zero WITHOUT touching the issue, so a broken
 # probe can never read as "no drift" and close it. Depends on the app repos being public
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 DIR="${CLUSTERS_DIR:-clusters}"
-WATCH="${WATCH_REPOS-ziftbook}"
+WATCH="${WATCH_REPOS-ziftbook tbd}"
 NOW="${NOW_EPOCH:-$(date +%s)}"
 title="[release-drift] app release not in clusters/"
 drift=""

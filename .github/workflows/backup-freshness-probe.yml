@@ -81,10 +81,10 @@ jobs:
           # One listing per prefix (the role may list only these), merged into
           # one document. prefix=minimum dump bytes:
           # - pfv-data-01: the droplet, until it is retired (INFRA-49).
-          # - tbd-mysql, ziftbook-postgres: the k3s CronJob. Empty databases dump
-          #   to ~600 bytes today; raise tbd-mysql at cutover (INFRA-48) and
-          #   ziftbook-postgres once Ziftbook staging holds data.
-          floors="pfv-data-01=100000 tbd-mysql=300 ziftbook-postgres=300"
+          # - tbd-mysql, ziftbook-postgres: the k3s CronJob. tbd-mysql holds TBD's
+          #   data since the INFRA-48 cutover (~750 KB, the droplet's floor);
+          #   ziftbook-postgres dumps ~600 bytes empty, raise it once staging holds data.
+          floors="pfv-data-01=100000 tbd-mysql=100000 ziftbook-postgres=300"
           for spec in $floors; do
             if ! aws s3api list-objects-v2 \
                   --bucket tbd-mysql-backups-884686184019 \

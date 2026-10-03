@@ -27,7 +27,7 @@ metadata:
   name: backend
   namespace: tbd-prod
 spec:
-  replicas: 0
+  replicas: 1
   # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
   strategy:
     type: Recreate
