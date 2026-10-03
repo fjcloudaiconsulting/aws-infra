@@ -152,8 +152,11 @@ aws s3 cp "s3://$B/$key" - | kubectl -n "$NS" exec -i "$POD" -- sh -c 'cat >/tmp
 kubectl -n "$NS" exec "$POD" -- sh -c "echo '$sha  /tmp/dump.sql.gz' | sha256sum -c && gzip -t /tmp/dump.sql.gz"   # /tmp/dump.sql.gz: OK
 kubectl -n "$NS" exec "$POD" -- sh -c 'gzip -dc /tmp/dump.sql.gz | grep -cE "DEFINER=|^USE |^CREATE DATABASE"'      # 0
 # Only now, with a verified dump in the pod: empty $DB (a no-op on a fresh database, the rehearsal's copy otherwise).
+# One && chain: the DROP runs only if the gate above still holds (no tbd IngressRoute, backend at 0 replicas).
 # Grants on $DB.* survive DROP DATABASE.
-my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`"
+[ "$(kubectl -n tbd-prod get ingressroute -o name | wc -l | tr -d ' ')" = 0 ] &&
+  [ "$(kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.replicas}')" = 0 ] &&
+  my <<<"DROP DATABASE \`$DB\`; CREATE DATABASE \`$DB\`" && echo emptied || echo "STOP: not emptied, do not restore"   # emptied
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   gzip -dc /tmp/dump.sql.gz | mysql -uroot "$1" && echo restored' sh "$DB"                                         # restored
 jq .tables manifest.json

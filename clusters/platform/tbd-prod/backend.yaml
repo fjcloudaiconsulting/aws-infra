@@ -10,8 +10,9 @@
 # scheduler and frontend together.
 # The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
 # PFV_RUNTIME is deliberately unset (DigitalOcean only). CLIENT_IP_HEADER=cf-connecting-ip: Cloudflare overwrites that
-# header and the node accepts 443 from Cloudflare only, so get_client_ip reads the visitor from it (INFRA-83). "Cloudflare
-# only" means any Cloudflare zone (no Authenticated Origin Pulls): the header is still Cloudflare's, not the client's.
+# header and the node accepts 443 from Cloudflare only, so get_client_ip reads the visitor from it (INFRA-83). The origin
+# accepts only our zones once INFRA-93 (zone-level Authenticated Origin Pulls) is applied; until then any Cloudflare
+# zone can reach it, and the header is still Cloudflare's, never the client's.
 apiVersion: v1
 kind: Service
 metadata:
