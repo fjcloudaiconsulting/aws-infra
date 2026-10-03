@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   name: tbd-prod
   labels:
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
 ---
 apiVersion: v1
 kind: LimitRange
@@ -26,8 +26,10 @@ metadata:
   namespace: tbd-prod
 spec:
   hard:
-    requests.memory: 512Mi
-    limits.memory: 768Mi
+    # backend 256/384, scheduler 160/320, frontend 128/256 (INFRA-43). Recreate everywhere: a rollout never needs a
+    # second pod, and the migrate init container (96/256) is counted at the larger of init and app containers.
+    requests.memory: 640Mi
+    limits.memory: 1Gi
 ---
 # Every pod here pulls private GHCR images with ghcr-pull (tbd-prod-ghcr-pull.secret.yaml), so
 # workloads need no imagePullSecrets of their own. Until the secret exists the kubelet logs a

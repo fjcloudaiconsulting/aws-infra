@@ -19,7 +19,7 @@ flowchart LR
     subgraph node["Lightsail node platform-node, k3s"]
       traefik["Traefik + Origin CA cert<br/>(clusters/platform/traefik)"]
       subgraph ns_tbd["tbd-prod"]
-        tbdapp["TBD (INFRA-6, not yet deployed)"]
+        tbdapp["TBD (INFRA-43 manifests, scaled to 0 until cutover)"]
       end
       subgraph ns_zif["ziftbook-staging"]
         zifapp["Ziftbook staging (INFRA-7, not yet deployed)"]
@@ -95,12 +95,12 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 
 | Namespace | Holds | Memory quota (requests / limits) | Notes |
 |---|---|---|---|
-| `tbd-prod` | TBD | 512Mi / 768Mi | |
-| `ziftbook-staging` | Ziftbook staging | 256Mi / 512Mi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
+| `tbd-prod` | TBD | 640Mi / 1Gi | Pod Security restricted; manifests inert (replicas 0) until INFRA-48 |
+| `ziftbook-staging` | Ziftbook staging | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 
-`tbd-prod`, `ziftbook-staging` and `data` enforce Pod Security baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
+`ziftbook-staging` and `tbd-prod` enforce Pod Security restricted, `data` baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
 ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
 [`clusters/platform/namespaces/`](../clusters/platform/namespaces/).
 

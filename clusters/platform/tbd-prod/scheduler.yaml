@@ -1,0 +1,167 @@
+# TBD scheduler in production (INFRA-43): the backend image with SCHEDULER_ENABLED=true, no Service. The loop runs
+# inside the app process (app.main lifespan), so this pod also serves the API port, which nothing routes to.
+# Exactly one pod: Recreate and replicas capped at 1 (the loop also takes a Redis lock, scheduler_lock_ttl_seconds,
+# as a second line of defence). INERT: replicas 0 until the INFRA-48 cutover; flip to 1 together with backend.yaml.
+# It does not migrate (backend.yaml does); at the cutover the first deploy starts the backend first.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: tbd-prod
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scheduler
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.0.0
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: APP_URL
+              value: "https://app.thebetterdecision.com"
+            - name: BACKEND_CORS_ORIGINS
+              value: "https://app.thebetterdecision.com,https://thebetterdecision.com,https://www.thebetterdecision.com"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: MAILGUN_DOMAIN
+              value: "m.thebetterdecision.com"
+            - name: MAILGUN_REGION
+              value: "eu"
+            - name: EMAIL_FROM
+              value: "The Better Decision <noreply@m.thebetterdecision.com>"
+            - name: AI_NATIVE_ENABLED
+              value: "false"
+            - name: AI_DISPATCH_TIMEOUT_S
+              value: "30"
+            - name: AI_NATIVE_CURRENT_CONSENT_VERSION
+              value: "ai-tos-2026-05-22"
+            - name: CAPTCHA_REQUIRED
+              value: "true"
+            - name: CAPTCHA_PROVIDER
+              value: "turnstile"
+            - name: CAPTCHA_VERIFY_URL
+              value: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+            - name: CAPTCHA_VERIFY_TIMEOUT_S
+              value: "5"
+            - name: CAPTCHA_VERIFY_TOTAL_TIMEOUT_S
+              value: "20"
+            - name: CAPTCHA_EXPECTED_HOSTNAME
+              value: "app.thebetterdecision.com"
+            - name: CAPTCHA_EXPECTED_ACTION
+              value: "register"
+            - name: BILLING_UI_ENABLED
+              value: "false"
+            - name: FEATURE_REPORTS_V2
+              value: "true"
+            - name: FEATURE_PLANS
+              value: "false"
+            - name: FEATURE_CUSTOM_DASHBOARD
+              value: "true"
+            - name: SCHEDULER_ENABLED
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: redis-url
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: jwt-secret-key
+            - name: MFA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mfa-encryption-key
+            - name: AI_CREDENTIAL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: ai-credential-encryption-key
+            - name: AI_CREDENTIAL_ENCRYPTION_KEY_PREV
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: ai-credential-encryption-key-prev
+                  optional: true
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+            - name: MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mailgun-api-key
+            - name: MAILGUN_WEBHOOK_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mailgun-webhook-signing-key
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: google-client-id
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: google-client-secret
+            - name: CAPTCHA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: captcha-secret
+            - name: FOUNDER_COUNT_EXCLUDE_USERNAMES
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: founder-count-exclude-usernames
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 160Mi
+            limits:
+              memory: 320Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
