@@ -11,7 +11,7 @@
 set -euo pipefail
 
 DIR="${CLUSTERS_DIR:-clusters}"
-EXPECTED="${EXPECTED_REPOS:-ziftbook}"
+EXPECTED="${EXPECTED_REPOS-ziftbook}"
 NOW="${NOW_EPOCH:-$(date +%s)}"
 title="[release-drift] app release not in clusters/"
 drift=""
