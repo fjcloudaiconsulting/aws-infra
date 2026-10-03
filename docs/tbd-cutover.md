@@ -5,13 +5,15 @@ TBD production moves from the DigitalOcean App Platform app `pfv` and its data d
 migrated: every user logs in again. DigitalOcean stays stopped but intact for one week as the rollback target;
 decommissioning is INFRA-49 (not before 2026-10-11).
 
-Three PRs, merged in this order at the steps marked **MERGE** below, and one rollback branch:
+Five PRs, merged in this order at the steps marked **MERGE** below, and one rollback branch:
 
 | PR | Branch | Content | Merges |
 |---|---|---|---|
-| A1 prep | `feat/INFRA-48-tbd-prod-prep` | image tags, frontend runtime env, INFRA-83 client-IP env, `tbd.secret.yaml`, this runbook. Replicas stay 0 | before the rehearsal |
+| R rename | `feat/INFRA-73-tbd-mysql-names` | MySQL `pfv2`, `pfv_app`, `pfv_backup` become `tbd`, `tbd_app`, `tbd_backup` on a recreated empty volume (INFRA-73; its PR body has the sequence) | first, before section 1 |
+| A1 prep | `feat/INFRA-48-tbd-prod-prep` | image tags, frontend runtime env, `CLIENT_IP_HEADER` (INFRA-83), `tbd.secret.yaml`, this runbook. Replicas stay 0 | before the rehearsal |
 | A2 live | `feat/INFRA-48-tbd-prod-live` | backend and frontend replicas 1, IngressRoute `app.thebetterdecision.com`, `MIN_TABLES=1`, probe floor, `tbd` in `WATCH_REPOS` | real run, step 4 |
 | B go | `feat/INFRA-48-tbd-dns` | Cloudflare `app` record proxied to the node, scheduler replicas 1 | real run, step 5 |
+| H uptime | `feat/INFRA-48-health-check-tbd` | Route 53 health check from `ping/ping` to `app/health/dependencies` | real run, step 6 (after G4) |
 | C rollback | `revert/INFRA-48-tbd-dns-rollback` | `git revert` of B. Branch only; a PR only to roll back | rollback only |
 
 A2 and B stay draft PRs until their step, so neither can be merged by accident. The scheduler goes live with the
@@ -25,7 +27,7 @@ aws-infra and tbd checkouts on `main`. Nothing here prints a secret value.
 ```bash
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019 NS=data POD=mysql-0
-# Names from the live StatefulSet: tbd / tbd_app once INFRA-73 is applied (pfv2 / pfv_app before it).
+# Names from the live StatefulSet: tbd / tbd_app (INFRA-73, merged and applied first).
 DB=$(kubectl -n data get sts mysql -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MYSQL_DATABASE")].value}')
 DBUSER=$(kubectl -n data get sts mysql -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MYSQL_USER")].value}')
 # SQL on stdin, as MySQL root over the pod's socket.
@@ -43,7 +45,9 @@ is MySQL root over the socket; a plain `mysql` reads `/root/.my.cnf`, the low-pr
 
 `tbd-prod/tbd` takes every value from the DigitalOcean app except the two connection URLs, which point at the
 cluster's MySQL and Valkey and are built from their Secrets in the cluster. The keys must equal DigitalOcean's, or
-logins (JWT, PAT pepper) and encrypted columns (MFA, AI credentials) break.
+logins (JWT, PAT pepper) and encrypted columns (MFA, AI credentials) break. `database-url` takes its user and
+database from the live StatefulSet, so write this only after INFRA-73 is applied: the Setup `echo` must print
+`tbd tbd_app`.
 
 1. DigitalOcean control panel > Apps > `pfv` > Console > component `backend`. This opens a shell in the running
    container. Run the `FP` loop (paste the quoted value of `FP` as one line) and keep the output: it is the
@@ -107,13 +111,12 @@ for t in INFRA-42 INFRA-83; do
   sha=$(gh pr list -R fjcloudaiconsulting/tbd --state merged --search "$t in:title" --json mergeCommit --jq '.[0].mergeCommit.oid')
   gh api "repos/fjcloudaiconsulting/tbd/compare/$sha...$TAG" --jq "\"$t \" + .status"
 done                                                                    # INFRA-42 ahead, INFRA-83 ahead (or identical)
-CIP=""   # set to the client-IP env name from the INFRA-83 PR
-: "${CIP:?set CIP first}"; grep -c "name: $CIP$" clusters/platform/tbd-prod/backend.yaml clusters/platform/tbd-prod/scheduler.yaml   # 1 each: without it every user shares Traefik's IP (one rate-limit bucket)
+kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.template.spec.containers[?(@.name=="backend")].env[?(@.name=="CLIENT_IP_HEADER")].value}'; echo   # cf-connecting-ip: without it every user shares one rate-limit bucket
 curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok"} (DO builds report no version)
 grep -rhoE 'ghcr\.io/fjcloudaiconsulting/tbd/[a-z]+:v[0-9.]+' clusters/ | sort -u   # backend, frontend, migrations, all :$TAG
 kubectl -n tbd-prod get deploy -o jsonpath='{..image}' | tr ' ' '\n' | sort -u   # the same three, :$TAG (what Flux applied)
 kubectl -n tbd-prod get secret tbd -o json | jq '.data | length'        # 13 (12 without ..._PREV)
-# The secret points at the live names (INFRA-73 after the secret was written would break logins).
+# The secret points at the live names (a secret written before INFRA-73 was applied would break logins).
 kubectl -n tbd-prod get secret tbd -o jsonpath='{.data.database-url}' | base64 -d | sed 's/:[^:@]*@/:***@/'; echo   # mysql+aiomysql://$DBUSER:***@mysql.data.svc.cluster.local:3306/$DB
 kubectl -n tbd-prod get deploy --no-headers | awk '{print $1, $2}'      # backend 0/0, frontend 0/0, scheduler 0/0
 kubectl get ingressroute -A --no-headers | awk '{print $1"/"$2}'        # kube-system/ping, ziftbook-staging/frontend: no tbd route
@@ -241,7 +244,7 @@ rehearsal step 5; `unset SP` at the end of the window.
 | 0:35 | Step 3, restore. **G2** | agent |
 | 0:50 | Step 4, **MERGE A2**, smoke over port-forward. **G3** | owner merges, agent smokes |
 | 1:10 | Step 5, **MERGE B**, approve the `cloudflare` apply, public smoke. **G4**, final go | owner |
-| 1:30 | Step 6, backup proof, watch | agent |
+| 1:30 | Step 6, backup proof, **MERGE H** and approve the `aws-platform` apply, watch | agent; owner merges |
 
 ### Step 1. Freeze DigitalOcean (15 min)
 
@@ -350,10 +353,25 @@ kubectl -n data create job --from=cronjob/db-backup db-backup-cutover
 kubectl -n data wait --for=condition=complete job/db-backup-cutover --timeout=10m
 kubectl -n data logs job/db-backup-cutover -c mysql-dump | tail -1      # ok: tbd-mysql <N> tables, <bytes> bytes (N = the manifest's tables)
 kubectl -n data logs job/db-backup-cutover -c upload | grep -c uploaded  # 6
+kubectl -n data logs job/db-backup-cutover -c upload | grep -o 'tbd-mysql/[^ ]*/tbd_[0-9-]*\.sql\.gz'   # the TBD dump, tbd_<stamp>.sql.gz (INFRA-73)
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.complete   # 1 or more (a tick every 15 min)
 kubectl -n tbd-prod logs deploy/scheduler --since=20m | grep -c scheduler.tick.error      # 0
 kubectl -n tbd-prod get pods --no-headers | awk '{print $1, $2, $3, $4}'   # backend, frontend, scheduler: 1/1 Running, 0 restarts
 ```
+
+**MERGE H** (the owner marks it ready and merges it), then approve the `aws-platform` apply in HCP Terraform: the
+plan must be `0 to add, 1 to change, 0 to destroy` on `aws_route53_health_check.ping` (plus the alarm description).
+Check after about 2 minutes:
+
+```bash
+HC=$(aws route53 list-health-checks --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" --output text); echo "$HC"   # one id
+aws route53 get-health-check-status --health-check-id "$HC" --query 'HealthCheckObservations[].StatusReport.Status' --output text   # every entry "Success: HTTP Status Code 200 ..."
+aws cloudwatch describe-alarms --region us-east-1 --alarm-names platform-ping-unhealthy --query 'MetricAlarms[].StateValue' --output text   # OK
+```
+
+Merged before the window instead, the check would page while DigitalOcean is archived (steps 1 to 5). On a
+rollback (R3) it keeps working unchanged: it then reads DigitalOcean's `/health/dependencies` through the DNS-only
+record.
 
 Then comment the result on INFRA-48. Monday: the 02:00 UTC `db-backup` and the 04:17 UTC freshness probe must be
 green on real data (`tbd-mysql` floor 100000 bytes since A2).
