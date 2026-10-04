@@ -293,8 +293,9 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
 
 - **Node:** CPU, memory, load, pressure, disks and filesystems (`job="node"`).
 - **Pods and k3s:** per-container CPU, memory, throttling, OOM events and pod network from cAdvisor, plus the whole node
-  (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). Pod counts and PVC usage from
-  the kubelet (`job="kubelet"`).
+  (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). PVCs live on the root disk
+  (local-path), so `node_filesystem_avail_bytes{mountpoint="/"}` is their free space too. The kubelet's own `/metrics`
+  is not scraped (about 58,000 control-plane series on k3s, which tripled Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
   and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `client.address`, `http.request.header.*` and
@@ -329,8 +330,8 @@ kubectl -n observability logs ds/alloy --since=10m | grep -E 'level=(error|warn)
 kubectl -n observability top pod                  # memory: limit 256Mi
 ```
 
-In Grafana Cloud, Explore with the Prometheus data source: `up` shows one series per job (`node`, `kubelet`,
-`cadvisor`), each 1. `sum by (namespace) (container_memory_working_set_bytes{pod!=""})` shows memory per namespace.
+In Grafana Cloud, Explore with the Prometheus data source: `up` shows one series per job (`node`, `cadvisor`),
+each 1. `sum by (namespace) (container_memory_working_set_bytes{pod!=""})` shows memory per namespace.
 For the Alloy UI (pipeline graph, component health): `kubectl -n observability port-forward ds/alloy 12345`, then
 http://localhost:12345.
 

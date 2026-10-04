@@ -8,7 +8,7 @@ metadata:
   name: alloy
   namespace: observability
 ---
-# Kubelet /metrics and /metrics/cadvisor only. Not nodes/proxy, which reaches every kubelet API.
+# The kubelet's /metrics/cadvisor (nodes/metrics) only. Not nodes/proxy, which reaches every kubelet API.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

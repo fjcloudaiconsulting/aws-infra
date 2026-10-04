@@ -111,24 +111,9 @@ prometheus.scrape "node" {
 	forward_to      = [otelcol.receiver.prometheus.scraped.receiver]
 }
 
-// Kubelet and cAdvisor on this node's kubelet (10250), with the pod's token (RBAC: nodes/metrics only).
-prometheus.scrape "kubelet" {
-	targets = [{
-		"__address__" = sys.env("HOST_IP") + ":10250",
-		"instance"    = sys.env("NODE_NAME"),
-	}]
-	job_name          = "kubelet"
-	scheme            = "https"
-	bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	scrape_interval   = "60s"
-
-	tls_config {
-		ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	}
-
-	forward_to = [prometheus.relabel.kubelet.receiver]
-}
-
+// cAdvisor on this node's kubelet (10250), with the pod's token (RBAC: nodes/metrics only). The kubelet's own
+// /metrics is not scraped: on k3s it carries the whole control plane, about 58,000 series, which tripled Alloy's heap
+// (measured 44 to 172 MiB) for pod counts that cAdvisor already gives.
 prometheus.scrape "cadvisor" {
 	targets = [{
 		"__address__" = sys.env("HOST_IP") + ":10250",
@@ -145,17 +130,6 @@ prometheus.scrape "cadvisor" {
 	}
 
 	forward_to = [prometheus.relabel.cadvisor.receiver]
-}
-
-// The kubelet's own endpoint exposes thousands of series (API client and runtime histograms); keep the pod counts.
-prometheus.relabel "kubelet" {
-	rule {
-		source_labels = ["__name__"]
-		regex         = "up|kubelet_running_pods|kubelet_running_containers|kubelet_volume_stats_(capacity|available|used)_bytes"
-		action        = "keep"
-	}
-
-	forward_to = [otelcol.receiver.prometheus.scraped.receiver]
 }
 
 // cAdvisor: per-container CPU, memory, throttling, OOM and pod network, plus the whole node ("/") and the k3s
