@@ -89,6 +89,34 @@ installation, and the grant applies to **every repository in the installation**.
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
   and moving `v1` (owner approval, public contract).
 
+### Actions secrets and variables
+
+**Rule (owner, 2026-10-04, INFRA-99).** GitHub keeps only the secrets and variables a workflow needs to
+run: CI, release and deploy credentials and deploy targets. Every value an app reads at runtime, secret or
+not, lives in a Kubernetes Secret or ConfigMap under `clusters/` (Secrets SOPS-encrypted) once Flux deploys
+the app. A runtime value found in GitHub moves to SOPS, or is deleted from GitHub when SOPS already holds it.
+Every GitHub secret or variable has a workflow on `main` that reads it; one without a reader is deleted.
+The app-template README carries the same rule for new apps.
+
+Inventory, 2026-10-04 (names from the API, consumers from `origin/main`). Org level: no Actions secrets,
+Actions variables or Dependabot secrets. aws-infra, `.github` and app-template: none at any level
+(app-template's `ci.yml` reads the two `release` secrets, which each new repo sets per its checklist).
+tbd's environment `copilot` holds nothing.
+
+| Repo | Level | Name | Read by | Class | Fate |
+|---|---|---|---|---|---|
+| tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `release.yml` | pipeline | stays |
+| tbd | repo | secret `GIST_TOKEN` | `test.yml` (coverage badges, `main` only) | pipeline | stays |
+| tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
+| tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | stay while the apex is served from S3 and CloudFront (INFRA-60 moves it to a Worker) |
+| tbd | repo | secret `DIGITALOCEAN_ACCESS_TOKEN` | `deploy.yml`, `deploy-drift-probe.yml`, `release.yml` `deploy` | DigitalOcean only (holds a dummy since INFRA-48) | delete after INFRA-49, once tbd#840 (INFRA-44) removes its readers |
+| tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
+| ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
+| ziftbook | repo | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline | stays |
+
+`GHCR_READ_TOKEN` is a Mend org secret, not a GitHub one (see [Mend Renovate](#mend-renovate)). No app
+runtime value is left in GitHub once the three DigitalOcean-path secrets are deleted.
+
 ## Mend Renovate
 
 Hosted Mend app, Free plan, repos selected at
@@ -193,7 +221,7 @@ State left by the INFRA-48 cutover window, all by hand. Undo it only to roll bac
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values come from the DigitalOcean app (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed: procedure in [tbd-cutover.md](tbd-cutover.md#1-write-the-tbd-secret-owner-before-the-rehearsal-about-30-minutes), which also checks it by fingerprint against DigitalOcean. A rotated MySQL app or Valkey password must be written here too |
-| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), and tbd Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). The two stores must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
+| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), and tbd Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` until INFRA-49 deletes them ([Actions secrets](#actions-secrets-and-variables)) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). While both stores exist they must hold the same values; the cluster copy is the readable one and the only one kept. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, later TBD staging) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
