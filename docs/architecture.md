@@ -181,8 +181,8 @@ Rules every app keeps (traces and logs alike):
 - **No exception messages.** `record_exception=False` on every span; an error is its class (plus SQLSTATE and
   constraint for a database error) and its frames, never `str(error)`, which can quote an email. The same holds for log
   records, including the `sys` and `threading` excepthooks.
-- **Access logs carry method, route template, status and duration only.** uvicorn's own access line (raw path with
-  query, client IP) stays disabled.
+- **Access logs carry no path, query or client IP:** method, route template, status, duration and the correlation
+  ids. uvicorn's own access line (raw path with query, client IP) stays disabled.
 - **`traceparent` only.** The app extracts and injects with a hard-coded `TraceContextTextMapPropagator`, reading only
   the `traceparent` header; never baggage or `tracestate`, which are client-controlled text that would ride into the
   jobs table. `OTEL_PROPAGATORS=tracecontext` is a backstop for the global propagator, not the guarantee.
