@@ -32,31 +32,29 @@ otelcol.receiver.otlp "apps" {
 
 	// Metrics only. Traces and logs sent here are refused until they are wired (see the top of this file).
 	output {
-		metrics = [otelcol.processor.attributes.scrub.input]
+		metrics = [otelcol.processor.transform.scrub.input]
 	}
 }
 
 // Backstop for the INFRA-84 allowlist: these attributes carry tokens, emails and client addresses (and explode
-// cardinality), so they never leave the node even if an app sets them.
-otelcol.processor.attributes "scrub" {
-	action {
-		pattern = "^url\\..*"
-		action  = "delete"
+// cardinality), so they never leave the node even if an app sets them, on a data point, its scope or its resource
+// (Grafana Cloud turns resource attributes into target_info labels). Old semconv names included.
+otelcol.processor.transform "scrub" {
+	error_mode = "ignore"
+
+	metric_statements {
+		context    = "resource"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
 	}
 
-	action {
-		pattern = "^http\\.request\\.header\\..*"
-		action  = "delete"
+	metric_statements {
+		context    = "scope"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
 	}
 
-	action {
-		key    = "client.address"
-		action = "delete"
-	}
-
-	action {
-		key    = "exception.message"
-		action = "delete"
+	metric_statements {
+		context    = "datapoint"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
 	}
 
 	output {
@@ -72,18 +70,12 @@ otelcol.receiver.prometheus "scraped" {
 	}
 }
 
-// Node: the embedded node_exporter, reading the host's /proc, /sys and / (read-only mounts).
+// Node: the embedded node_exporter, reading the host's /proc and /sys (read-only mounts). Disk space comes from
+// cAdvisor (container_fs_*{id="/"}), so the host's / is not mounted at all.
 prometheus.exporter.unix "node" {
 	procfs_path    = "/host/proc"
 	sysfs_path     = "/host/sys"
-	rootfs_path    = "/host/root"
-	udev_data_path = "/host/root/run/udev/data"
-	set_collectors = ["cpu", "diskstats", "filesystem", "loadavg", "meminfo", "pressure", "uname", "vmstat"]
-
-	filesystem {
-		fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|securityfs|squashfs|sysfs|tmpfs|tracefs)$"
-		mount_points_exclude = "^/(dev|proc|run|sys|var/lib/kubelet|var/lib/rancher/k3s/agent/containerd)($|/)"
-	}
+	set_collectors = ["cpu", "diskstats", "loadavg", "meminfo", "pressure", "uname", "vmstat"]
 
 	disk {
 		device_exclude = "^(loop|ram|dm-|sr)\\d+$"
@@ -132,12 +124,21 @@ prometheus.scrape "cadvisor" {
 	forward_to = [prometheus.relabel.cadvisor.receiver]
 }
 
-// cAdvisor: per-container CPU, memory, throttling, OOM and pod network, plus the whole node ("/") and the k3s
-// service (k3s and containerd). Other systemd slices, cgroup ids, image names and veth interfaces are dropped.
+// cAdvisor: per-container CPU, memory, throttling, OOM and pod network, plus the whole node ("/", with its disk space)
+// and the k3s service (k3s and containerd). Other systemd slices, cgroup ids, image names and veth interfaces are
+// dropped.
 prometheus.relabel "cadvisor" {
 	rule {
 		source_labels = ["__name__"]
-		regex         = "up|machine_memory_bytes|container_cpu_usage_seconds_total|container_cpu_cfs_(throttled_)?periods_total|container_memory_working_set_bytes|container_memory_rss|container_spec_memory_limit_bytes|container_oom_events_total|container_network_(receive|transmit)_bytes_total"
+		regex         = "up|machine_memory_bytes|container_cpu_usage_seconds_total|container_cpu_cfs_(throttled_)?periods_total|container_memory_working_set_bytes|container_memory_rss|container_spec_memory_limit_bytes|container_oom_events_total|container_network_(receive|transmit)_bytes_total|container_fs_(usage|limit)_bytes"
+		action        = "keep"
+	}
+
+	// Disk space only for the node's real disks (PVCs are local-path directories on the root disk): not per
+	// container, not loop devices or tmpfs.
+	rule {
+		source_labels = ["__name__", "id", "device"]
+		regex         = "container_fs_(usage|limit)_bytes;/;/dev/(root|nvme.+|xvd.+)|(up|machine_memory_bytes|container_(cpu|memory|network|oom|spec)_[^;]*);[^;]*;[^;]*"
 		action        = "keep"
 	}
 
@@ -148,7 +149,17 @@ prometheus.relabel "cadvisor" {
 		action        = "keep"
 	}
 
-	// A pod's series are named by namespace, pod and container; the cgroup id only adds a uid.
+	// Each pod also has a pause (sandbox) container: container="", name=<sandbox id>. Once name and image are dropped
+	// its CPU and memory series collide with the pod cgroup's (container="", no name) and overwrite them. Keep only
+	// its network series, which exist nowhere else.
+	rule {
+		source_labels = ["__name__", "pod", "container", "name"]
+		regex         = "container_(cpu|memory|spec|oom)[^;]*;[^;]+;;.+"
+		action        = "drop"
+	}
+
+	// A pod's series are named by namespace, pod and container; the cgroup id only adds a uid. While a container
+	// restarts, its old and new cgroups share these labels for a scrape or two, and the last one read wins.
 	rule {
 		source_labels = ["pod"]
 		regex         = ".+"

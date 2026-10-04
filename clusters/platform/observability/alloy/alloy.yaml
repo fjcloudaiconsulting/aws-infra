@@ -48,8 +48,10 @@ spec:
       serviceAccountName: alloy
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
+        # Its own uid, not nobody (65534): Alloy sees every host process through /host/proc, and a process's environ is
+        # readable by the same uid.
+        runAsUser: 473
+        runAsGroup: 473
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -59,7 +61,9 @@ spec:
             - run
             - /etc/alloy/config.alloy
             - --storage.path=/var/lib/alloy/data
-            # The UI and /metrics listen on the pod IP; the NetworkPolicy below admits only 4318.
+            # The UI and /metrics (no auth) listen on the pod IP for the readiness probe; the NetworkPolicy below admits
+            # only 4318. Node-local traffic (hostNetwork pods such as netbird) bypasses it; the NetBird ACL admits the
+            # owner to TCP 6443 only.
             - --server.http.listen-addr=0.0.0.0:12345
             - --disable-reporting
           env:
@@ -103,7 +107,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
-          # Measured 52 to 95 MiB working set before any app traffic (docs/runbooks.md, Metrics to Grafana Cloud).
+          # Measured 52 to 100 MiB working set before any app traffic (docs/runbooks.md, Metrics to Grafana Cloud).
           resources:
             requests:
               cpu: 20m
@@ -113,19 +117,19 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/alloy
-            # The parent, not .../data: the image's /var/lib/alloy is root-only, so nobody could not reach data.
+            # The parent, not .../data: the image's /var/lib/alloy is root-only, so a non-root uid could not reach data.
             - name: data
               mountPath: /var/lib/alloy
+            # Node metrics only. Recursive read-only: plain readOnly leaves submounts writable. The host's / is not
+            # mounted (disk space comes from cAdvisor), so no host files, PV data included, are visible.
             - name: proc
               mountPath: /host/proc
               readOnly: true
+              recursiveReadOnly: Enabled
             - name: sys
               mountPath: /host/sys
               readOnly: true
-            - name: root
-              mountPath: /host/root
-              readOnly: true
-              mountPropagation: HostToContainer
+              recursiveReadOnly: Enabled
       volumes:
         - name: config
           configMap:
@@ -138,9 +142,6 @@ spec:
         - name: sys
           hostPath:
             path: /sys
-        - name: root
-          hostPath:
-            path: /
 ---
 apiVersion: v1
 kind: Service

@@ -1,5 +1,5 @@
 # Grafana Alloy, the one telemetry collector (INFRA-85). Privileged only because the node metrics read the host's
-# /proc, /sys and / through read-only hostPath mounts, which baseline forbids; the container runs as nobody with no
+# /proc and /sys through read-only hostPath mounts, which baseline forbids; the container runs as its own uid with no
 # capabilities and a read-only root filesystem.
 apiVersion: v1
 kind: Namespace
