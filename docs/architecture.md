@@ -48,7 +48,7 @@ flowchart LR
   probe -->|"list-only role"| bucket
 
   subgraph useast["AWS us-east-1 (terraform/platform)"]
-    hc["Route 53 health check<br/>ping.thebetterdecision.com/ping"]
+    hc["Route 53 health check<br/>app.thebetterdecision.com/health/dependencies"]
   end
   hc --> cf
 
@@ -78,7 +78,7 @@ certificate covers one zone, so `TLSStore default` holds one per zone (`origin-c
 default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
 [runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
-endpoint served by Traefik itself. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
+endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
 repo.
 
 - Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), firewall in

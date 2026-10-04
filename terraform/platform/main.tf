@@ -348,18 +348,20 @@ resource "aws_cloudformation_stack" "node_alarms" {
   })
 }
 
-# External uptime check (INFRA-26): Route 53 checkers in several regions fetch Traefik's /ping
-# through Cloudflare, so a dead node, broken DNS, proxy or origin certificate all alarm.
+# External uptime check (INFRA-26): Route 53 checkers in several regions fetch TBD's
+# /health/dependencies through Cloudflare (since the INFRA-48 cutover; Traefik's /ping before), so a
+# dead node, broken DNS, proxy, origin certificate, app, MySQL or Valkey all alarm (503 when MySQL or
+# Valkey is unusable). Updating fqdn and path keeps the check id, so the alarm below stays wired.
 # HTTPS (not HTTP): Cloudflare would answer plain HTTP with a 301 itself, and 3xx counts as healthy.
 # No string matching: each optional feature costs $2/month on a non-AWS endpoint, and every
 # Cloudflare failure (52x, a 403 challenge) is already a non-2xx/3xx status.
-# If Bot Fight Mode, a higher security level or WAF challenges are ever enabled, skip the ping host:
+# If Bot Fight Mode, a higher security level or WAF challenges are ever enabled, skip this path:
 # Route 53 checkers would get a 403 and page as an outage.
 resource "aws_route53_health_check" "ping" {
   type              = "HTTPS"
-  fqdn              = "ping.thebetterdecision.com"
+  fqdn              = "app.thebetterdecision.com"
   port              = 443
-  resource_path     = "/ping"
+  resource_path     = "/health/dependencies"
   enable_sni        = true # Cloudflare needs SNI to pick the certificate
   request_interval  = 30
   failure_threshold = 3
@@ -414,7 +416,7 @@ resource "aws_sns_topic_policy" "platform_alerts_use1" {
 resource "aws_cloudwatch_metric_alarm" "ping" {
   provider            = aws.use1
   alarm_name          = "platform-ping-unhealthy"
-  alarm_description   = "ping.thebetterdecision.com/ping failed the Route 53 health check (INFRA-26)"
+  alarm_description   = "app.thebetterdecision.com/health/dependencies failed the Route 53 health check (INFRA-26, INFRA-48)"
   namespace           = "AWS/Route53"
   metric_name         = "HealthCheckStatus"
   dimensions          = { HealthCheckId = aws_route53_health_check.ping.id }
