@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.20.3
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.20.4
           env:
             - name: ZIF_MIGRATE_DATABASE_URL
               valueFrom:
@@ -58,7 +58,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: worker
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.20.3
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.20.4
           command: [python, -m, app.worker]
           env:
             - name: ZIF_DATABASE_URL
