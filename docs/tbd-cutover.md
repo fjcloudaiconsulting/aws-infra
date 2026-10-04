@@ -5,13 +5,14 @@ TBD production moves from the DigitalOcean App Platform app `pfv` and its data d
 migrated: every user logs in again. DigitalOcean stays stopped but intact for one week as the rollback target;
 decommissioning is INFRA-49 (not before 2026-10-11).
 
-Five PRs, merged in this order at the steps marked **MERGE** below, and one rollback branch:
+Five PRs, merged in this order at the steps marked **MERGE** below, and one rollback branch. INFRA-93 (aws-infra #72 applied, then #73 merged) is a separate gate that must be live before step 5:
 
 | PR | Branch | Content | Merges |
 |---|---|---|---|
 | R rename | `feat/INFRA-73-tbd-mysql-names` | MySQL `pfv2`, `pfv_app`, `pfv_backup` become `tbd`, `tbd_app`, `tbd_backup` on a recreated empty volume (INFRA-73; its PR body has the sequence) | first, before section 1 |
 | A1 prep | `feat/INFRA-48-tbd-prod-prep` | image tags, frontend runtime env, `CLIENT_IP_HEADER` (INFRA-83), `tbd.secret.yaml`, this runbook. Replicas stay 0 | before the rehearsal |
 | A2 live | `feat/INFRA-48-tbd-prod-live` | backend and frontend replicas 1, IngressRoute `app.thebetterdecision.com`, `MIN_TABLES=1`, probe floor, `tbd` in `WATCH_REPOS` | real run, step 4 |
+| INFRA-93 | #72 `feat/INFRA-93-origin-pull-mtls`, #73 `feat/INFRA-93-origin-pull-require` | zone-level Authenticated Origin Pulls: Cloudflare presents our client cert (#72), Traefik requires it (#73). `CLIENT_IP_HEADER` is safe only with it | before step 5 (best before the window) |
 | B go | `feat/INFRA-48-tbd-dns` | Cloudflare `app` record proxied to the node, scheduler replicas 1 | real run, step 5 |
 | H uptime | `feat/INFRA-48-health-check-tbd` | Route 53 health check from `ping/ping` to `app/health/dependencies` | real run, step 6 (after G4) |
 | C rollback | `revert/INFRA-48-tbd-dns-rollback` | `git revert` of B. Branch only; a PR only to roll back | rollback only |
@@ -113,7 +114,7 @@ for t in INFRA-42 INFRA-83; do
   gh api "repos/fjcloudaiconsulting/tbd/compare/$sha...$TAG" --jq "\"$t \" + .status"
 done                                                                    # INFRA-42 ahead, INFRA-83 ahead (or identical)
 kubectl -n tbd-prod get deploy backend -o jsonpath='{.spec.template.spec.containers[?(@.name=="backend")].env[?(@.name=="CLIENT_IP_HEADER")].value}'; echo   # cf-connecting-ip: without it every user shares one rate-limit bucket
-curl -s https://app.thebetterdecision.com/health                        # DO: {"status":"ok"} (DO builds report no version)
+curl -s https://app.thebetterdecision.com/health                        # DO: version "dev" or none (DO builds without the version build args); k3s reports the tag
 grep -rhoE 'ghcr\.io/fjcloudaiconsulting/tbd/[a-z]+:v[0-9.]+' clusters/ | sort -u   # backend, frontend, migrations, all :$TAG
 kubectl -n tbd-prod get deploy -o jsonpath='{..image}' | tr ' ' '\n' | sort -u   # the same three, :$TAG (what Flux applied)
 kubectl -n tbd-prod get secret tbd -o json | jq '.data | length'        # 13 (12 without ..._PREV)
