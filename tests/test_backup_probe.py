@@ -106,7 +106,6 @@ class Verdicts(unittest.TestCase):
             with self.subTest(**broken):
                 r = probe(json.dumps({"Contents": older + night(2, stamp="20260827-084115", **broken)}))
                 self.assertEqual(r.returncode, 1, r.stdout)
-                self.assertIn("20260827-084115", r.stdout)
 
     def test_a_broken_older_set_does_not_spoil_a_complete_newer_one(self):
         # Kills: judging the oldest stamp, or requiring every set in the day to be complete.

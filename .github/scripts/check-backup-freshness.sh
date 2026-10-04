@@ -107,8 +107,12 @@ def age_hours(obj):
         return None
     return (now - int(parsed.timestamp())) / 3600.0
 
+def base(o):
+    return str(o.get("Key", "")).rpartition("/")[2]
+
 def judge(contents, min_dump_bytes):
-    manifests = [o for o in contents if "manifest" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
+    manifests = [o for o in contents
+                 if base(o).startswith("manifest_") and base(o).endswith(".json")]
     if not manifests:
         return 1, ("STALE: no manifest object found. The manifest is uploaded last, so "
                    "its absence means no night has completed end to end.")
@@ -140,13 +144,13 @@ def judge(contents, min_dump_bytes):
     # writes a second set into the same day; matching by directory let the
     # earlier set's big dump vouch for a broken newer one (INFRA-72).
     # Layout: <prefix>/YYYY/MM/DD/{<db>,grants,manifest}_<stamp>.
-    prefix, _, name = str(newest.get("Key", "")).rpartition("/")
-    stamp = name.removeprefix("manifest_").removesuffix(".json")
+    prefix = str(newest.get("Key", "")).rpartition("/")[0]
+    stamp = base(newest).removeprefix("manifest_").removesuffix(".json")
     siblings = [o for o in contents if str(o.get("Key", "")).rpartition("/")[0] == prefix]
-    base = lambda o: str(o.get("Key", "")).rpartition("/")[2]
 
     grants = [o for o in siblings if base(o) == f"grants_{stamp}.sql.gz"]
-    dumps = [o for o in siblings if base(o).endswith(f"_{stamp}.sql.gz") and o not in grants]
+    dumps = [o for o in siblings if base(o).endswith(f"_{stamp}.sql.gz")
+             and base(o) != f"grants_{stamp}.sql.gz"]
 
     if not dumps:
         return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no dump object "
