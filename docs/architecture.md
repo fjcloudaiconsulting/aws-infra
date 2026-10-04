@@ -203,11 +203,13 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 | `OTEL_LOGS_EXPORTER` | `none` |
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
-forwards traces and metrics to the Grafana Cloud OTLP gateway, tails pod stdout into Grafana Cloud Logs, and scrapes
-the node, kubelet and cAdvisor for node and k3s metrics. One collector, so the Grafana Cloud credentials (a write-only
-access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two copies during a rollout. Not
-the `k8s-monitoring` Helm chart, which deploys several Alloys plus node-exporter and kube-state-metrics. Footprint
-estimate, not yet measured: 150 to 250 MiB working set; INFRA-85 measures it against the INFRA-80 node budget.
+forwards metrics (and, as each app adopts this standard, traces) to the Grafana Cloud OTLP gateway, and scrapes the
+node and cAdvisor (`/metrics/cadvisor` only: k3s kubelet `/metrics` carries the whole control plane, about 58k series).
+Tailing pod stdout into Grafana Cloud Logs comes later, under the rules below. One collector, so the Grafana Cloud
+credentials (a write-only access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two
+copies during a rollout. Not the `k8s-monitoring` Helm chart, which deploys several Alloys plus node-exporter and
+kube-state-metrics. Measured by INFRA-85 against the real cAdvisor payload: 52 to 100 MiB working set (request 128Mi,
+limit 256Mi).
 
 The collector is the second line of defense, not the first:
 
