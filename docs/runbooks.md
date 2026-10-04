@@ -286,6 +286,58 @@ until the new one is active.
 6. Remove `origin-pull-ca-<N>` from `secretNames`. Merge. Delete its Secret file. Merge. Run the check and update the
    expiry row in the configuration map.
 
+## Metrics to Grafana Cloud (Alloy)
+
+One Grafana Alloy DaemonSet in `observability` (INFRA-85, design in [architecture.md](architecture.md), Telemetry)
+sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
+
+- **Node:** CPU, memory, load, pressure, disks and filesystems (`job="node"`).
+- **Pods and k3s:** per-container CPU, memory, throttling, OOM events and pod network from cAdvisor, plus the whole node
+  (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). Pod counts and PVC usage from
+  the kubelet (`job="kubelet"`).
+- **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
+  and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `client.address`, `http.request.header.*` and
+  `exception.message` from every data point.
+
+Traces and logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
+a change there rolls the pod (the ConfigMap name carries a hash).
+
+**Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file
+`clusters/platform/observability/grafana-cloud.secret.yaml`. The token belongs to a Grafana Cloud access policy with the
+`metrics:write` scope only. To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
+Cloud access policies > the policy > Add token), regenerate the whole file (only the public key is needed), merge,
+restart, then delete the old token:
+
+```sh
+read -rs T; printf %s "$T" | kubectl create secret generic grafana-cloud -n observability \
+  --from-literal=otlp-endpoint='<OTLP endpoint>' --from-literal=instance-id='<Instance ID>' \
+  --from-file=token=/dev/stdin --dry-run=client -o yaml > clusters/platform/observability/grafana-cloud.secret.yaml \
+  && sops --encrypt --in-place clusters/platform/observability/grafana-cloud.secret.yaml; unset T
+grep -cE '(otlp-endpoint|instance-id|token): ENC\[' clusters/platform/observability/grafana-cloud.secret.yaml   # 3
+# After the merge (env is read at start):
+kubectl -n observability rollout restart ds/alloy
+```
+
+**Check** it is working:
+
+```sh
+kubectl -n observability get pods                 # alloy-xxxxx 1/1 Running; CreateContainerConfigError = Secret missing
+kubectl -n observability logs ds/alloy --since=10m | grep -E 'level=(error|warn)'
+# Nothing, or only "Failed to open directory, disabling udev device properties" once at start (harmless).
+# "401" or "Unauthorized" from otelcol.exporter.otlphttp: wrong token, instance ID or a revoked token.
+kubectl -n observability top pod                  # memory: limit 256Mi
+```
+
+In Grafana Cloud, Explore with the Prometheus data source: `up` shows one series per job (`node`, `kubelet`,
+`cadvisor`), each 1. `sum by (namespace) (container_memory_working_set_bytes{pod!=""})` shows memory per namespace.
+For the Alloy UI (pipeline graph, component health): `kubectl -n observability port-forward ds/alloy 12345`, then
+http://localhost:12345.
+
+**Memory:** measured locally at about 150 MiB working set against payloads captured from the node's kubelet; request
+128Mi, limit 256Mi, `GOMEMLIMIT` 200MiB. If `kubectl top` shows it near the limit, look for a new high-cardinality
+series in the app metrics before raising it.
+
 ## Uptime alarm emails during a TBD deploy
 
 The Route 53 uptime check reads `https://app.thebetterdecision.com/health/dependencies` (INFRA-48), not Traefik's

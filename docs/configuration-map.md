@@ -1,7 +1,7 @@
 # Configuration map
 
 Settings that live **outside git**: GitHub org and repo settings, GitHub Apps, Mend Renovate, HCP
-Terraform, AWS, Cloudflare, the cluster's out-of-band secrets, Jira. They were set by hand in UIs and
+Terraform, AWS, Cloudflare, Grafana Cloud, the cluster's out-of-band secrets, Jira. They were set by hand in UIs and
 consoles, so git cannot show drift and a wrong value fails silently. This page says what is set, where,
 what depends on it, and how it shows when it breaks. Names only: secret values never go in this repo
 (it is public).
@@ -29,6 +29,7 @@ in the same PR or right after.
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
+| No new metrics in Grafana Cloud | Alloy pod in `CreateContainerConfigError` (Secret `observability/grafana-cloud` missing), or the exporter logs `401` (token revoked, or wrong Instance ID) | `kubectl -n observability get pods`, `kubectl -n observability logs ds/alloy` | Write the Secret per the [runbook](runbooks.md#metrics-to-grafana-cloud-alloy), then `kubectl -n observability rollout restart ds/alloy` |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
 | tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. INFRA-49 removes the DO jobs. Never restore the token except in a rollback |
 
@@ -171,6 +172,17 @@ own role.
   Snippets on either app zone; the only custom domains are ziftbook.com and www.ziftbook.com.
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
+## Grafana Cloud
+
+Made by hand by the owner (INFRA-85); the cluster side is `clusters/platform/observability/`. Procedures:
+[runbooks.md](runbooks.md#metrics-to-grafana-cloud-alloy).
+
+| Item | Where | Notes |
+|---|---|---|
+| Stack (EU region) | grafana.com Cloud Portal, the org's stack | Its OTLP endpoint (`https://otlp-gateway-prod-eu-<n>.grafana.net/otlp`) and Instance ID are keys `otlp-endpoint` and `instance-id` of Secret `observability/grafana-cloud` |
+| Access policy `k3s-alloy-metrics-write` | Grafana Cloud > Administration > Cloud access policies | Realm: the stack only. Scope `metrics:write` only; add `traces:write` and `logs:write` only when Alloy starts sending them (INFRA-105, INFRA-106, INFRA-110) |
+| Token `alloy-platform-node` on that policy | Key `token` of Secret `observability/grafana-cloud` (`clusters/platform/observability/grafana-cloud.secret.yaml`, a whole new file each time) | No expiry; rotate on suspicion. Write-only: it cannot read or delete data |
+
 ## DigitalOcean (rollback target until INFRA-49)
 
 State left by the INFRA-48 cutover window, all by hand. Undo it only to roll back
@@ -213,5 +225,6 @@ commit body only.
 | Origin CA certificates (one per zone: thebetterdecision.com, ziftbook.com) | see Cloudflare dashboard of each zone | Issue, re-encrypt `origin-cert.secret.yaml` or `origin-cert-ziftbook.secret.yaml` (namespace `kube-system`), push |
 | Origin pull client certificate, generation 1 (one leaf for both zones) and its CA (INFRA-93) | leaf 2036-10-01, CA 10 days later (`openssl x509 -in terraform/cloudflare/origin-pull/1.crt -noout -enddate`). Cloudflare emails 30 and 14 days before (`cloudflare_notification_policy.origin_pull_expiry`) | New CA and leaf, Traefik trusts both during the swap: [runbook](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
+| Grafana Cloud token `alloy-platform-node` | no expiry, rotate on suspicion | Grafana Cloud section |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
