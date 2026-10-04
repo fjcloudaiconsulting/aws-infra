@@ -95,8 +95,16 @@ only accepts the origin if Traefik shows a Cloudflare **Origin CA** certificate 
    zone**:
    1. Cloudflare dashboard, that zone, SSL/TLS > Origin Server > Create Certificate. Hostnames: `<zone>` and
       `*.<zone>`. Save the certificate and the private key to files outside the repo.
-   2. `F=clusters/platform/traefik/origin-cert-<app>.secret.yaml; kubectl create secret tls origin-cert-<app> -n kube-system --cert=<crt> --key=<key> --dry-run=client -o yaml | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"`,
-      check it as in the Secret section, and delete the key file.
+   2. From the repo root:
+
+      ```sh
+      F=clusters/platform/traefik/origin-cert-<app>.secret.yaml
+      kubectl create secret tls origin-cert-<app> -n kube-system --cert=<crt> --key=<key> --dry-run=client -o yaml \
+        | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
+      grep -c 'tls.key: ENC' "$F"   # must print 1
+      ```
+
+      Then delete the key file.
    3. Add `- secretName: origin-cert-<app>` under `certificates` in the TLSStore.
 4. **Check** after merge and the `cloudflare` workspace apply:
 
