@@ -172,17 +172,23 @@ FastAPI(telemetry={"tracing": False, "metrics": True, "logs": False, "operation_
                    "auto_configure": False, "exclude": lambda scope: scope["path"] in HEALTH_PATHS})
 ```
 
-Rules every app keeps:
+Rules every app keeps (traces and logs alike):
 
 - **Attributes are an allowlist.** The SERVER span carries `http.request.method`, `http.route`,
   `http.response.status_code` and `error.type` only. Never `url.path` or `url.query`: they carry invite tokens, OAuth
-  codes and customer emails. SQL spans carry the statement, never its parameters.
+  codes and customer emails. SQL spans carry the statement, never its parameters, and values are always bound, never
+  formatted into SQL text.
 - **No exception messages.** `record_exception=False` on every span; an error is its class (plus SQLSTATE and
-  constraint for a database error), never `str(error)`, which can quote an email.
-- **W3C `tracecontext` only.** Never baggage, which would carry client data into the jobs table.
-- **Native tracing, logs and operation spans stay off.** Native tracing always exports the raw `url.path` and
-  `url.query`, and native logs export exception messages. `auto_configure` stays off because it adds a second exporter
-  to a provider the app already configured.
+  constraint for a database error) and its frames, never `str(error)`, which can quote an email. The same holds for log
+  records, including the `sys` and `threading` excepthooks.
+- **Access logs carry method, route template, status and duration only.** uvicorn's own access line (raw path with
+  query, client IP) stays disabled.
+- **`traceparent` only.** The app extracts and injects with a hard-coded `TraceContextTextMapPropagator`, reading only
+  the `traceparent` header; never baggage or `tracestate`, which are client-controlled text that would ride into the
+  jobs table. `OTEL_PROPAGATORS=tracecontext` is a backstop for the global propagator, not the guarantee.
+- **Native tracing, logs and operation spans stay off.** Native tracing always exports the request path and query
+  (only five cloud-signature parameters redacted), and native logs export exception messages. `auto_configure` stays
+  off because it adds a second exporter to a provider the app already configured.
 
 Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 
@@ -198,13 +204,23 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
 forwards traces and metrics to the Grafana Cloud OTLP gateway, tails pod stdout into Grafana Cloud Logs, and scrapes
-the node, kubelet and cAdvisor for node and k3s metrics. One collector, so the Grafana Cloud credentials live in one
-SOPS Secret. A DaemonSet never runs two copies during a rollout. Not the `k8s-monitoring` Helm chart, which deploys
-several Alloys plus node-exporter and kube-state-metrics. Footprint estimate, not yet measured: 150 to 250 MiB working
-set; INFRA-85 measures it against the INFRA-80 node budget.
+the node, kubelet and cAdvisor for node and k3s metrics. One collector, so the Grafana Cloud credentials (a write-only
+access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two copies during a rollout. Not
+the `k8s-monitoring` Helm chart, which deploys several Alloys plus node-exporter and kube-state-metrics. Footprint
+estimate, not yet measured: 150 to 250 MiB working set; INFRA-85 measures it against the INFRA-80 node budget.
 
-Known cost: native metrics are recorded after the app's SERVER span has ended, so histogram exemplars do not link to
-traces. Revisit native tracing when FastAPI can leave out `url.path` and `url.query`.
+The collector is the second line of defense, not the first:
+
+- It tails logs only from an allowlist of app namespaces, and from each app only after that app has adopted this
+  standard (TBD after INFRA-105, which disables its raw access line). Never `data`: Postgres logs row values on
+  constraint errors.
+- It deletes `url.path`, `url.query`, `url.full`, `client.address`, `http.request.header.*` and `exception.message`
+  from every span before export.
+- Grafana Labs becomes a sub-processor for whatever reaches it; the apps' privacy documents must name it.
+
+Known cost: the SERVER span lives in an `@app.middleware("http")` middleware, which ends it before FastAPI records the
+duration metric, so histogram exemplars do not link to traces (a pure ASGI middleware would fix it). Revisit native
+tracing when FastAPI can leave out the path and query.
 
 ## Secrets
 
@@ -236,7 +252,7 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 | Spend | AWS budget `platform-monthly` | SNS `platform-alerts`, email |
 | Stale backup | freshness probe | GitHub issue `[backup-stale]` |
 
-There is no in-cluster observability stack; the node has no memory to spare.
+There is no in-cluster observability stack yet; INFRA-85 adds the Alloy collector from [Telemetry](#telemetry).
 
 ## Cost
 
