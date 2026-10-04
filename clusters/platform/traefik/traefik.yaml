@@ -17,8 +17,8 @@ spec:
     - secretName: origin-cert-ziftbook
 ---
 # ping.thebetterdecision.com/ping answers 200 from Traefik itself (no pod): the end-to-end
-# check that Cloudflare reaches the node in Full (strict), and the target of the external
-# uptime check (INFRA-26).
+# check that Cloudflare reaches the node in Full (strict). The external uptime check (INFRA-26) read it until
+# the INFRA-48 cutover moved it to TBD's /health/dependencies.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
