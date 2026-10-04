@@ -148,10 +148,11 @@ spec:
                 - name: scripts
                   mountPath: /scripts
             # TBD staging (INFRA-67): same script, its own set. Runs after the production dump and never fails the
-            # pod, so a broken staging database costs only its own set.
+            # pod, so a broken staging database costs only its own set (and the Job's status that night).
             - name: mysql-dump-staging
               image: mysql:8.4.11@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
-              command: [bash, -c, 'bash /scripts/mysql-dump.sh || echo "!! mysql staging dump failed" >&2; exit 0']
+              # timeout: a hung staging dump must not run out the Job's deadline before production uploads.
+              command: [bash, -c, 'timeout 600 bash /scripts/mysql-dump.sh || echo "!! mysql staging dump failed" >&2; exit 0']
               env:
                 - name: SET
                   value: tbd-staging-mysql
