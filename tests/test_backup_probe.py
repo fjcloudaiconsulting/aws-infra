@@ -17,17 +17,17 @@ PREFIX = "pfv-data-01/2026/08/27"
 NOW = 1000000000
 
 
-def night(age_hours, *, prefix=PREFIX, manifest=True, grants=True, dump=True, dump_size=620000, db="tbd"):
+def night(age_hours, *, prefix=PREFIX, manifest=True, grants=True, dump=True, dump_size=620000, db="tbd", stamp="x"):
     ts = datetime.datetime.fromtimestamp(
         NOW - age_hours * 3600, datetime.timezone.utc
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
     objs = []
     if dump:
-        objs.append({"Key": f"{prefix}/{db}_x.sql.gz", "Size": dump_size, "LastModified": ts})
+        objs.append({"Key": f"{prefix}/{db}_{stamp}.sql.gz", "Size": dump_size, "LastModified": ts})
     if grants:
-        objs.append({"Key": f"{prefix}/grants_x.sql.gz", "Size": 800, "LastModified": ts})
+        objs.append({"Key": f"{prefix}/grants_{stamp}.sql.gz", "Size": 800, "LastModified": ts})
     if manifest:
-        objs.append({"Key": f"{prefix}/manifest_x.json", "Size": 484, "LastModified": ts})
+        objs.append({"Key": f"{prefix}/manifest_{stamp}.json", "Size": 484, "LastModified": ts})
     return objs
 
 
@@ -97,6 +97,21 @@ class Verdicts(unittest.TestCase):
         r = probe(json.dumps({"Contents": old + night(2, dump=False)}))
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("no dump", r.stdout)
+
+    def test_artifacts_must_carry_the_newest_manifests_stamp(self):
+        # Two sets in one day directory (a CronJob retry or a manual Job); only the older is complete.
+        # Kills: matching dump and grants by day directory, so the older set's dump passes a broken newer set.
+        older = night(6, stamp="20260827-020000")
+        for broken in ({"dump": False}, {"grants": False}, {"dump_size": 12}):
+            with self.subTest(**broken):
+                r = probe(json.dumps({"Contents": older + night(2, stamp="20260827-084115", **broken)}))
+                self.assertEqual(r.returncode, 1, r.stdout)
+
+    def test_a_broken_older_set_does_not_spoil_a_complete_newer_one(self):
+        # Kills: judging the oldest stamp, or requiring every set in the day to be complete.
+        older = night(6, stamp="20260827-020000", dump_size=12, grants=False)
+        r = probe(json.dumps({"Contents": older + night(2, stamp="20260827-084115")}))
+        self.assertEqual(r.returncode, 0, r.stdout)
 
 
 MYSQL = "tbd-mysql/2026/08/27"

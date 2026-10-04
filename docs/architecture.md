@@ -85,7 +85,13 @@ the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a pr
 endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
 repo.
 
-- Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), firewall in
+Both app zones rate-limit the apps' sign-in and token endpoints at the edge (INFRA-123): more than 20 requests in 10 s
+from one IP (per Cloudflare data center) to those paths gets a 429 from Cloudflare for 10 s, which caps the volume one
+address can send to them. The zones are on the Free plan, which allows one such rule per zone and matches on the path only,
+so the rule covers every proxied host of the zone. Each app keeps its own per-account and per-address limits behind it.
+
+- Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), rate limit in
+  [`terraform/cloudflare/rate_limit.tf`](../terraform/cloudflare/rate_limit.tf), firewall in
   [`terraform/platform/main.tf`](../terraform/platform/main.tf)
 - Traefik: [`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)
 
@@ -105,6 +111,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `ziftbook-staging` | Ziftbook staging | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
+| `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
 The app namespaces enforce Pod Security restricted, `data` baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
 ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
@@ -118,13 +125,70 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 |---|---|---|
 | MySQL 8.4 | TBD (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook (`ziftbook`; roles created by Ziftbook's pinned `bootstrap.sql`, run as a Job) | shared_buffers 64MB, no parallel workers |
-| Valkey 8 | TBD sessions | 64mb, noeviction, AOF on (not migrated at cutover) |
+| Valkey 8 | TBD only: sessions, auth nonces, rate limits, locks (the exception in [Jobs, locks, sessions and rate limits](#jobs-locks-sessions-and-rate-limits)) | 64mb, noeviction, AOF on (not migrated at cutover) |
 
 A NetworkPolicy denies ingress to `data` by default: MySQL accepts `tbd-prod` and `tbd-staging`, Valkey `tbd-prod` only, Postgres
 accepts `ziftbook-staging`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
 Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).
+
+## Jobs, locks, sessions and rate limits
+
+One standard for every app and environment (decided in INFRA-102): this state lives in the app's own
+database, MySQL or Postgres. No app gets Valkey or Redis for it. Ziftbook is the reference
+implementation.
+
+| Concern | Standard | Postgres | MySQL 8.4 |
+|---|---|---|---|
+| Background jobs | A `jobs` table, indexed on `next_attempt_at`. Enqueue in the caller's transaction with a dedupe key; claim a batch with `FOR UPDATE SKIP LOCKED`; the bumped `next_attempt_at` is both the lease and the backoff; attempts are capped. Handlers must be safe to repeat | One `UPDATE ... RETURNING` (Ziftbook `backend/app/jobs.py`) | `SELECT ... FOR UPDATE SKIP LOCKED`, then `UPDATE`, in one READ COMMITTED transaction (REPEATABLE READ gap locks would block enqueues). No `RETURNING`; no subquery on the table being updated. Dedupe with `INSERT ... ON DUPLICATE KEY UPDATE id = id` |
+| Periodic work | A loop in the worker only when each tick claims its rows (`SKIP LOCKED`) or holds a lease, since every replica runs it; otherwise one scheduler Deployment with `replicas: 1` and `Recreate` | | |
+| Migration lock | A session-level lock held by the migrating connection | `pg_advisory_lock` | `GET_LOCK('<app>_migrate.<db>')` |
+| Short locks (inside one transaction) | Lock the business row `FOR UPDATE` | `pg_advisory_xact_lock` is fine too | No transaction-scoped `GET_LOCK`: lock a row |
+| Leases (held across requests, an external call or a long tick) | A lease row, inserted once by a migration. Acquire and renew with `UPDATE ... SET holder = ?, expires_at = <db now> + ttl WHERE name = ? AND (expires_at < <db now> OR holder = ?)`: 1 matched row means held. Renew before each side effect and stop when a renew fails. Never a session-level lock on a pooled connection: the pool keeps it or loses it silently | `now()` | `NOW(6)` on a `DATETIME(6)` column (whole seconds make a same-second renew match but change nothing, which some drivers report as 0 rows) |
+| Sessions | An opaque random token in the cookie, only its hash in a `sessions` table; idle and absolute expiry checked on every read; revoking deletes the row | Ziftbook `backend/app/auth.py` | |
+| Rate limits | A fixed window per key in a `rate_limits` table, one upsert per attempt in its own transaction, committed before the request runs (a failed login must not roll back its count), keys locked in sorted order. A database error fails the request: never fail open | Ziftbook `backend/app/limits.py` | `ON DUPLICATE KEY UPDATE` assigns left to right: set `hits` before `window_start` |
+| Single-use tokens, nonces, webhook dedupe | A row with a unique key and `expires_at`; a duplicate key means a replay. Purged by the sweeper | | A plain `INSERT`, catching error 1062 (not `ON DUPLICATE KEY UPDATE`, which hides the replay) |
+| Caches | None. An in-process TTL cache when a measured need appears; the database stays the source of truth | | |
+
+Why the database and not Valkey:
+
+- **One failure domain.** Valkey is a second one, with its own outages (on 2026-05-13 its timeouts
+  turned every TBD auth endpoint into a 500). A limiter in the database fails together with the user
+  lookup, so it never has to choose between failing open and failing closed (INFRA-121).
+- **Backups.** The nightly dump covers the database. Valkey is not dumped: its state lives only in
+  its AOF and the node snapshot.
+- **Memory and pods.** No extra pod per app and environment. A shared Valkey is not safe (below), so
+  every environment would need its own, as tbd-staging will (INFRA-67).
+- **Both engines.** Every row in the table works on MySQL 8.4 and Postgres 18; the column on the right
+  lists the dialect differences.
+
+Costs, accepted:
+
+- One committed write per auth attempt on the shared database. A Cloudflare rate-limit rule in front
+  of every app's auth endpoints absorbs bursts first (INFRA-123).
+- Each replica's connection pool now carries sessions and limits too. Cap every app's pool so that
+  replicas x pool stays under the server's `max_connections` before HPA (INFRA-100).
+- After a real restore, delete every session row and every single-use link (Ziftbook `email_tokens` and
+  invite links): sessions signed out and links used or revoked after the dump would otherwise come back
+  ([RESTORE.md](../clusters/platform/data/RESTORE.md#6-real-restore-into-data)).
+
+**A shared Valkey is not an option.** Valkey 8 ACL key patterns (`~tbd:*`) can confine
+reads and writes, but `KEYS`, `SCAN`, `FLUSHDB` and `FLUSHALL` take no key argument and must be denied one
+by one. Database rules (`db=<id>`) exist only from Valkey 9.1.0
+([ACL SETUSER history](https://valkey.io/commands/acl-setuser/)). Neither helps with what stays
+instance-wide: `maxmemory` with `noeviction`, the single command thread, AOF rewrites. One app filling
+the store fails the other app's writes, and TBD's sessions fail closed, so its logins go down.
+
+**The exception: TBD.** TBD keeps Valkey (sessions with Lua rotation and reuse detection, MFA nonces,
+rate limits and throttles, locks, dedupe keys, one cache) until it moves:
+
+1. INFRA-121: rate limits move to MySQL first, so they no longer fail open.
+2. INFRA-122: sessions and the remaining keys move to MySQL, then Valkey is removed in prod and
+   staging. About 3 to 5 days; no fixed sprint.
+
+A new app that wants Valkey needs a measured reason in its PR (for example invalidation that must
+reach every replica), and then gets one per environment, never shared.
 
 ## Backups and restore
 
@@ -158,6 +222,77 @@ cluster. Dev and staging environments of every app share the sending domain `m.f
 send-only sending key in its own Secret; production gets `m.<appdomain>` per app. DNS for both is in
 `terraform/cloudflare`. Procedures: [runbooks.md](runbooks.md#mail-mailgun).
 
+## Telemetry
+
+One standard for every app and environment (decided in INFRA-84; adoption tickets INFRA-105 for TBD and INFRA-106 for
+Ziftbook). Each app owns its OpenTelemetry SDK setup and every span; FastAPI's native telemetry supplies only the
+HTTP metrics.
+
+| Signal | How | Library |
+|---|---|---|
+| Traces | The app's own `tracing.py` (the Ziftbook pattern): the HTTP SERVER span in a middleware, SQL spans from SQLAlchemy engine events, job, worker and migration spans | `opentelemetry-sdk` and the OTLP HTTP exporter, no contrib instrumentation packages |
+| Metrics | FastAPI native: `http.server.request.duration` and `http.server.active_requests` | the app registers a global `MeterProvider` before `FastAPI()` is built |
+| Logs | JSON lines on stdout with `request_id`, `trace_id`, `span_id`; no OTLP log export from the app | stdlib `logging` (the Ziftbook `logs.py` pattern) |
+
+Every app builds FastAPI with:
+
+```python
+FastAPI(telemetry={"tracing": False, "metrics": True, "logs": False, "operation_spans": False,
+                   "auto_configure": False, "exclude": lambda scope: scope["path"] in HEALTH_PATHS})
+```
+
+Rules every app keeps (traces and logs alike):
+
+- **Attributes are an allowlist.** The SERVER span carries `http.request.method`, `http.route`,
+  `http.response.status_code` and `error.type` only. Never `url.path` or `url.query`: they carry invite tokens, OAuth
+  codes and customer emails. SQL spans carry the statement, never its parameters, and values are always bound, never
+  formatted into SQL text.
+- **No exception messages.** `record_exception=False` on every span; an error is its class (plus SQLSTATE and
+  constraint for a database error) and its frames, never `str(error)`, which can quote an email. The same holds for log
+  records, including the `sys` and `threading` excepthooks.
+- **Access logs carry no path, query or client IP:** method, route template, status, duration and the correlation
+  ids. uvicorn's own access line (raw path with query, client IP) stays disabled.
+- **`traceparent` only.** The app extracts and injects with a hard-coded `TraceContextTextMapPropagator`, reading only
+  the `traceparent` header; never baggage or `tracestate`, which are client-controlled text that would ride into the
+  jobs table. `OTEL_PROPAGATORS=tracecontext` is a backstop for the global propagator, not the guarantee.
+- **Native tracing, logs and operation spans stay off.** Native tracing always exports the request path and query
+  (only five cloud-signature parameters redacted), and native logs export exception messages. `auto_configure` stays
+  off because it adds a second exporter to a provider the app already configured.
+
+Environment for every process (`<role>` is `api`, `worker` or `migrations`):
+
+| Variable | Value |
+|---|---|
+| `OTEL_SERVICE_NAME` | `<app>-<role>` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=<app>,deployment.environment.name=<prod or staging>,service.version=<version>` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | the in-cluster collector (INFRA-85); `http://127.0.0.1:4318` for the local LGTM stack |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` |
+| `OTEL_PROPAGATORS` | `tracecontext` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |
+| `OTEL_LOGS_EXPORTER` | `none` |
+
+Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
+forwards metrics (and, as each app adopts this standard, traces) to the Grafana Cloud OTLP gateway, and scrapes the
+node and cAdvisor (`/metrics/cadvisor` only: k3s kubelet `/metrics` carries the whole control plane, about 58k series).
+Tailing pod stdout into Grafana Cloud Logs comes later, under the rules below. One collector, so the Grafana Cloud
+credentials (a write-only access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two
+copies during a rollout. Not the `k8s-monitoring` Helm chart, which deploys several Alloys plus node-exporter and
+kube-state-metrics. Measured by INFRA-85 against the real cAdvisor payload: 52 to 100 MiB working set (request 128Mi,
+limit 256Mi).
+
+The collector is the second line of defense, not the first:
+
+- It tails logs only from an allowlist of app namespaces, and from each app only after that app has adopted this
+  standard (TBD after INFRA-105, which disables its raw access line). Never `data`: Postgres logs row values on
+  constraint errors.
+- It deletes `url.path`, `url.query`, `url.full`, `client.address`, `http.request.header.*` and `exception.message`
+  from every span before export.
+- Grafana Labs becomes a sub-processor for whatever reaches it; the apps' privacy documents must name it.
+
+Known cost: the SERVER span lives in an `@app.middleware("http")` middleware, which ends it before FastAPI records the
+duration metric, so histogram exemplars do not link to traces (a pure ASGI middleware would fix it). Revisit native
+tracing when FastAPI can leave out the path and query.
+
 ## Secrets
 
 Kubernetes Secrets live in git as `*.secret.yaml`, SOPS-encrypted to the cluster's age key, and
@@ -188,7 +323,7 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 | Spend | AWS budget `platform-monthly` | SNS `platform-alerts`, email |
 | Stale backup | freshness probe | GitHub issue `[backup-stale]` |
 
-There is no in-cluster observability stack; the node has no memory to spare.
+There is no in-cluster observability stack yet; INFRA-85 adds the Alloy collector from [Telemetry](#telemetry).
 
 ## Cost
 

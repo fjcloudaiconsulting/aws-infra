@@ -175,9 +175,10 @@ but break-glass can still clean up a mistake.
 
 `k3s-backup-uploader` is the k3s node's twin of `pfv-backup-uploader`: one user
 for the MySQL and Postgres dump CronJobs, with the same put + encrypt grant
-copied once per prefix (`tbd-mysql/`, `ziftbook-postgres/`), and named in the
-same key-policy and bucket-policy Denies. The probe role lists all three
-prefixes.
+copied once per prefix (`tbd-mysql/`, `ziftbook-postgres/`, `tbd-staging-mysql/`), and
+named in the same key-policy and bucket-policy Denies. The probe role lists every
+prefix. The copies share IAM's 2048-character inline limit per user: three fit, a
+fourth needs them folded into one policy first.
 
 Terraform creates the user but **not** its access key, so the secret never
 enters TFC state; the provisioner policy explicitly denies `iam:CreateAccessKey`
