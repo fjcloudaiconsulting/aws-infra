@@ -45,11 +45,11 @@ decrypts with the private key held in-cluster as `flux-system/sops-age`.
 
 ```sh
 export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt   # sops looks elsewhere on macOS
-sops encrypt -i clusters/platform/<path>/<name>.secret.yaml
 sops edit clusters/platform/<path>/<name>.secret.yaml   # later changes
 ```
 
-Encrypting needs only the public key in `.sops.yaml`; editing needs the private key (offline backup).
+A new Secret is encrypted from a pipe, never written as plaintext first: recipe in
+[docs/runbooks.md](docs/runbooks.md). Encrypting needs only the public key in `.sops.yaml`; editing needs the private key (offline backup).
 
 Bootstrap on a fresh cluster (once): create namespace `flux-system` and the Secret `sops-age` with the
 private key under a name ending in `.agekey` (Flux ignores other names), typed at a silent prompt
