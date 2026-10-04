@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-Single home for the infrastructure of FJ Consulting apps: TBD (`fjcloudaiconsulting/tbd`, in prod on
-DigitalOcean until cutover) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
+Single home for the infrastructure of FJ Consulting apps: TBD (`fjcloudaiconsulting/tbd`, in prod on this
+cluster since the 2026-10-04 cutover; DigitalOcean is kept archived until INFRA-49) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
 app code, Dockerfiles and CI; this repo owns where and how they run. Work is tracked in Jira `INFRA`.
 
 ## Target architecture (decided 2026-10-01)
@@ -53,7 +53,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates, following Flux and rollouts); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
