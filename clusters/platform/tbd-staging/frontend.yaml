@@ -47,6 +47,9 @@ spec:
             # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
             - name: BACKEND_INTERNAL_URL
               value: http://backend:8000
+            # Access-log client IP, as in backend.yaml and tbd-prod (INFRA-97); images before that tbd release ignore it.
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
             - name: TBD_GOOGLE_SSO_ENABLED
               value: "false"
             # Public, but kept beside the widget's secret so one owner step writes both.
