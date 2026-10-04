@@ -299,6 +299,66 @@ until the new one is active.
 6. Remove `origin-pull-ca-<N>` from `secretNames`. Merge. Delete its Secret file. Merge. Run the check and update the
    expiry row in the configuration map.
 
+## Metrics to Grafana Cloud (Alloy)
+
+One Grafana Alloy DaemonSet in `observability` (INFRA-85, design in [architecture.md](architecture.md), Telemetry)
+sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
+
+- **Node:** CPU, memory, load, pressure, disk I/O, OOM kills (`job="node"`), from the host's `/proc` and `/sys` (recursive
+  read-only mounts; the host's `/` is not mounted).
+- **Pods and k3s:** per-container CPU, memory, throttling, OOM events and pod network from cAdvisor, plus the whole node
+  (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). Disk space is
+  `container_fs_usage_bytes` / `container_fs_limit_bytes{id="/",device="/dev/root"}`; PVCs are local-path directories
+  on that disk. Usage is against the full size, including ext4's reserved blocks (about 5%), so writes fail near 95%:
+  alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
+  Alloy's memory).
+- **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
+  and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  `exception.message` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr` from data point,
+  scope and resource attributes.
+
+Traces and logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
+a change there rolls the pod (the ConfigMap name carries a hash).
+
+**Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file
+`clusters/platform/observability/grafana-cloud.secret.yaml`. The token belongs to a Grafana Cloud access policy with the
+`metrics:write` scope only. To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
+Cloud access policies > the policy > Add token), regenerate the whole file (only the public key is needed), merge,
+restart, then delete the old token. The plaintext only passes through a pipe, never a file:
+
+```sh
+F=clusters/platform/observability/grafana-cloud.secret.yaml
+read -rs T; printf %s "$T" | kubectl create secret generic grafana-cloud -n observability \
+  --from-literal=otlp-endpoint='<OTLP endpoint>' --from-literal=instance-id='<Instance ID>' \
+  --from-file=token=/dev/stdin --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"; unset T
+grep -cE '(otlp-endpoint|instance-id|token): ENC\[' "$F"   # 3
+# After the merge (env is read at start):
+kubectl -n observability rollout restart ds/alloy
+```
+
+**Check** it is working:
+
+```sh
+kubectl -n observability get pods                 # alloy-xxxxx 1/1 Running; CreateContainerConfigError = Secret missing
+kubectl -n observability logs ds/alloy --since=10m | grep -E 'level=(error|warn)'
+# Nothing, or only "Failed to open directory, disabling udev device properties" once at start (harmless).
+# A pod that never starts with a recursiveReadOnly error: the runtime lacks recursive read-only mounts.
+# "401" or "Unauthorized" from otelcol.exporter.otlphttp: wrong token, instance ID or a revoked token.
+kubectl -n observability top pod                  # memory: limit 256Mi
+```
+
+In Grafana Cloud, Explore with the Prometheus data source: `up` shows one series per job (`node`, `cadvisor`),
+each 1. `sum by (namespace) (container_memory_working_set_bytes{container!=""})` shows memory per namespace.
+For the Alloy UI (pipeline graph, component health): `kubectl -n observability port-forward ds/alloy 12345`, then
+http://localhost:12345.
+
+**Memory:** measured locally (Alloy v1.20.1, this config, the node's real cAdvisor payload, no app traffic yet) at
+52 to 100 MiB working set: about 55 MiB anonymous memory plus up to about 45 MiB of the Alloy binary's page cache.
+Request 128Mi (headroom for app metrics), limit 256Mi, `GOMEMLIMIT` 200MiB. Scraping the kubelet's `/metrics` as well took it to 160 MiB. If `kubectl top` shows it near the limit, look
+for a new high-cardinality series in the app metrics before raising it.
+
 ## Uptime alarm emails during a TBD deploy
 
 The Route 53 uptime check reads `https://app.thebetterdecision.com/health/dependencies` (INFRA-48), not Traefik's
