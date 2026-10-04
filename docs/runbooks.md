@@ -113,3 +113,30 @@ kubectl -n <namespace> exec deploy/<name> -- sh -c 'test -n "$<APP>_MAILGUN_API_
 Then check that the Mailgun dashboard shows the domain as verified. A lookup made before the records existed is
 cached as "no record" for up to 30 minutes (the zone's SOA minimum), so Mailgun can show MX unverified for that
 long after the apply. Press Verify again later; nothing needs changing.
+
+## TBD smoke account
+
+TBD's post-deploy smoke test (`scripts/smoke-test.sh` in the tbd repo) logs in as a dedicated production user: active,
+email verified, **no MFA** by design (TBD-371, the script cannot answer a TOTP challenge). Its username is also the only
+entry of `FOUNDER_COUNT_EXCLUDE_USERNAMES`, so it is not counted as a founder.
+
+The credentials live in two places, kept equal:
+
+- `tbd-prod/tbd-smoke` (`clusters/platform/tbd-prod/tbd-smoke.secret.yaml`, SOPS), keys `username` and `password`. Anyone
+  with cluster access reads them for a manual run:
+
+  ```bash
+  SU=$(kubectl -n tbd-prod get secret tbd-smoke -o jsonpath='{.data.username}' | base64 -d)
+  SP=$(kubectl -n tbd-prod get secret tbd-smoke -o jsonpath='{.data.password}' | base64 -d)
+  SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh; unset SU SP
+  ```
+
+- tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the release and deploy workflows.
+
+**Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
+the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
+username=...`, expect 1 row), run the smoke test above with the new value, then `printf %s "$P" | gh secret set
+SMOKE_PASSWORD -R fjcloudaiconsulting/tbd` and rewrite `tbd-smoke.secret.yaml` with
+`jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
+rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
+

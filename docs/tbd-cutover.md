@@ -225,7 +225,8 @@ kubectl -n tbd-prod port-forward svc/backend 8000:8000 >/dev/null & PF1=$!
 kubectl -n tbd-prod port-forward svc/frontend 3000:3000 >/dev/null & PF2=$!; sleep 3
 curl -s localhost:8000/health                                           # {"status":"ok","version":"<TAG without v>",...}
 curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/login           # 200
-read -r SU; read -rs SP   # the smoke account (no MFA); not exported, handed to the script only
+SU=$(kubectl -n tbd-prod get secret tbd-smoke -o jsonpath='{.data.username}' | base64 -d)   # the smoke account (no MFA), from the SOPS secret tbd-smoke
+SP=$(kubectl -n tbd-prod get secret tbd-smoke -o jsonpath='{.data.password}' | base64 -d)   # not exported, handed to the script only
 SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=http://localhost:8000 ~/src/tbd/scripts/smoke-test.sh   # every line ✓, exit 0
 kill $PF1 $PF2
 # 6. Rollback path: DO still serves the domain directly, and C is exactly B reversed.
@@ -345,7 +346,7 @@ and exit 56, or no-go.
    curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=app.thebetterdecision.com&type=A' | jq -r '.Answer[].data'   # Cloudflare IPs (104.x / 172.6x.x), no ondigitalocean.app
    curl -s https://app.thebetterdecision.com/health                       # {"status":"ok","version":"<TAG without v>",...} from k3s
    kubectl -n tbd-prod get deploy scheduler --no-headers | awk '{print $2}'   # 1/1
-   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh   # all ✓
+   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh   # all ✓ (SU/SP read from tbd-smoke as in rehearsal step 5)
    ```
 3. Browser (private window): `https://app.thebetterdecision.com`, log in (Google SSO and password), open the
    dashboard and a report. A local resolver can hold the old CNAME for up to 60 seconds.
