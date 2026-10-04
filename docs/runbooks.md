@@ -92,7 +92,7 @@ PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/platform/tbd-st
 CREATE DATABASE IF NOT EXISTS tbd_staging;
 CREATE USER IF NOT EXISTS 'tbd_staging'@'%' IDENTIFIED BY '@PW@';
 ALTER USER 'tbd_staging'@'%' IDENTIFIED BY '@PW@' WITH MAX_USER_CONNECTIONS 20;
-GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO 'tbd_staging'@'%';
+GRANT ALL PRIVILEGES ON tbd_staging.* TO 'tbd_staging'@'%';
 SQL
 echo "exit $?"; unset PW
 kubectl -n data exec mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -r -e "SHOW GRANTS FOR tbd_staging"'
@@ -102,14 +102,15 @@ The check prints exactly:
 
 ```text
 GRANT USAGE ON *.* TO `tbd_staging`@`%`
-GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO `tbd_staging`@`%`
+GRANT ALL PRIVILEGES ON `tbd_staging`.* TO `tbd_staging`@`%`
 ```
 
-The quoted heredoc keeps the backticks and `\_` literal (`_` is a wildcard in a database grant). The password reaches
+In a database grant `_` is still a (deprecated) wildcard, so `tbd_staging` also matches `tbd` + any one character +
+`staging`: no other database has such a name. It is left unescaped on purpose: the nightly grants dump would double an
+escaping backslash, and the replayed grant would name a different database. The password reaches
 `mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20: one connection pool of 15 plus migrations) keeps staging from
 using up `max_connections` (80) that production needs. Nothing here touches `tbd` or its users, and the MySQL pod
-does not restart. The nightly grants dump includes the new user; a restore brings it back with a working grant only
-once the dump writes raw output (`mysql -r`, INFRA-67 dump PR), so until then rerun this SQL after a restore.
+does not restart. The nightly grants dump includes the new user, so a restore brings it back.
 
 **First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
 captcha for it. Register it yourself before the hostname is reachable (before approving the `cloudflare` apply that
