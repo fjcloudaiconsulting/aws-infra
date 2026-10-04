@@ -1,0 +1,184 @@
+# Grafana Alloy: the one collector (INFRA-85, docs/architecture.md, Telemetry). A DaemonSet, so a rollout never runs
+# two copies on the node. Apps send OTLP/HTTP to alloy.observability.svc:4318; Alloy scrapes the node and the kubelet
+# itself; everything goes to Grafana Cloud with the credentials in Secret grafana-cloud. Config: config.alloy.
+# Debug UI: kubectl -n observability port-forward ds/alloy 12345, then http://localhost:12345.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: observability
+---
+# The kubelet's /metrics/cadvisor (nodes/metrics) only. Not nodes/proxy, which reaches every kubelet API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy
+rules:
+  - apiGroups: [""]
+    resources: [nodes/metrics]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alloy
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+    namespace: observability
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+    spec:
+      serviceAccountName: alloy
+      securityContext:
+        runAsNonRoot: true
+        # Its own uid, not nobody (65534): Alloy sees every host process through /host/proc, and a process's environ is
+        # readable by the same uid.
+        runAsUser: 473
+        runAsGroup: 473
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.20.1-distroless@sha256:fb2da4bd12e17f07d5a2cc2d3fa69d34f37afb291d96daf373ba9633def62b94
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy/data
+            # The UI and /metrics (no auth) listen on the pod IP for the readiness probe; the NetworkPolicy below admits
+            # only 4318. Node-local traffic (hostNetwork pods such as netbird) bypasses it; the NetBird ACL admits the
+            # owner to TCP 6443 only.
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --disable-reporting
+          env:
+            # The Go runtime collects harder near this, well before the container limit.
+            - name: GOMEMLIMIT
+              value: 200MiB
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GRAFANA_CLOUD_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: otlp-endpoint
+            - name: GRAFANA_CLOUD_INSTANCE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: instance-id
+            - name: GRAFANA_CLOUD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-cloud
+                  key: token
+          ports:
+            - name: otlp-http
+              containerPort: 4318
+            - name: http
+              containerPort: 12345
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # Measured 52 to 100 MiB working set before any app traffic (docs/runbooks.md, Metrics to Grafana Cloud).
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            # The parent, not .../data: the image's /var/lib/alloy is root-only, so a non-root uid could not reach data.
+            - name: data
+              mountPath: /var/lib/alloy
+            # Node metrics only. Recursive read-only: plain readOnly leaves submounts writable. The host's / is not
+            # mounted (disk space comes from cAdvisor), so no host files, PV data included, are visible.
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+              recursiveReadOnly: Enabled
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+              recursiveReadOnly: Enabled
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: data
+          emptyDir: {}
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy
+  namespace: observability
+spec:
+  selector:
+    app: alloy
+  ports:
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+# Only the app namespaces reach the OTLP port; never `data`. Node-local traffic bypasses this (see
+# data/networkpolicy.yaml). Egress (Grafana Cloud, the kubelet, DNS) is open except instance metadata.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alloy
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tbd-prod
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ziftbook-staging
+      ports:
+        - port: 4318
+  egress:
+    - to:
+        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]

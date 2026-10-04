@@ -1,0 +1,183 @@
+// Metrics to Grafana Cloud (INFRA-85, design in docs/architecture.md, Telemetry). Every series leaves through one
+// OTLP/HTTP exporter, so the stack's write-only token (metrics:write) is the only credential.
+// Not collected yet: traces (the apps adopt OTLP in INFRA-105 and INFRA-106; the token then needs traces:write) and
+// logs (no stdout tailing: tbd-prod logs carry query strings until INFRA-110, and the data namespace never).
+
+// ---- Export --------------------------------------------------------------------------------------------------------
+
+otelcol.auth.basic "grafana_cloud" {
+	username = sys.env("GRAFANA_CLOUD_INSTANCE_ID")
+	password = sys.env("GRAFANA_CLOUD_TOKEN")
+}
+
+otelcol.exporter.otlphttp "grafana_cloud" {
+	client {
+		endpoint = sys.env("GRAFANA_CLOUD_OTLP_ENDPOINT")
+		auth     = otelcol.auth.basic.grafana_cloud.handler
+	}
+}
+
+otelcol.processor.batch "default" {
+	output {
+		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+
+// ---- Apps: OTLP/HTTP on 4318 (alloy.observability.svc) ------------------------------------------------------------
+
+otelcol.receiver.otlp "apps" {
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	// Metrics only. Traces and logs sent here are refused until they are wired (see the top of this file).
+	output {
+		metrics = [otelcol.processor.transform.scrub.input]
+	}
+}
+
+// Backstop for the INFRA-84 allowlist: these attributes carry tokens, emails and client addresses (and explode
+// cardinality), so they never leave the node even if an app sets them, on a data point, its scope or its resource
+// (Grafana Cloud turns resource attributes into target_info labels). Old semconv names included.
+// Default error_mode (propagate): a failing statement drops the batch instead of exporting it unscrubbed. Deleting a
+// key can merge two data points that differed only by it (Mimir then rejects the duplicate); only an app that breaks
+// INFRA-84 hits that.
+otelcol.processor.transform "scrub" {
+	metric_statements {
+		context    = "resource"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	metric_statements {
+		context    = "scope"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	metric_statements {
+		context    = "datapoint"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	output {
+		metrics = [otelcol.processor.batch.default.input]
+	}
+}
+
+// ---- Node and k3s: scraped every 60s, converted to OTLP ------------------------------------------------------------
+
+otelcol.receiver.prometheus "scraped" {
+	output {
+		metrics = [otelcol.processor.batch.default.input]
+	}
+}
+
+// Node: the embedded node_exporter, reading the host's /proc and /sys (read-only mounts). Disk space comes from
+// cAdvisor (container_fs_*{id="/"}), so the host's / is not mounted at all.
+prometheus.exporter.unix "node" {
+	procfs_path    = "/host/proc"
+	sysfs_path     = "/host/sys"
+	set_collectors = ["cpu", "diskstats", "loadavg", "meminfo", "pressure", "vmstat"]
+
+	disk {
+		device_exclude = "^(loop|ram|dm-|sr)\\d+$"
+	}
+}
+
+// The exporter labels its target job="integrations/unix", instance=<pod name>, which changes on every rollout.
+discovery.relabel "node" {
+	targets = prometheus.exporter.unix.node.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "node"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = sys.env("NODE_NAME")
+	}
+}
+
+prometheus.scrape "node" {
+	targets         = discovery.relabel.node.output
+	scrape_interval = "60s"
+	forward_to      = [otelcol.receiver.prometheus.scraped.receiver]
+}
+
+// cAdvisor on this node's kubelet (10250), with the pod's token (RBAC: nodes/metrics only). The kubelet's own
+// /metrics is not scraped: on k3s it carries the whole control plane, about 58,000 series, which tripled Alloy's heap
+// (measured 44 to 172 MiB) for pod counts that cAdvisor already gives.
+prometheus.scrape "cadvisor" {
+	targets = [{
+		"__address__" = sys.env("HOST_IP") + ":10250",
+		"instance"    = sys.env("NODE_NAME"),
+	}]
+	job_name          = "cadvisor"
+	metrics_path      = "/metrics/cadvisor"
+	scheme            = "https"
+	bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	scrape_interval   = "60s"
+
+	tls_config {
+		ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	}
+
+	forward_to = [prometheus.relabel.cadvisor.receiver]
+}
+
+// cAdvisor: per-container CPU, memory, throttling, OOM and pod network, plus the whole node ("/", with its disk space)
+// and the k3s service (k3s and containerd). Other systemd slices, cgroup ids, image names and veth interfaces are
+// dropped.
+prometheus.relabel "cadvisor" {
+	rule {
+		source_labels = ["__name__"]
+		regex         = "up|machine_memory_bytes|container_cpu_usage_seconds_total|container_cpu_cfs_(throttled_)?periods_total|container_memory_working_set_bytes|container_memory_rss|container_spec_memory_limit_bytes|container_oom_events_total|container_network_(receive|transmit)_bytes_total|container_fs_(usage|limit)_bytes"
+		action        = "keep"
+	}
+
+	// Disk space only for the node's real disks (PVCs are local-path directories on the root disk): not per
+	// container, not loop devices or tmpfs.
+	rule {
+		source_labels = ["__name__", "id", "device"]
+		regex         = "container_fs_(usage|limit)_bytes;/;/dev/(root|nvme.+|xvd.+)|(up|machine_memory_bytes|container_(cpu|memory|network|oom|spec)_[^;]*);[^;]*;[^;]*"
+		action        = "keep"
+	}
+
+	// Series of a pod, the two cgroups that are not pods, and the two series with neither.
+	rule {
+		source_labels = ["__name__", "pod", "id"]
+		regex         = "(up|machine_memory_bytes);;|[^;]+;[^;]+;.*|[^;]+;;(/|/system\\.slice/k3s\\.service)"
+		action        = "keep"
+	}
+
+	// Each pod also has a pause (sandbox) container: container="", name=<sandbox id>. Once name and image are dropped
+	// its CPU and memory series collide with the pod cgroup's (container="", no name) and overwrite them. Keep only
+	// its network series, which exist nowhere else.
+	rule {
+		source_labels = ["__name__", "pod", "container", "name"]
+		regex         = "container_(cpu|memory|spec|oom)[^;]*;[^;]+;;.+"
+		action        = "drop"
+	}
+
+	// A pod's series are named by namespace, pod and container; the cgroup id only adds a uid. While a container
+	// restarts, its old and new cgroups share these labels for a scrape or two, and the last one read wins.
+	rule {
+		source_labels = ["pod"]
+		regex         = ".+"
+		target_label  = "id"
+		replacement   = ""
+	}
+
+	rule {
+		source_labels = ["interface"]
+		regex         = "veth.*|cni0|flannel.*"
+		action        = "drop"
+	}
+
+	rule {
+		regex  = "image|name"
+		action = "labeldrop"
+	}
+
+	forward_to = [otelcol.receiver.prometheus.scraped.receiver]
+}

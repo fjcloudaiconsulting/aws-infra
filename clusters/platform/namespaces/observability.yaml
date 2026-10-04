@@ -1,0 +1,9 @@
+# Grafana Alloy, the one telemetry collector (INFRA-85). Privileged only because the node metrics read the host's
+# /proc and /sys through read-only hostPath mounts, which baseline forbids; the container runs as its own uid with no
+# capabilities and a read-only root filesystem.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

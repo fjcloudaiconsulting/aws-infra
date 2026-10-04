@@ -106,6 +106,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `ziftbook-staging` | Ziftbook staging | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
+| `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
 `ziftbook-staging` and `tbd-prod` enforce Pod Security restricted, `data` baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
 ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
