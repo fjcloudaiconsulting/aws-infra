@@ -312,7 +312,7 @@ run the check weekly and before every new workload.
 ```bash
 export KUBECONFIG=~/.kube/platform
 N=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-# available = allocatable minus working set: what kubelet evictions use. rss leaves out page cache.
+# available = node memory minus working set: what kubelet evictions use. rss leaves out page cache.
 kubectl get --raw "/api/v1/nodes/$N/proxy/stats/summary" \
   | jq '.node.memory | {availableMi: (.availableBytes/1048576|floor), workingSetMi: (.workingSetBytes/1048576|floor), rssMi: (.rssBytes/1048576|floor)}'
 kubectl describe node "$N" | sed -n '/Allocated resources/,/Events/p' | grep -E 'memory|Resource'   # requests, limits
@@ -370,28 +370,34 @@ kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every
 kubectl -n tbd-prod scale deploy --all --replicas=0
 kubectl -n ziftbook-staging scale deploy --all --replicas=0   # and every other app namespace listed above
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
-kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m
+kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
+kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer
 ```
 
-Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1 for each prefix it lists: the newest manifest must be
-today's with `tables` above 0. Record the row count per table with the `NS=data` versions of RESTORE.md's helpers
-(read-only queries, counts only):
+Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1 for `tbd-mysql` (then `mv manifest.json tbd.json`)
+and `ziftbook-postgres` (then `mv manifest.json zif.json`), plus any prefix the cluster has gained since (not the
+droplet's `pfv-data-01`): each `date` must be after the Job's start and `tables` above 0. Record the row count per
+table with the `NS=data` versions of RESTORE.md's helpers (read-only queries, counts only):
 
 ```bash
 NS=data
 my() { kubectl -n "$NS" exec -i mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB "$@"' sh "$@"; }
 pg() { kubectl -n "$NS" exec -i postgres-0 -- psql -U postgres -XAtq -v ON_ERROR_STOP=1 "$@"; }
-counts() {
-  my <<'SQL' | my
+counts() (   # a subshell: pipefail and exit stay inside
+  set -o pipefail
+  my <<'SQL' | my || exit 1
 SELECT CONCAT('SELECT ''', table_name, ''', COUNT(*) FROM tbd.`', table_name, '`;')
 FROM information_schema.tables WHERE table_schema = 'tbd' AND table_type = 'BASE TABLE' ORDER BY table_name;
 SQL
-  pg -d ziftbook <<'SQL' | pg -d ziftbook
+  pg -d ziftbook <<'SQL' | pg -d ziftbook || exit 1
 SELECT format('SELECT %L, count(*) FROM %I.%I;', schemaname || '.' || tablename, schemaname, tablename)
 FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1;
 SQL
-}
-counts > before.txt && wc -l before.txt   # one line per table; add any database created since (RESTORE.md lists them)
+)
+# MySQL lines are tab-separated, Postgres lines use |. Both must cover at least the dump's tables, or nothing was
+# counted. Extend counts() for any database added since.
+counts > before.txt && [ "$(grep -c "$(printf '\t')" before.txt)" -ge "$(jq .tables tbd.json)" ] \
+  && [ "$(grep -c '|' before.txt)" -ge "$(jq .tables zif.json)" ] && echo complete
 ```
 
 **2. Pin the node name.** Lightsail console > `platform-node` > Connect using SSH:
@@ -415,15 +421,16 @@ aws lightsail get-instance-snapshot --instance-snapshot-name "$SNAP" --query ins
 ```
 
 **4. Create the new instance.** Same zone, IPv4 only (the API defaults to dual stack), the 03:00 automatic snapshot.
-A new instance opens 22 and 80 to the world; the last command leaves only the console's SSH until step 6.
+A new instance opens 22 and 80 to the world: close them at once (repeat the command until it is accepted while the
+instance is still pending), leaving only the console's SSH until step 6.
 
 ```bash
 aws lightsail create-instances-from-snapshot --instance-snapshot-name "$SNAP" --instance-names platform-node-2 \
   --availability-zone eu-central-1a --bundle-id large_3_0 --ip-address-type ipv4 \
   --add-ons 'addOnType=AutoSnapshot,autoSnapshotAddOnRequest={snapshotTimeOfDay=03:00}'
-aws lightsail get-instance-state --instance-name platform-node-2 --query state.name   # until "running"
 aws lightsail put-instance-public-ports --instance-name platform-node-2 \
   --port-infos 'fromPort=22,toPort=22,protocol=tcp,cidrListAliases=lightsail-connect'
+aws lightsail get-instance-state --instance-name platform-node-2 --query state.name   # until "running"
 ```
 
 **5. Check the cluster.** NetBird reconnects from the new instance by itself (allow a few minutes).
@@ -435,8 +442,8 @@ kubectl get pods -A | grep -vE 'Running|Completed'   # only the header (the app 
 ```
 
 If kubectl cannot connect after 10 minutes, use the console's SSH on `platform-node-2`: `sudo k3s kubectl get nodes`.
-A second node, or database pods Pending with `volume node affinity conflict`, means step 2 did not take: add the line
-there, `sudo systemctl restart k3s`, then `sudo k3s kubectl delete node <the new name>`.
+A second node, or database pods Pending with `volume node affinity conflict`, means step 2 did not take: add
+`node-name: <the old name from step 2>` there (literally, not `$(hostname)`), `sudo systemctl restart k3s`, then `sudo k3s kubectl delete node <the new name>`.
 
 **6. Terraform: move the static IP and the firewall to the new instance.** Open the prepared PR; the change in
 `terraform/platform`:
@@ -466,12 +473,13 @@ resource "aws_lightsail_instance" "node_2" {
 }
 ```
 
-plus: `aws_lightsail_static_ip_attachment.node` and a new `aws_lightsail_instance_public_ports.firewall_2` (the old
-rules) point at `node_2`; the alarm stack's `MonitoredResourceName` points at `node_2` with new logical IDs and
+plus: `aws_lightsail_static_ip_attachment.node` and a new `aws_lightsail_instance_public_ports.firewall_2` (the `firewall`
+block copied whole, `depends_on` and `prevent_destroy` included) point at `node_2`; the alarm stack's `MonitoredResourceName` points at `node_2` with new logical IDs and
 `AlarmName`s (`platform-node-2-...`), because CloudFormation cannot update `MonitoredResourceName`; the budget limit
 if the owner raised it; and the docs naming `platform-node` or `medium_3_0` (configuration-map.md, architecture.md,
-CLAUDE.md). The plan must show 1 import, the attachment replaced (detach and attach, seconds), `firewall_2` created,
-the stack updated and nothing destroyed. If it plans to replace `node_2`, it fails on `prevent_destroy`: match the
+CLAUDE.md). The plan shows 1 import; the attachment replaced (its destroy is the
+only one allowed: detach and attach, seconds); `firewall_2` added; `node_2` changed in place (the default tags) and the
+stack (and budget) updated. The `import` and `removed` blocks can go in a later PR. If it plans to replace `node_2`, it fails on `prevent_destroy`: match the
 attribute it names and plan again. Merge, approve the apply in the TFC UI, then:
 
 ```bash
@@ -494,7 +502,7 @@ Anything but `identical`: do not hand back; roll back (below) or restore per RES
 ```bash
 flux resume kustomization flux-system   # re-applies git, Deployments back to their replicas
 kubectl -n tbd-prod wait --for=condition=Available deploy --all --timeout=5m   # each app namespace
-curl -s https://app.thebetterdecision.com/health/dependencies   # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://app.thebetterdecision.com/health/dependencies   # 200
 ```
 
 Then the [TBD smoke account](#tbd-smoke-account) run, and the check above: `availableMi` should have grown by about
