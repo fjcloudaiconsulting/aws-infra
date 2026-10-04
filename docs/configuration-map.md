@@ -14,11 +14,13 @@ in the same PR or right after.
 | Symptom | Likely cause | Look at | Fix |
 |---|---|---|---|
 | Release job fails with `Resource not accessible by integration` on create-a-release | The release App token lacks `workflows`. GitHub treats a new tag as creating workflow files when a later `main` commit changed one | [Release chain](#release-and-deploy-chain) step 4, [GitHub Apps](#github-apps) | Org owner: App permissions > Workflows: Read and write, then accept on the org installation. Re-run the failed job |
+| Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
 | No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
 | Staging image bump sits on a `renovate/ziftbook-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
 | No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into both files (see [Cluster](#cluster-out-of-band-material)) |
+| After a node replacement, `mysql-0`, `postgres-0`, `valkey-0` or `netbird` stay Pending with `volume node affinity conflict`, or `kubectl get nodes` lists a second node | k3s registered under the new instance's hostname; local-path volumes are pinned to the old node name | `kubectl get nodes`, `kubectl -n data describe pod mysql-0` (Events) | On the node: `node-name: <old name>` in `/etc/rancher/k3s/config.yaml`, `sudo systemctl restart k3s`, delete the new Node object ([runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2) |
 | `kubectl`/`flux` cannot connect | NetBird client not connected, or the `owner-admin` token expired | [`netbird/README.md`](../clusters/platform/netbird/README.md) | Connect NetBird; renew the token per the runbook |
 | A pod or Job in `ziftbook-staging` is never created (`FailedCreate`, "exceeded quota: staging-class-only") | Every pod there must set `priorityClassName: staging`; the quota rejects any other, Jobs and CronJobs included | `kubectl -n ziftbook-staging get events` | Add `priorityClassName: staging` and explicit memory requests that fit the `memory` quota |
 | Flux shows the Kustomization Ready but a workload is down | `flux-system` has no `healthChecks`: pod, quota or PSA failures do not turn it red | `kubectl -n <ns> get pods,events` | Fix the manifest. Namespace limits: [`namespaces/ziftbook-staging.yaml`](../clusters/platform/namespaces/ziftbook-staging.yaml) |
@@ -26,18 +28,26 @@ in the same PR or right after.
 | Ziftbook staging sends no mail (once ZIF-151 ships) | Secret `ziftbook-mailgun` (key `api-key`) missing (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Write `ziftbook-mailgun.secret.yaml` (INFRA-47 guide, part D), then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
 | Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by a CA in `kube-system/origin-pull-ca-<gen>`, or a listed Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
+| Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
 | No new metrics in Grafana Cloud | Alloy pod in `CreateContainerConfigError` (Secret `observability/grafana-cloud` missing), or the exporter logs `401` (token revoked, or wrong Instance ID) | `kubectl -n observability get pods`, `kubectl -n observability logs ds/alloy` | Write the Secret per the [runbook](runbooks.md#metrics-to-grafana-cloud-alloy), then `kubectl -n observability rollout restart ds/alloy` |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
-| tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. INFRA-49 removes the DO jobs. Never restore the token except in a rollback |
+| tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. tbd#840 (INFRA-44, after INFRA-49) removes the DO jobs. Never restore the token except in a rollback |
 
 ## Release and deploy chain
 
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
 staging (v0.20.2, 2026-10-03). TBD production (`tbd-prod`, since the INFRA-48 cutover) bumps arrive as
 PRs and are never automerged (proven by Renovate dry run only, check it on the first TBD bump).
+
+The rules are [release contract section 8](https://github.com/fjcloudaiconsulting/.github/blob/main/RELEASE_CONTRACT.md#8-deploy-handoff)
+(decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
+`main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
+runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet); TBD gets staging in
+INFRA-67 and this flow in INFRA-91. A release that fails on staging is fixed forward; marking its GitHub
+release a prerelease keeps it out of the drift watch below.
 
 | # | Step | Needs |
 |---|---|---|
@@ -63,10 +73,26 @@ private repositories cannot have branch protection, so every repo that must be p
 | Repo | Mechanism | Rules |
 |---|---|---|
 | aws-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
-| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Ruleset `tag protection` (id 24413637, INFRA-76) on `refs/tags/v*`: restrict creations, updates, deletions, block force pushes; bypass org admin only (the owner moves `v1`; the release App is not installed here) |
+| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Tags: see [Tag protection](#tag-protection) |
 | app-template | Ruleset `main protection` (id 24384611) | Same as `.github`: PR with 1 approval, linear history, no required checks |
 | ziftbook | Classic branch protection | 1 review, strict checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced. **Force-push and deletion of `main` are allowed** |
 | tbd | Classic branch protection | 1 review, checks `Backend Checks`, `Frontend Checks`, admins enforced |
+
+### Tag protection
+
+Git release tags `v*` are immutable by policy. Each repo below has a ruleset `tag protection` on
+`refs/tags/v*`: restrict creations, updates and deletions, block force pushes. Only the bypass actors
+can create a `v*` tag, so the release App must stay on the list of every app repo or the next release
+fails at the tag (see the symptom table). The App bypass is only as strong as the `release`
+environment that holds its key (`main` only, see [Per-repo settings](#per-repo-settings)) and the
+`main` branch protection. These rulesets cover git refs only, not the GHCR `vX.Y.Z` image tags.
+
+| Repo | Ruleset id | Bypass (Always) |
+|---|---|---|
+| .github | 24413637 (INFRA-76) | Org admin only. The owner moves `v1`; the release App is not installed here |
+| tbd | 24454860 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
+| ziftbook | 24454865 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
+| app-template | 24454868 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919). Repos made from the template get only its files: each new app repo needs this ruleset, the App installed and the `release` environment ([Per-repo settings](#per-repo-settings)) |
 
 ### GitHub Apps
 
@@ -76,7 +102,7 @@ installation, and the grant applies to **every repository in the installation**.
 | App | Repos | Notes |
 |---|---|---|
 | `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
-| `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook | tbd is not installed yet. Repos are added on GitHub, not in Mend |
+| `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook, tbd (added 2026-10-04, INFRA-109) | Repos are added on GitHub, not in Mend |
 | `terraform-cloud`, `digitalocean`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
 ### Per-repo settings
@@ -85,10 +111,41 @@ installation, and the grant applies to **every repository in the installation**.
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
+- Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
 - Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
   and moving `v1` (owner approval, public contract).
+
+### Actions secrets and variables
+
+**Rule (owner, 2026-10-04, INFRA-99).** GitHub keeps only the secrets and variables a workflow needs to
+run: CI, release and deploy credentials and deploy targets. Every value an app reads at runtime, secret or
+not, lives under `clusters/` once Flux deploys the app: secrets in a SOPS-encrypted Secret, everything else
+as plain `env` in the app's manifests. A runtime value found in GitHub moves there, or is deleted from GitHub
+when the cluster already holds it.
+Every GitHub secret or variable has a workflow on `main` that reads it; one without a reader is deleted.
+The app-template README carries the same rule for new apps.
+
+Inventory, 2026-10-04, every repo in the org (names from the API, consumers from `main`). Org level: no Actions secrets,
+Actions variables or Dependabot secrets. aws-infra, `.github` and app-template: none at any level
+(app-template's `ci.yml` reads the two `release` secrets, which each new repo sets per its checklist).
+tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copilot` and fjconsulting-website's environment `dev` hold nothing.
+
+| Repo | Level | Name | Read by | Class | Fate |
+|---|---|---|---|---|---|
+| tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `release.yml` | pipeline | stays |
+| tbd | repo | secret `GIST_TOKEN` | `test.yml` (coverage badges, `main` only) | pipeline | stays |
+| tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
+| tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | stay while the apex is served from S3 and CloudFront (INFRA-60 moves it to a Worker) |
+| tbd | repo | secret `DIGITALOCEAN_ACCESS_TOKEN` | `deploy.yml`, `deploy-drift-probe.yml`, `release.yml` `deploy` | DigitalOcean only (holds a dummy since INFRA-48) | delete after INFRA-49, once tbd#840 (INFRA-44) removes its readers |
+| tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
+| ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
+| ziftbook | repo | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline | stays |
+| fjconsulting-website | repo | secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `deploy-dev.yml` | pipeline | stays |
+
+`GHCR_READ_TOKEN` is a Mend org secret, not a GitHub one (see [Mend Renovate](#mend-renovate)). No app
+runtime value is left in GitHub once the three DigitalOcean-path secrets are deleted. A new repo in the org gets its rows here.
 
 ## Mend Renovate
 
@@ -104,7 +161,8 @@ Hosted Mend app, Free plan, repos selected at
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
   branch.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
-- Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there.
+- App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
+- Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.
 
 ## HCP Terraform
 
@@ -115,7 +173,7 @@ name is pinned in an AWS trust policy: never rename it.
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev). For origin pulls (INFRA-93) a separate policy grants SSL and Certificates: Edit on thebetterdecision.com and ziftbook.com only (it also lets the token issue certificates there), and Account Notifications: Edit for the expiry alert; variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev). For origin pulls (INFRA-93) a separate policy grants SSL and Certificates: Edit on thebetterdecision.com and ziftbook.com only (it also lets the token issue certificates there), and Account Notifications: Edit for the expiry alert. The rate limit (INFRA-123) needs Zone WAF: Edit on the same two zones; variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
@@ -170,6 +228,10 @@ own role.
   secret `CLOUDFLARE_API_TOKEN`, which deploys the `ziftbook-landing` Worker with custom domains on ziftbook.com and
   so can also route `dev.ziftbook.com` (its exact permissions are unread). Read 2026-10-03: no Workers routes or
   Snippets on either app zone; the only custom domains are ziftbook.com and www.ziftbook.com.
+- Rate limit (INFRA-123, `terraform/cloudflare/rate_limit.tf`): a new sign-in or token endpoint in either app needs its
+  path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
+  zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
+  2026-10-04 on both app zones).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## Grafana Cloud
@@ -205,8 +267,9 @@ State left by the INFRA-48 cutover window, all by hand. Undo it only to roll bac
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values come from the DigitalOcean app (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed: procedure in [tbd-cutover.md](tbd-cutover.md#1-write-the-tbd-secret-owner-before-the-rehearsal-about-30-minutes), which also checks it by fingerprint against DigitalOcean. A rotated MySQL app or Valkey password must be written here too |
-| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), and tbd Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). The two stores must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
+| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), and tbd Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` until INFRA-99 deletes them after INFRA-49 ([Actions secrets](#actions-secrets-and-variables)) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). While both stores exist they must hold the same values; the cluster copy is the readable one and the only one kept. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, later TBD staging) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
+| k3s node name (after an upsize) | `node-name:` in `/etc/rancher/k3s/config.yaml` on the node, added by hand in [the upsize runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2; `node-init.sh.tftpl` does not write it | Keeps the old name (`ip-172-26-3-190`) on a new instance, since every local-path volume is pinned to it. Configuration management (INFRA-64) must keep it |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
 
 ## Jira
