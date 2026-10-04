@@ -81,7 +81,13 @@ the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a pr
 endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
 repo.
 
-- Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), firewall in
+Both app zones rate-limit the apps' sign-in and token endpoints at the edge (INFRA-123): more than 20 requests in 10 s
+from one IP (per Cloudflare data center) to those paths gets a 429 from Cloudflare for 10 s, which caps the volume one
+address can send to them. The zones are on the Free plan, which allows one such rule per zone and matches on the path only,
+so the rule covers every proxied host of the zone. Each app keeps its own per-account and per-address limits behind it.
+
+- Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), rate limit in
+  [`terraform/cloudflare/rate_limit.tf`](../terraform/cloudflare/rate_limit.tf), firewall in
   [`terraform/platform/main.tf`](../terraform/platform/main.tf)
 - Traefik: [`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)
 
