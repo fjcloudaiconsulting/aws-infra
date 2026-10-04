@@ -135,13 +135,18 @@ def judge(contents, min_dump_bytes):
                    f"(threshold {max_age_hours}h). At least one nightly run has been missed.")
 
     # The manifest is fresh; the artifacts it implies must be present in the same
-    # prefix and plausibly sized.
-    prefix = str(newest.get("Key", "")).rsplit("/", 1)[0]
-    siblings = [o for o in contents if str(o.get("Key", "")).rsplit("/", 1)[0] == prefix]
+    # prefix, carry the same stamp, and be plausibly sized.
+    # ⚠ MATCH THE STAMP, NOT JUST THE DAY DIRECTORY. A retry or a manual Job
+    # writes a second set into the same day; matching by directory let the
+    # earlier set's big dump vouch for a broken newer one (INFRA-72).
+    # Layout: <prefix>/YYYY/MM/DD/{<db>,grants,manifest}_<stamp>.
+    prefix, _, name = str(newest.get("Key", "")).rpartition("/")
+    stamp = name.removeprefix("manifest_").removesuffix(".json")
+    siblings = [o for o in contents if str(o.get("Key", "")).rpartition("/")[0] == prefix]
+    base = lambda o: str(o.get("Key", "")).rpartition("/")[2]
 
-    dumps = [o for o in siblings if str(o.get("Key", "")).endswith(".sql.gz")
-             and "grants" not in str(o.get("Key", "")).rsplit("/", 1)[-1]]
-    grants = [o for o in siblings if "grants" in str(o.get("Key", "")).rsplit("/", 1)[-1]]
+    grants = [o for o in siblings if base(o) == f"grants_{stamp}.sql.gz"]
+    dumps = [o for o in siblings if base(o).endswith(f"_{stamp}.sql.gz") and o not in grants]
 
     if not dumps:
         return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no dump object "
@@ -150,9 +155,10 @@ def judge(contents, min_dump_bytes):
         return 1, (f"STALE: manifest {newest.get('Key')} is fresh but no grants object "
                    "sits beside it. A restore would yield tables and zero logins.")
 
-    biggest = max(int(o.get("Size", 0)) for o in dumps)
+    dump = max(dumps, key=lambda o: int(o.get("Size", 0)))
+    biggest = int(dump.get("Size", 0))
     if biggest < min_dump_bytes:
-        return 1, (f"STALE: newest dump is {biggest} bytes, below the {min_dump_bytes} "
+        return 1, (f"STALE: newest dump {dump.get('Key')} is {biggest} bytes, below the {min_dump_bytes} "
                    "byte floor. A plausible-looking but tiny dump is the failure mode a "
                    "presence check cannot see.")
 
