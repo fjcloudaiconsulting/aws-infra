@@ -83,7 +83,8 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
-- Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
+- Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker. Scopes and rules:
+  [Worker and Snippet access](#worker-and-snippet-access-infra-98).
 - Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
@@ -164,12 +165,49 @@ own role.
   so the node serves no one but our zones: a direct connection, or another Cloudflare account's zone pointed at the
   node, fails the TLS handshake. The Route 53 health check is unaffected because it resolves a proxied hostname, so
   it goes through Cloudflare. The CA key was discarded after signing. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
-- Residual (INFRA-98): AOP proves the zone, not the code. A Worker or Snippet on our own zones can still set
-  `x-real-ip` on a same-zone subrequest. Who can add one: the `cloudflare` workspace token, and the Ziftbook repo
-  secret `CLOUDFLARE_API_TOKEN`, which deploys the `ziftbook-landing` Worker with custom domains on ziftbook.com and
-  so can also route `dev.ziftbook.com` (its exact permissions are unread). Read 2026-10-03: no Workers routes or
-  Snippets on either app zone; the only custom domains are ziftbook.com and www.ziftbook.com.
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
+
+### Worker and Snippet access (INFRA-98)
+
+AOP proves the zone, not the code. A Worker or Snippet that runs on thebetterdecision.com or ziftbook.com can set
+`x-real-ip` on a subrequest to a hostname of the **same zone**, and Cloudflare forwards it to the node as
+`CF-Connecting-IP`, which TBD trusts (rate limiting, `audit_events.ip_address`). A Worker on another zone or on
+workers.dev cannot: Cloudflare replaces the value on cross-zone subrequests. Node hostnames (proxied to the node's
+static IP): `ping.thebetterdecision.com`, `app.thebetterdecision.com`, `dev.ziftbook.com`.
+
+Read 2026-10-04 (API, read-only), all four zones of the account (thebetterdecision.com, ziftbook.com,
+fjconsulting.dev, yetanothergrower.com): no Workers routes, no Snippets, no snippet rules. Workers custom domains:
+ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `ziftbook-landing`, which makes no
+outbound fetch (only its assets binding). One account member, the owner (Super Administrator).
+
+Who can put code on a zone. Scopes are what the dashboard shows (names only); `unread` until the owner reads them
+(guide `INFRA-98-owner-steps.md`):
+
+| Principal | Held in | Can do today | Scopes |
+|---|---|---|---|
+| Owner | dashboard, `wrangler login` | everything | Super Administrator |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN` | whatever its policies allow; Terraform manages no Worker, route or Snippet | unread |
+| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook repo secret | deploys `ziftbook-landing` and (re)publishes its two custom domains from `landing/wrangler.jsonc` on each deploy | unread |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60, not created yet) | tbd repo secret | will deploy `tbd-landing` | target: Workers Editor, Specified Workers `tbd-landing` only |
+| Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | whatever was granted at consent; it cannot read API tokens | unread |
+
+Rules:
+
+- A CI deploy token is an account-owned token with the **Editor** role scoped to **its one Worker**, no
+  Zone > Workers Routes, no Snippets. Product-scope Editor (the legacy "Workers Scripts: Edit") rewrites every
+  Worker in the account, current and future, so either landing token could replace the other app's landing.
+  Zone > Workers Routes > Edit on a zone can route any hostname of it, node hostnames included: Cloudflare tokens
+  cannot be limited by hostname.
+- Custom domains are attached by the owner (or Terraform), not by CI: a per-Worker Editor deploys an existing
+  Worker as long as the deploy does not add, change or remove a route or custom domain.
+- Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
+  code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
+  (staging); after INFRA-61 `tbd-landing` (apex and www) -> `app.thebetterdecision.com` (production). Who can change
+  that code: whoever merges to the app repo's `main` or holds its deploy token. Impact: a forged IP in TBD's audit
+  log and rate-limit buckets; the same token could already serve any page on the apex, which is the bigger risk.
+  Owner decision on INFRA-98: unrecorded.
+- No scheduled probe for new routes or Snippets: only the owner and the `cloudflare` token can add one once the
+  deploy tokens are per-Worker, and a probe cannot see the code-level residual above.
 
 ## DigitalOcean (rollback target until INFRA-49)
 
