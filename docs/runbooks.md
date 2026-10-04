@@ -61,10 +61,11 @@ regenerate the whole file to change it. Example, a key read from a silent prompt
 the screen):
 
 ```sh
+F=clusters/platform/<dir>/<name>.secret.yaml   # the path must match .sops.yaml
 read -rs K; printf %s "$K" | kubectl create secret generic <name> -n <namespace> \
-  --from-file=<key>=/dev/stdin --dry-run=client -o yaml > clusters/platform/<dir>/<name>.secret.yaml \
-  && sops --encrypt --in-place clusters/platform/<dir>/<name>.secret.yaml; unset K
-grep -c '<key>: ENC' clusters/platform/<dir>/<name>.secret.yaml   # must print 1; 0 means not encrypted: do not commit
+  --from-file=<key>=/dev/stdin --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"; unset K
+grep -c '<key>: ENC' "$F"   # must print 1; 0 means not encrypted: do not commit
 ```
 
 Commit, push, merge. Flux applies it within a few minutes. A pod reads env at start, so after a key change run
@@ -94,8 +95,8 @@ only accepts the origin if Traefik shows a Cloudflare **Origin CA** certificate 
    zone**:
    1. Cloudflare dashboard, that zone, SSL/TLS > Origin Server > Create Certificate. Hostnames: `<zone>` and
       `*.<zone>`. Save the certificate and the private key to files outside the repo.
-   2. `kubectl create secret tls origin-cert-<app> -n kube-system --cert=<crt> --key=<key> --dry-run=client -o yaml > clusters/platform/traefik/origin-cert-<app>.secret.yaml`,
-      then encrypt it as in the Secret section, and delete the key file.
+   2. `F=clusters/platform/traefik/origin-cert-<app>.secret.yaml; kubectl create secret tls origin-cert-<app> -n kube-system --cert=<crt> --key=<key> --dry-run=client -o yaml | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"`,
+      check it as in the Secret section, and delete the key file.
    3. Add `- secretName: origin-cert-<app>` under `certificates` in the TLSStore.
 4. **Check** after merge and the `cloudflare` workspace apply:
 
@@ -234,9 +235,11 @@ the PR branch, with `G` set again if this is a new shell):
 
 ```sh
 mkdir -p terraform/cloudflare/origin-pull && cp ~/Downloads/origin-pull-$G/client.crt terraform/cloudflare/origin-pull/$G.crt
+F=clusters/platform/traefik/origin-pull-ca-$G.secret.yaml
 kubectl create secret generic origin-pull-ca-$G -n kube-system --from-file=ca.crt=$HOME/Downloads/origin-pull-$G/ca.crt \
-  --dry-run=client -o yaml > clusters/platform/traefik/origin-pull-ca-$G.secret.yaml \
-  && sops --encrypt --in-place clusters/platform/traefik/origin-pull-ca-$G.secret.yaml
+  --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
+grep -c 'ca.crt: ENC' "$F"   # must print 1
 openssl x509 -in terraform/cloudflare/origin-pull/$G.crt -noout -enddate   # the expiry for the configuration map
 ```
 
