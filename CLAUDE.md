@@ -15,7 +15,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 - MySQL 8.4 (TBD), Postgres 18 (Ziftbook), Valkey 8 (TBD sessions) run in-cluster as StatefulSets; nightly
   dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
 - Cloudflare proxies all app traffic to Traefik (Origin CA cert, Full strict); the node only accepts 443
-  from Cloudflare ranges.
+  from Cloudflare ranges, and Traefik's `TLSOption default` requires our zone-level Authenticated Origin Pulls client
+  cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
 - Namespaces: `tbd-prod`, `ziftbook-staging`, `data`, plus `netbird` (owner kubectl access over NetBird, runbook
@@ -52,7 +53,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
