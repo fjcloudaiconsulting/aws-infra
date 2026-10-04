@@ -153,6 +153,59 @@ cluster. Dev and staging environments of every app share the sending domain `m.f
 send-only sending key in its own Secret; production gets `m.<appdomain>` per app. DNS for both is in
 `terraform/cloudflare`. Procedures: [runbooks.md](runbooks.md#mail-mailgun).
 
+## Telemetry
+
+One standard for every app and environment (decided in INFRA-84; adoption tickets INFRA-105 for TBD and INFRA-106 for
+Ziftbook). Each app owns its OpenTelemetry SDK setup and every span; FastAPI's native telemetry supplies only the
+HTTP metrics.
+
+| Signal | How | Library |
+|---|---|---|
+| Traces | The app's own `tracing.py` (the Ziftbook pattern): the HTTP SERVER span in a middleware, SQL spans from SQLAlchemy engine events, job, worker and migration spans | `opentelemetry-sdk` and the OTLP HTTP exporter, no contrib instrumentation packages |
+| Metrics | FastAPI native: `http.server.request.duration` and `http.server.active_requests` | the app registers a global `MeterProvider` before `FastAPI()` is built |
+| Logs | JSON lines on stdout with `request_id`, `trace_id`, `span_id`; no OTLP log export from the app | stdlib `logging` (the Ziftbook `logs.py` pattern) |
+
+Every app builds FastAPI with:
+
+```python
+FastAPI(telemetry={"tracing": False, "metrics": True, "logs": False, "operation_spans": False,
+                   "auto_configure": False, "exclude": lambda scope: scope["path"] in HEALTH_PATHS})
+```
+
+Rules every app keeps:
+
+- **Attributes are an allowlist.** The SERVER span carries `http.request.method`, `http.route`,
+  `http.response.status_code` and `error.type` only. Never `url.path` or `url.query`: they carry invite tokens, OAuth
+  codes and customer emails. SQL spans carry the statement, never its parameters.
+- **No exception messages.** `record_exception=False` on every span; an error is its class (plus SQLSTATE and
+  constraint for a database error), never `str(error)`, which can quote an email.
+- **W3C `tracecontext` only.** Never baggage, which would carry client data into the jobs table.
+- **Native tracing, logs and operation spans stay off.** Native tracing always exports the raw `url.path` and
+  `url.query`, and native logs export exception messages. `auto_configure` stays off because it adds a second exporter
+  to a provider the app already configured.
+
+Environment for every process (`<role>` is `api`, `worker` or `migrations`):
+
+| Variable | Value |
+|---|---|
+| `OTEL_SERVICE_NAME` | `<app>-<role>` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=<app>,deployment.environment.name=<prod or staging>,service.version=<version>` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | the in-cluster collector (INFRA-85); `http://127.0.0.1:4318` for the local LGTM stack |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` |
+| `OTEL_PROPAGATORS` | `tracecontext` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |
+| `OTEL_LOGS_EXPORTER` | `none` |
+
+Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
+forwards traces and metrics to the Grafana Cloud OTLP gateway, tails pod stdout into Grafana Cloud Logs, and scrapes
+the node, kubelet and cAdvisor for node and k3s metrics. One collector, so the Grafana Cloud credentials live in one
+SOPS Secret. A DaemonSet never runs two copies during a rollout. Not the `k8s-monitoring` Helm chart, which deploys
+several Alloys plus node-exporter and kube-state-metrics. Footprint estimate, not yet measured: 150 to 250 MiB working
+set; INFRA-85 measures it against the INFRA-80 node budget.
+
+Known cost: native metrics are recorded after the app's SERVER span has ended, so histogram exemplars do not link to
+traces. Revisit native tracing when FastAPI can leave out `url.path` and `url.query`.
+
 ## Secrets
 
 Kubernetes Secrets live in git as `*.secret.yaml`, SOPS-encrypted to the cluster's age key, and
