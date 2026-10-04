@@ -84,7 +84,7 @@ installation, and the grant applies to **every repository in the installation**.
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
-- Dependabot vulnerability alerts (`repos/<r>/vulnerability-alerts`): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates stay off (Renovate opens the fixes).
+- Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
 - Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
@@ -104,7 +104,7 @@ Hosted Mend app, Free plan, repos selected at
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
   branch.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
-- App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json`, not in the shared preset (grouping there would also group aws-infra's per-app image bumps): non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
+- App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
 - Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.
 
 ## HCP Terraform
