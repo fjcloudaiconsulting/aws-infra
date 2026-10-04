@@ -18,8 +18,9 @@ terraform {
 
 # Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. It must also cover zone
 # fjconsulting.dev (read for the shared dev Mailgun records, INFRA-47). Account-scoped
-# token with Zone:Edit, DNS:Edit and Zone Settings:Edit; a zone-scoped token cannot create
-# the zone and only fails at apply.
+# token with Zone:Edit, DNS:Edit and Zone Settings:Edit; a zone-scoped token cannot create the zone and
+# only fails at apply. Origin pulls (INFRA-93) add a separate policy, SSL and Certificates:Edit on
+# thebetterdecision.com and ziftbook.com only, and Account Notifications:Edit.
 provider "cloudflare" {}
 
 variable "account_id" {

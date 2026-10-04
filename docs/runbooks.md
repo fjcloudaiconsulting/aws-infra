@@ -140,3 +140,110 @@ SMOKE_PASSWORD -R fjcloudaiconsulting/tbd` and rewrite `tbd-smoke.secret.yaml` w
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
 
+## Origin pull client certificate (Authenticated Origin Pulls)
+
+The Lightsail firewall admits every Cloudflare IP, so any Cloudflare zone could reach the node. Zone-level
+Authenticated Origin Pulls closes that (INFRA-93): Cloudflare presents our own client certificate when it connects to
+the origin for thebetterdecision.com and ziftbook.com, and Traefik's `TLSOption default`
+([`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)) fails the TLS handshake of any
+client without a certificate signed by our CA.
+
+Certificates come in **generations** (1, 2, ...): one CA and one leaf each, shared by both zones.
+
+| Piece | Where |
+|---|---|
+| Leaf certificate (public) | `terraform/cloudflare/origin-pull/<gen>.crt`, uploaded to each zone by [`origin_pull.tf`](../terraform/cloudflare/origin_pull.tf) |
+| Leaf private key | `cloudflare` workspace variable `origin_pull_private_key_<gen>` (sensitive). Terraform also keeps it in the workspace state, in clear inside the state file: remote state sharing stays off |
+| CA certificate (public) | Secret `kube-system/origin-pull-ca-<gen>`, key `ca.crt`, file `clusters/platform/traefik/origin-pull-ca-<gen>.secret.yaml`, listed under `clientAuth.secretNames` |
+| CA private key | Made on a RAM disk that was then ejected, so no further certificate the origin trusts can be signed |
+| Expiry alert | `cloudflare_notification_policy.origin_pull_expiry`: email 30 and 14 days before |
+
+Order matters, because the origin fails closed: **Cloudflare presents the certificate first, the origin requires it
+after.** A `secretNames` entry without its Secret, or Cloudflare without an active certificate, takes every host
+down. It fails open, silently, if a second `TLSOption` named `default` appears in any namespace, a router names its
+own `tls.options`, or an entrypoint sets TLS options; `tests/test_origin_pull.py` rejects these in CI.
+
+**Generate a generation** (owner, on a Mac with OpenSSL 3: `openssl version` prints `OpenSSL 3.x`). The keys exist
+only on a RAM disk, never on the SSD or in a Time Machine snapshot. Set `G` to the new generation number.
+
+```sh
+G=1
+hdiutil attach -nomount ram://32768            # prints a device, for example /dev/disk4
+diskutil erasevolume HFS+ INFRA93 /dev/diskN   # the device printed above; ends with "Finished erase"
+cd /Volumes/INFRA93 && umask 077
+printf '%s\n' 'basicConstraints=critical,CA:TRUE' 'keyUsage=critical,keyCertSign,cRLSign' 'subjectKeyIdentifier=hash' > ca.ext
+printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=clientAuth' 'authorityKeyIdentifier=keyid' > client.ext
+openssl req -new -newkey rsa:4096 -nodes -keyout ca.key -out ca.csr -subj "/O=FJ Consulting/CN=FJ Consulting origin-pull CA $G"
+openssl x509 -req -in ca.csr -key ca.key -sha256 -days 3660 -set_serial "0x$(openssl rand -hex 16)" -extfile ca.ext -out ca.crt
+openssl req -new -newkey rsa:4096 -nodes -keyout client.key -out client.csr -subj "/O=FJ Consulting/CN=Cloudflare origin pull $G"
+openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -sha256 -days 3650 -set_serial "0x$(openssl rand -hex 16)" -extfile client.ext -out client.crt
+openssl verify -CAfile ca.crt -purpose sslclient client.crt   # client.crt: OK
+rm ca.key ca.csr client.csr ca.ext client.ext
+mkdir -m 700 ~/Downloads/origin-pull-$G && cp ca.crt client.crt ~/Downloads/origin-pull-$G/
+```
+
+Then create the workspace variable from the key, and destroy the key. First quit any clipboard-history app and turn
+off Handoff (System Settings > General > AirDrop & Handoff), so the key is neither kept nor sent to other devices.
+HCP Terraform > workspace `cloudflare` > Variables > Add variable: Terraform variable, key
+`origin_pull_private_key_<G>`, value from `pbcopy < /Volumes/INFRA93/client.key`, Sensitive on, HCL off. Then:
+
+```sh
+pbcopy < /dev/null && cd ~ && diskutil eject INFRA93   # "Disk INFRA93 ejected": the CA and leaf keys are gone
+```
+
+`~/Downloads/origin-pull-<G>/` now holds only the two public certificates, for the repo side (from the repo root, on
+the PR branch, with `G` set again if this is a new shell):
+
+```sh
+mkdir -p terraform/cloudflare/origin-pull && cp ~/Downloads/origin-pull-$G/client.crt terraform/cloudflare/origin-pull/$G.crt
+kubectl create secret generic origin-pull-ca-$G -n kube-system --from-file=ca.crt=$HOME/Downloads/origin-pull-$G/ca.crt \
+  --dry-run=client -o yaml > clusters/platform/traefik/origin-pull-ca-$G.secret.yaml \
+  && sops --encrypt --in-place clusters/platform/traefik/origin-pull-ca-$G.secret.yaml
+openssl x509 -in terraform/cloudflare/origin-pull/$G.crt -noout -enddate   # the expiry for the configuration map
+```
+
+**Check** (the in-cluster probe stands in for a direct connection, which the firewall drops before TLS starts):
+
+```sh
+export KUBECONFIG=~/.kube/platform
+curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/                 # 200: our zones pass
+curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the thebetterdecision.com zone passes too
+kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
+  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to dev.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://dev.ziftbook.com/
+# 000 and a "curl: (56)" error (handshake refused; the verify-result text is about the server cert): enforced.
+# Any HTTP code (307, 200, 404) means the origin accepts clients without our certificate.
+```
+
+**Rollback** (origin first, then Cloudflare; never the other way round). The Cloudflare dashboard cannot rescue an
+outage here: the origin is what refuses the connection. Keep the CA Secrets in every path.
+
+- Laptop: `flux --kubeconfig ~/.kube/platform suspend kustomization flux-system && kubectl --kubeconfig
+  ~/.kube/platform -n kube-system delete tlsoption default` (traffic is back within seconds), then revert the PR that
+  added `TLSOption default`, merge it, and `flux --kubeconfig ~/.kube/platform resume kustomization flux-system`.
+- Phone, GitHub web: on the merged PR that added `TLSOption default`, press Revert, then merge the revert PR (owner
+  bypass). Flux polls every minute and prunes, so the TLSOption is gone about 2 to 3 minutes after the merge.
+- Phone, Lightsail browser SSH (Lightsail console > platform-node > Connect using SSH):
+  `sudo k3s kubectl -n flux-system patch kustomization flux-system --type=merge -p '{"spec":{"suspend":true}}'`, then
+  `sudo k3s kubectl -n kube-system delete tlsoption default`. Revert the PR as above, then resume with the same patch
+  and `"suspend":false`.
+- Cloudflare side, only if Cloudflare itself must stop presenting the certificate: set `enabled = false` on
+  `cloudflare_authenticated_origin_pulls_settings.app` and apply. Deleting that resource does not turn it off.
+
+**Rotate** (before the expiry in [configuration-map.md](configuration-map.md#expiries-and-rotation), or at once if a
+leaf key may have leaked). No outage window: each step is its own merge (Flux applies a commit as one batch, and
+Traefik fails closed if it sees a `secretNames` entry before its Secret), and Cloudflare keeps the old certificate
+until the new one is active.
+
+1. Generate generation N+1 as above. Commit `origin-pull-ca-<N+1>.secret.yaml` alone. Merge.
+2. Add `origin-pull-ca-<N+1>` under `clientAuth.secretNames`, next to the current one. Merge. Traefik trusts both CAs;
+   run the check.
+3. Add `origin-pull/<N+1>.crt`, a `variable "origin_pull_private_key_<N+1>"` and its `origin_pull_keys` entry in
+   `origin_pull.tf`. Merge and apply: the plan adds one certificate per zone and destroys nothing. With both active,
+   Cloudflare uses the most recently deployed one.
+4. Wait until each zone shows the new certificate **Active** (SSL/TLS > Origin Server > Authenticated Origin Pulls).
+   Not Active within about 15 minutes, or `deployment_timed_out`: stop here and investigate; nothing is broken, the old
+   certificate is still served.
+5. Remove generation N from `origin_pull.tf` (variable, key entry, `.crt` file). Merge and apply: the plan destroys one
+   certificate per zone. Run the check, then delete the workspace variable `origin_pull_private_key_<N>`.
+6. Remove `origin-pull-ca-<N>` from `secretNames`. Merge. Delete its Secret file. Merge. Run the check and update the
+   expiry row in the configuration map.
