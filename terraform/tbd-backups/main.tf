@@ -9,9 +9,11 @@ locals {
   # have applied cleanly and locked the workspace out the TBD-372 way.
   tfc_sub_fragment = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_name}:run_phase:"
 
-  # Key prefixes the k3s CronJobs write under (INFRA-30). Each gets its own copy of
+  # Key prefixes the k3s CronJobs write under (INFRA-30; tbd-staging-mysql INFRA-67). Each gets its own copy of
   # policies/backup-uploader.json, so the F3 fence still covers every grant.
-  k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres"]
+  # ponytail: IAM caps a user's inline policies at 2048 characters in total; these three use 1903 (minified,
+  # measured 2026-10-04). A fourth prefix does not fit: fold the copies into one policy with a list of prefixes first.
+  k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres", "tbd-staging-mysql"]
 }
 
 # ---------------------------------------------------------------------------
