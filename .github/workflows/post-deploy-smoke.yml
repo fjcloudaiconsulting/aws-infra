@@ -1,0 +1,86 @@
+# Post-deploy smoke (INFRA-114): a push to main that changes an app namespace under clusters/ is a deploy (Flux applies
+# it within minutes). Wait until the public URL serves the new backend tag, then smoke it from outside, through
+# Cloudflare, and open or close ONE issue per namespace. Logic: .github/scripts/post-deploy-smoke.sh. Runbook:
+# docs/runbooks.md "Post-deploy smoke". Add a namespace here, in the script's `case` and in the dispatch options.
+name: Post-deploy Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - clusters/platform/tbd-prod/**
+      - clusters/platform/ziftbook-staging/**
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: Namespace to smoke now
+        type: choice
+        options: [tbd-prod, ziftbook-staging]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Namespaces to smoke
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      namespaces: ${{ steps.pick.outputs.namespaces }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          INPUT_NS: ${{ inputs.namespace }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          all="tbd-prod ziftbook-staging"
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            list="$INPUT_NS"
+          else
+            # Only the namespaces this push touched, so a Ziftbook automerge never logs into TBD prod. Old and new
+            # paths both count (a rename out of a namespace). Anything unreadable, or nothing found, means all.
+            list="$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
+                      --jq '.files[] | .filename, (.previous_filename // empty)' \
+                    | sed -nE 's#^clusters/platform/([^/]+)/.*#\1#p' | sort -u | grep -xE "${all// /|}")" || list=""
+            [[ -n "$list" ]] || list="$all"
+          fi
+          echo "namespaces=$(printf '%s\n' $list | jq -Rnc '[inputs | select(length > 0)]')" | tee -a "$GITHUB_OUTPUT"
+
+  smoke:
+    name: Smoke ${{ matrix.namespace }}
+    needs: changes
+    runs-on: ubuntu-26.04
+    # Poll budgets: 900 s convergence, 150 s settle, 300 s frontend, plus the app smoke.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        namespace: ${{ fromJSON(needs.changes.outputs.namespaces) }}
+    # Environment secrets SMOKE_USERNAME / SMOKE_PASSWORD; tbd-prod deploys from main only (docs/configuration-map.md).
+    environment: ${{ matrix.namespace }}
+    # The newest push is the one worth verifying; a cancelled run leaves the issue to the run that replaced it.
+    concurrency:
+      group: post-deploy-smoke-${{ matrix.namespace }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Wait for the rollout, then smoke
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NAMESPACE: ${{ matrix.namespace }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SMOKE_USERNAME: ${{ secrets.SMOKE_USERNAME }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: bash .github/scripts/post-deploy-smoke.sh "$NAMESPACE"
