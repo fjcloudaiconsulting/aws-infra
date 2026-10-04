@@ -28,12 +28,14 @@ data:
     # TBD-416: never wait 365 days on a metadata lock.
     lock_wait_timeout = 30
   # Runs once, on an empty datadir only; a failed first boot needs the PVC deleted before it runs again.
-  # The image creates pfv2 and pfv_app (ALL on pfv2.*, no GRANT OPTION). Its entrypoint has no SQL escape helper, so escape \ and ' here.
+  # The image creates tbd and tbd_app (ALL on tbd.*, no GRANT OPTION). Its entrypoint has no SQL escape helper, so escape \ and ' here.
+  # tbd_backup gets what mysqldump --single-transaction --routines --triggers --events needs (PROCESS for tablespaces);
+  # no REPLICATION CLIENT, since binlog is off and the dump takes no --source-data.
   10-backup-user.sh: |
     pw=${MYSQL_BACKUP_PASSWORD//\\/\\\\}; pw=${pw//\'/\'\'}
     docker_process_sql --database=mysql <<-EOSQL
-    CREATE USER 'pfv_backup'@'%' IDENTIFIED BY '${pw}';
-    GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, PROCESS, REPLICATION CLIENT ON *.* TO 'pfv_backup'@'%';
+    CREATE USER 'tbd_backup'@'%' IDENTIFIED BY '${pw}';
+    GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER, PROCESS ON *.* TO 'tbd_backup'@'%';
     EOSQL
 ---
 apiVersion: v1
@@ -88,9 +90,9 @@ spec:
                   name: mysql
                   key: root-password
             - name: MYSQL_DATABASE
-              value: pfv2
+              value: tbd
             - name: MYSQL_USER
-              value: pfv_app
+              value: tbd_app
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:

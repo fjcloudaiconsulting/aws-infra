@@ -32,12 +32,12 @@ data:
       echo "ok: $SET $TABLES tables, $(wc -c <"$DUMP") bytes"
     }
   mysql-dump.sh: |
-    SET=tbd-mysql DB=pfv2 VERSION_KEY=mysql_version MARKER='^-- Dump completed on ' TABLE_RE='^CREATE TABLE '
+    SET=tbd-mysql DB=tbd VERSION_KEY=mysql_version MARKER='^-- Dump completed on ' TABLE_RE='^CREATE TABLE '
     . /scripts/common.sh
-    q() { mysql -h mysql -u pfv_backup -N -B -e "$1"; }
+    q() { mysql -h mysql -u tbd_backup -N -B -e "$1"; }
     TABLES=$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE'")
     VERSION=$(q "SELECT VERSION()")
-    mysqldump -h mysql -u pfv_backup --single-transaction --routines --triggers --events --quick --hex-blob "$DB" | gzip >"$DUMP"
+    mysqldump -h mysql -u tbd_backup --single-transaction --routines --triggers --events --quick --hex-blob "$DB" | gzip >"$DUMP"
     # SHOW CREATE USER carries the password hash, so a restore yields working logins. Hex keeps the
     # binary hash intact; IF NOT EXISTS lets it replay over a fresh server's root.
     {
@@ -48,7 +48,7 @@ data:
           q "SHOW GRANTS FOR $acct" | sed 's/$/;/'
         done
     } | gzip >"$GRANTS"
-    [ "$(count "$GRANTS" '^CREATE USER IF NOT EXISTS `pfv_app`@')" -ge 1 ] || die "grants lack pfv_app"
+    [ "$(count "$GRANTS" '^CREATE USER IF NOT EXISTS `tbd_app`@')" -ge 1 ] || die "grants lack tbd_app"
     publish
   pg-dump.sh: |
     SET=ziftbook-postgres DB=ziftbook VERSION_KEY=postgres_version

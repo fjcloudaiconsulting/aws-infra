@@ -6,9 +6,9 @@ carries the table count and the SHA256 of the dump and grants files.
 
 | prefix | database | written by |
 |---|---|---|
-| `tbd-mysql/` | MySQL `pfv2` (TBD) | `data/db-backup` |
+| `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
 | `ziftbook-postgres/` | Postgres `ziftbook` | `data/db-backup` |
-| `pfv-data-01/` | MySQL `pfv2` (TBD, production until cutover) | the DigitalOcean droplet |
+| `pfv-data-01/` | MySQL `pfv2` (TBD on DigitalOcean until the INFRA-48 cutover; restores into `tbd`) | the DigitalOcean droplet |
 
 Only root (or the break-glass user) can read the dumps: the uploaders are put-only and the probe is
 list-only (`terraform/tbd-backups`). Run everything from a Mac with AWS profile `tbd` and the
@@ -109,7 +109,8 @@ Expect `/tmp/dump.sql.gz: OK` and `/tmp/grants.sql.gz: OK`. Anything else: stop,
 
 Grants first, so the data restore can reference the users.
 
-**MySQL** (`tbd-mysql`, `pfv-data-01`). The dump has no `CREATE DATABASE`; the grants use
+**MySQL** (`tbd-mysql`, `pfv-data-01`). The dump has no `CREATE DATABASE` or `USE` (dumped without
+`--databases`), so the droplet's `pfv2` dump loads into `tbd` as is; the grants use
 `CREATE USER IF NOT EXISTS`, so existing users keep their passwords.
 For `pfv-data-01`, drop the `gzip -dc /tmp/grants.sql.gz | mysql -uroot &&` line: the droplet
 writes password hashes as raw text, which MySQL rejects (`ERROR 1827`), and on the cluster the app
@@ -118,8 +119,8 @@ users come from the `mysql` secret anyway.
 ```bash
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   gzip -dc /tmp/grants.sql.gz | mysql -uroot &&
-  mysql -uroot -e "CREATE DATABASE IF NOT EXISTS pfv2" &&
-  gzip -dc /tmp/dump.sql.gz | mysql -uroot pfv2 && echo restored'
+  mysql -uroot -e "CREATE DATABASE IF NOT EXISTS tbd" &&
+  gzip -dc /tmp/dump.sql.gz | mysql -uroot tbd && echo restored'
 ```
 
 **Postgres** (`ziftbook-postgres`). The globals recreate every role, so `role "postgres" already
@@ -142,13 +143,13 @@ Table count must equal the manifest's `tables`. Row counts per table are the rec
 ```bash
 jq .tables manifest.json
 my <<'SQL'
-SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pfv2' AND table_type = 'BASE TABLE';
-SELECT user FROM mysql.user WHERE user LIKE 'pfv%';
+SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'tbd' AND table_type = 'BASE TABLE';
+SELECT user FROM mysql.user WHERE user LIKE 'tbd%';
 SQL
 # Exact row count per table.
 my <<'SQL' | my
-SELECT CONCAT('SELECT ''', table_name, ''', COUNT(*) FROM pfv2.`', table_name, '`;')
-FROM information_schema.tables WHERE table_schema = 'pfv2' AND table_type = 'BASE TABLE' ORDER BY table_name;
+SELECT CONCAT('SELECT ''', table_name, ''', COUNT(*) FROM tbd.`', table_name, '`;')
+FROM information_schema.tables WHERE table_schema = 'tbd' AND table_type = 'BASE TABLE' ORDER BY table_name;
 SQL
 ```
 
@@ -159,7 +160,7 @@ nothing: the set had no rows, so nothing was compared.
 ```bash
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   gzip -dc /tmp/dump.sql.gz | grep "^INSERT INTO" | sha256sum
-  mysqldump -uroot --single-transaction --routines --triggers --events --quick --hex-blob pfv2 | grep "^INSERT INTO" | sha256sum'
+  mysqldump -uroot --single-transaction --routines --triggers --events --quick --hex-blob tbd | grep "^INSERT INTO" | sha256sum'
 ```
 
 **Postgres:** table and row counts (no round trip). The table filter matches the backup's, which
@@ -204,7 +205,7 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
 4. Postgres only: the entrypoint created an empty `ziftbook` that the dump's `CREATE DATABASE`
    would collide with. With the gate at `0`: `pg -d postgres -c 'DROP DATABASE ziftbook'`.
 5. Step 4.
-   - MySQL: the entrypoint and `10-backup-user.sh` created `pfv_app` and `pfv_backup` from the
+   - MySQL: the entrypoint and `10-backup-user.sh` created `tbd_app` and `tbd_backup` from the
      `mysql` secret, and `IF NOT EXISTS` leaves them as they are.
    - Postgres: the entrypoint creates only `postgres`, so the globals bring back every role **with
      its password as of that night**, `postgres` included. Make the secrets authoritative again:

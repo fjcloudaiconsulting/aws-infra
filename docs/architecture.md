@@ -112,7 +112,7 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 
 | Store | For | Key settings |
 |---|---|---|
-| MySQL 8.4 | TBD (`pfv2`, users `pfv_app`, `pfv_backup`) | buffer pool 128M, performance_schema off, binlog off |
+| MySQL 8.4 | TBD (`tbd`, users `tbd_app`, `tbd_backup`) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook (`ziftbook`; roles created by Ziftbook's pinned `bootstrap.sql`, run as a Job) | shared_buffers 64MB, no parallel workers |
 | Valkey 8 | TBD sessions | 64mb, noeviction, AOF on (not migrated at cutover) |
 
