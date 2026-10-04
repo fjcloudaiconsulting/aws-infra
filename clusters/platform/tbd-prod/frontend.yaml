@@ -49,6 +49,10 @@ spec:
             # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
             - name: BACKEND_INTERNAL_URL
               value: http://backend:8000
+            # Access-log client IP, same rule and value as backend.yaml (INFRA-97). Trustworthy because Traefik requires
+            # our zone's Authenticated Origin Pulls cert (INFRA-93). Images before the INFRA-97 tbd release ignore it.
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
             # Exactly "true" shows "Sign in with Google" on /login and /register.
             - name: TBD_GOOGLE_SSO_ENABLED
               value: "true"
