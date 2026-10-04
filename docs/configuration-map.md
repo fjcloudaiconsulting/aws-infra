@@ -227,10 +227,10 @@ own role.
   secret `CLOUDFLARE_API_TOKEN`, which deploys the `ziftbook-landing` Worker with custom domains on ziftbook.com and
   so can also route `dev.ziftbook.com` (its exact permissions are unread). Read 2026-10-03: no Workers routes or
   Snippets on either app zone; the only custom domains are ziftbook.com and www.ziftbook.com.
-- Rate limit (INFRA-123, `terraform/cloudflare/rate_limit.tf`): one rule per app zone (the Free plan's limit) on the
-  apps' sign-in and token paths, path only (Free has no host or method field), so it covers every proxied host of the
-  zone: 20 requests per 10 s per IP and Cloudflare data center, then 429 for 10 s. A new auth endpoint in either app
-  needs its path added there. Managed only in Terraform: a rule added in the dashboard is drift.
+- Rate limit (INFRA-123, `terraform/cloudflare/rate_limit.tf`): a new sign-in or token endpoint in either app needs its
+  path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
+  zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
+  2026-10-04 on both app zones).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ## DigitalOcean (rollback target until INFRA-49)
