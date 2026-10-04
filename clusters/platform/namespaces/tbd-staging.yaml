@@ -1,0 +1,63 @@
+# TBD staging (INFRA-67), same pattern as ziftbook-staging. The PriorityClass `staging` is cluster-scoped and defined
+# once, in ziftbook-staging.yaml; it is not repeated here (two files would give one object two owners).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tbd-staging
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: tbd-staging
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: memory
+  namespace: tbd-staging
+spec:
+  hard:
+    # backend 128/384, frontend 96/256, valkey 32/64 (INFRA-67): 256Mi requests, 704Mi limits. Recreate everywhere, and
+    # the migrate init container (96/256) fits inside the backend's own figures.
+    requests.memory: 320Mi
+    limits.memory: 768Mi
+---
+# Rejects any pod in this namespace that does not use the staging class, Job and CronJob
+# pods included (they fail with a FailedCreate event only).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging-class-only
+  namespace: tbd-staging
+spec:
+  hard:
+    pods: "0"
+  scopeSelector:
+    matchExpressions:
+      - scopeName: PriorityClass
+        operator: NotIn
+        values: [staging]
+---
+# Every pod here pulls private GHCR images with ghcr-pull (tbd-staging-ghcr-pull.secret.yaml), so
+# workloads need no imagePullSecrets of their own.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: tbd-staging
+  annotations:
+    # Removing this file must not make Flux delete the namespace's default account.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+imagePullSecrets:
+  - name: ghcr-pull

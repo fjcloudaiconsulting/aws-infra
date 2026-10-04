@@ -1,0 +1,95 @@
+# Staging's own Valkey (INFRA-67): sessions, rate-limit counters and MFA codes. Not data/valkey: Valkey 8 cannot limit a
+# password to one DB index, so a shared instance would let staging read or flush production sessions. Same image as
+# data/valkey.yaml, without persistence: a restart logs staging users out, which is fine here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: tbd-staging
+spec:
+  selector:
+    app: valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey
+  namespace: tbd-staging
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        # The image's valkey user.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+          # noeviction: a full store refuses writes rather than silently dropping live sessions.
+          args:
+            - --requirepass
+            - $(REDISCLI_AUTH)
+            - --appendonly
+            - "no"
+            - --save
+            - ""
+            - --maxmemory
+            - 16mb
+            - --maxmemory-policy
+            - noeviction
+          env:
+            # Also read by valkey-cli, so the probe authenticates. Hex only: TBD embeds it in REDIS_URL.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: valkey-password
+          ports:
+            - name: valkey
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "valkey-cli ping | grep -q PONG"]
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

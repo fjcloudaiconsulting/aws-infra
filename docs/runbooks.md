@@ -71,6 +71,51 @@ Commit, push, merge. Flux applies it within a few minutes. A pod reads env at st
 `kubectl -n <namespace> rollout restart deploy/<name>`. To edit a multi-key Secret instead, load the offline key
 first (`export SOPS_AGE_KEY_FILE=<path to the key file>`), then `sops edit <file>`.
 
+## MySQL database per app environment
+
+Each app environment gets its own database and user in the shared MySQL (`data/mysql-0`), with grants on that
+database only. The image creates `tbd` and `tbd_app` on an empty volume only, so any later database is created by
+hand as root, which can log in only over the pod's socket. The SQL is additive and idempotent: a rerun creates
+nothing twice and resets the password and connection cap. TBD staging (INFRA-67) is the example; for another
+environment change the names, the cap and the Secret.
+
+The password is the one in the app's `database-url` (hex, so it needs no escaping). Read it from the SOPS file with
+the offline key loaded, or after the merge from the cluster
+(`kubectl -n tbd-staging get secret tbd -o jsonpath='{.data.database-url}' | base64 -d` in place of the `sops` call).
+Run from the repo root in bash or zsh:
+
+```sh
+PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/platform/tbd-staging/tbd.secret.yaml \
+  | sed -E 's#^mysql\+aiomysql://tbd_staging:([0-9a-f]+)@.*#\1#')
+[[ $PW =~ ^[0-9a-f]{64}$ ]] && sed "s/@PW@/$PW/g" <<'SQL' | kubectl -n data exec -i mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
+CREATE DATABASE IF NOT EXISTS tbd_staging;
+CREATE USER IF NOT EXISTS 'tbd_staging'@'%' IDENTIFIED BY '@PW@';
+ALTER USER 'tbd_staging'@'%' IDENTIFIED BY '@PW@' WITH MAX_USER_CONNECTIONS 20;
+GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO 'tbd_staging'@'%';
+SQL
+echo "exit $?"; unset PW   # exit 0 and no other output; exit 1 alone means no password was extracted, nothing ran
+kubectl -n data exec mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SHOW GRANTS FOR tbd_staging"'
+# GRANT USAGE ON *.* TO `tbd_staging`@`%`
+# GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO `tbd_staging`@`%`
+```
+
+The quoted heredoc keeps the backticks and `\_` literal (`_` is a wildcard in a database grant). The password reaches
+`mysql` on stdin, never on a command line. The cap (20: one connection pool of 15 plus migrations) keeps staging from
+using up `max_connections` (80) that production needs. Nothing here touches `tbd` or its users, and the MySQL pod
+does not restart. The nightly grants dump includes the new user, so a restore brings it back.
+
+**First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
+captcha for it. Register it yourself before the hostname is reachable (before approving the `cloudflare` apply that
+adds the record, or after emptying the database), through a port-forward:
+
+```sh
+kubectl -n tbd-staging port-forward svc/backend 18000:8000 &
+read -r U; read -r E; read -rs P   # username, email, password (silent)
+jq -n --arg u "$U" --arg e "$E" --arg p "$P" '{username:$u,email:$e,password:$p}' \
+  | curl -s -o /dev/null -w '%{http_code}\n' -H 'content-type: application/json' --data @- http://127.0.0.1:18000/api/v1/auth/register
+unset P; kill %1   # 201
+```
+
 ## Add a public hostname for an app
 
 Traffic path: Cloudflare (proxied, SSL mode Full strict), then Traefik on the node, then the app Service. Cloudflare
