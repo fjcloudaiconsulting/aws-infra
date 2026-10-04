@@ -14,6 +14,7 @@ in the same PR or right after.
 | Symptom | Likely cause | Look at | Fix |
 |---|---|---|---|
 | Release job fails with `Resource not accessible by integration` on create-a-release | The release App token lacks `workflows`. GitHub treats a new tag as creating workflow files when a later `main` commit changed one | [Release chain](#release-and-deploy-chain) step 4, [GitHub Apps](#github-apps) | Org owner: App permissions > Workflows: Read and write, then accept on the org installation. Re-run the failed job |
+| Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
 | No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
 | Staging image bump sits on a `renovate/ziftbook-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
@@ -62,10 +63,26 @@ private repositories cannot have branch protection, so every repo that must be p
 | Repo | Mechanism | Rules |
 |---|---|---|
 | aws-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
-| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Ruleset `tag protection` (id 24413637, INFRA-76) on `refs/tags/v*`: restrict creations, updates, deletions, block force pushes; bypass org admin only (the owner moves `v1`; the release App is not installed here) |
+| .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Tags: see [Tag protection](#tag-protection) |
 | app-template | Ruleset `main protection` (id 24384611) | Same as `.github`: PR with 1 approval, linear history, no required checks |
 | ziftbook | Classic branch protection | 1 review, strict checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced. **Force-push and deletion of `main` are allowed** |
 | tbd | Classic branch protection | 1 review, checks `Backend Checks`, `Frontend Checks`, admins enforced |
+
+### Tag protection
+
+Git release tags `v*` are immutable by policy. Each repo below has a ruleset `tag protection` on
+`refs/tags/v*`: restrict creations, updates and deletions, block force pushes. Only the bypass actors
+can create a `v*` tag, so the release App must stay on the list of every app repo or the next release
+fails at the tag (see the symptom table). The App bypass is only as strong as the `release`
+environment that holds its key (`main` only, see [Per-repo settings](#per-repo-settings)) and the
+`main` branch protection. These rulesets cover git refs only, not the GHCR `vX.Y.Z` image tags.
+
+| Repo | Ruleset id | Bypass (Always) |
+|---|---|---|
+| .github | 24413637 (INFRA-76) | Org admin only. The owner moves `v1`; the release App is not installed here |
+| tbd | 24454860 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
+| ziftbook | 24454865 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
+| app-template | 24454868 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919). Repos made from the template get only its files: each new app repo needs this ruleset, the App installed and the `release` environment ([Per-repo settings](#per-repo-settings)) |
 
 ### GitHub Apps
 
