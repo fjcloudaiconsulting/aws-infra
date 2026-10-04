@@ -178,36 +178,39 @@ static IP): `ping.thebetterdecision.com`, `app.thebetterdecision.com`, `dev.zift
 Read 2026-10-04 (API, read-only), all four zones of the account (thebetterdecision.com, ziftbook.com,
 fjconsulting.dev, yetanothergrower.com): no Workers routes, no Snippets, no snippet rules. Workers custom domains:
 ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `ziftbook-landing`, which makes no
-outbound fetch (only its assets binding). One account member, the owner (Super Administrator).
+outbound fetch (only its assets binding). One Pages project, `fjconsulting-website-dev` on fjconsulting.dev (no node
+hostname in that zone). One account member, the owner (Super Administrator).
 
-Who can put code on a zone. Scopes are what the dashboard shows (names only); `unread` until the owner reads them
-(guide `INFRA-98-owner-steps.md`):
+Who can put code on a zone (a Pages project with a custom domain on an app zone counts the same as a Worker).
+Scopes are what the dashboard shows (names only); `unread` until the owner reads them (guide
+`INFRA-98-owner-steps.md`):
 
 | Principal | Held in | Can do today | Scopes |
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN` | whatever its policies allow; Terraform manages no Worker, route or Snippet | unread |
-| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook repo secret | deploys `ziftbook-landing` and (re)publishes its two custom domains from `landing/wrangler.jsonc` on each deploy | unread |
-| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60, not created yet) | tbd repo secret | will deploy `tbd-landing` | target: Workers Editor, Specified Workers `tbd-landing` only |
-| Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | whatever was granted at consent; it cannot read API tokens | unread |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | partly known ([HCP Terraform](#hcp-terraform)); full list unread |
+| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook repo secret, no environment: any workflow on any branch can read it | deploys `ziftbook-landing` and syncs its two custom domains from `landing/wrangler.jsonc` on each deploy | unread |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60, not created yet) | target: tbd environment secret, `main` only | will deploy `tbd-landing` | target: Workers Editor, Specified Workers `tbd-landing` only |
+| Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | whatever was granted at consent; it gets 9109 on the API token lists | unread |
 
 Rules:
 
 - A CI deploy token is an account-owned token with the **Editor** role scoped to **its one Worker**, no
-  Zone > Workers Routes, no Snippets. Product-scope Editor (the legacy "Workers Scripts: Edit") rewrites every
-  Worker in the account, current and future, so either landing token could replace the other app's landing.
-  Zone > Workers Routes > Edit on a zone can route any hostname of it, node hostnames included: Cloudflare tokens
-  cannot be limited by hostname.
-- Custom domains are attached by the owner (or Terraform), not by CI: a per-Worker Editor deploys an existing
-  Worker as long as the deploy does not add, change or remove a route or custom domain.
+  Zone > Workers Routes, no Snippets, no Pages, stored as an environment secret limited to `main`. Product-scope
+  Editor (the legacy "Workers Scripts: Edit") rewrites every Worker in the account, current and future, so either
+  landing token could replace the other app's landing. Zone > Workers Routes > Edit on a zone can route any hostname
+  of it, node hostnames included: Cloudflare tokens cannot be limited by hostname.
+- Custom domains are attached by the owner (or Terraform), not by CI, and are not declared in `wrangler.jsonc`: a
+  per-Worker Editor deploys an existing Worker only while the deploy does not add, change or remove a route or
+  custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook still declares them (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
   (staging); after INFRA-61 `tbd-landing` (apex and www) -> `app.thebetterdecision.com` (production). Who can change
-  that code: whoever merges to the app repo's `main` or holds its deploy token. Impact: a forged IP in TBD's audit
-  log and rate-limit buckets; the same token could already serve any page on the apex, which is the bigger risk.
-  Owner decision on INFRA-98: unrecorded.
-- No scheduled probe for new routes or Snippets: only the owner and the `cloudflare` token can add one once the
-  deploy tokens are per-Worker, and a probe cannot see the code-level residual above.
+  that code: whoever merges to the app repo's `main`, holds its deploy token, or (while the token is a plain repo
+  secret) has write access to the repo. Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
+  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98: unrecorded.
+- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
+  `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
 ## DigitalOcean (rollback target until INFRA-49)
 
