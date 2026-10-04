@@ -20,13 +20,14 @@ case "$ns" in
   *) echo "usage: $0 tbd-prod|ziftbook-staging" >&2; exit 2 ;;
 esac
 DIR="${CLUSTERS_DIR:-clusters/platform}"
+RUN_URL="${RUN_URL:-local run}"
 title="[post-deploy-smoke] $ns"
 verdict=""
 tag=""
 
 check() {
   # The backend container's image only (the migrations init container and the scheduler have their own lines).
-  tag="$(grep -hoE "ghcr\.io/fjcloudaiconsulting/$repo/backend:[^\"[:space:]]+" "$DIR/$ns/backend.yaml" 2>/dev/null \
+  tag="$(grep -hoE "ghcr\.io/fjcloudaiconsulting/$repo/backend:[^\"'[:space:]@]+" "$DIR/$ns/backend.yaml" 2>/dev/null \
          | sed 's#.*:##' | sort -u)"
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { verdict="bad backend tag in $DIR/$ns/backend.yaml: '${tag//$'\n'/ }'"; return; }
   local want="${tag#v}" live="" i=0 ok=0 code deadline=$(( SECONDS + ${CONVERGE_SECONDS:-900} ))
@@ -58,18 +59,20 @@ check() {
   echo "frontend GET / 200 x3"
 
   # 3. The app's own smoke, from the app repo at the deployed tag so it matches the release it tests. Saved to a file,
-  # never piped into a shell, and run without GH_TOKEN.
+  # never piped into a shell, GH_TOKEN not exported to it (same uid, so not a hard boundary: the trust is the app
+  # repo's tag ruleset). refs/tags/ so a branch named like the tag cannot stand in for it.
   [[ -n "$app_smoke" ]] || return
   local f; f="$(mktemp)"
-  gh api -H 'Accept: application/vnd.github.raw' "repos/fjcloudaiconsulting/$repo/contents/$app_smoke?ref=$tag" > "$f" \
-    || { verdict="could not fetch $repo $app_smoke at $tag"; return; }
+  gh api -H 'Accept: application/vnd.github.raw' "repos/fjcloudaiconsulting/$repo/contents/$app_smoke?ref=refs/tags/$tag" \
+    > "$f" || { rm -f "$f"; verdict="could not fetch $repo $app_smoke at $tag"; return; }
   SMOKE_BASE_URL="$base" env -u GH_TOKEN bash "$f" || verdict="app smoke failed ($repo $app_smoke at $tag)"
   rm -f "$f"
 }
 
 check
 
-# Our own issue only: the repo is public, so match the exact title AND the Actions bot as author.
+# Our own issue only: the repo is public, so match the exact title AND the Actions bot as author. The author filter
+# for an app works only through search (eventually consistent, seconds; runs are minutes apart).
 issues="$(gh issue list --state open --author app/github-actions --search "\"$title\" in:title" \
           --json number,title --jq '.[] | [.number, .title] | @tsv')" || { echo "issue lookup failed" >&2; exit 1; }
 existing="$(awk -F'\t' -v t="$title" '$2 == t { print $1; exit }' <<<"$issues")"

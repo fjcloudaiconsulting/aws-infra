@@ -1,7 +1,7 @@
 # Post-deploy smoke (INFRA-114): a push to main that changes an app namespace under clusters/ is a deploy (Flux applies
 # it within minutes). Wait until the public URL serves the new backend tag, then smoke it from outside, through
 # Cloudflare, and open or close ONE issue per namespace. Logic: .github/scripts/post-deploy-smoke.sh. Runbook:
-# docs/runbooks.md "Post-deploy smoke". Add a namespace here, in the script's `case` and in the dispatch options.
+# docs/runbooks.md "Post-deploy smoke". A new namespace goes in `paths`, `options`, `all=` and the script's `case`.
 name: Post-deploy Smoke
 
 on:
@@ -47,8 +47,10 @@ jobs:
             list="$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
                       --jq '.files[] | .filename, (.previous_filename // empty)' \
                     | sed -nE 's#^clusters/platform/([^/]+)/.*#\1#p' | sort -u | grep -xE "${all// /|}")" || list=""
-            [[ -n "$list" ]] || list="$all"
           fi
+          [[ -n "$list" ]] || list="$all"
+          # $list unquoted on purpose: one namespace per line.
+          # shellcheck disable=SC2086
           echo "namespaces=$(printf '%s\n' $list | jq -Rnc '[inputs | select(length > 0)]')" | tee -a "$GITHUB_OUTPUT"
 
   smoke:

@@ -58,10 +58,11 @@ reaches the apps through Cloudflare like a user. Per namespace:
    `dev.ziftbook.com/api/healthz`, which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
-2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart, within 5 minutes.
-3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once. That is
-   one login as the [smoke account](#tbd-smoke-account) and one read: no data changes, and never retried, so the login
-   rate limit (10 a minute) is never reached. Ziftbook has no live smoke script yet.
+2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
+3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
+   health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
+   (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
+   reached. Ziftbook has no live smoke script yet (INFRA-120).
 
 Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
 pass closes it. The failure says which step failed:
@@ -70,11 +71,13 @@ pass closes it. The failure says which step failed:
 |---|---|---|
 | `never converged (live X, expected Y)` | The new backend never served: Flux did not apply, the image did not pull, the migration or the pod crashed. `live none` means the app was down | [Follow Flux and rollouts](#follow-flux-and-rollouts): `flux get kustomizations`, `kubectl -n <namespace> get pods,events` |
 | `frontend GET / returned N` | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
-| `app smoke failed` | The app's own checks failed. The run log shows which one | The run log, then `/health/dependencies` and the backend logs |
+| `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` and the backend logs |
+| `could not fetch ...` | The GitHub API did not return the app's smoke script at that tag | The tag exists in the app repo, then re-run |
 | `bad backend tag` | The manifest has no plain `vX.Y.Z` backend tag | The manifest |
 
-Run it again, for example after a fix outside git: Actions > Post-deploy Smoke > Run workflow > choose the namespace.
-`gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does the same.
+Run it again, for example after a fix outside git: Actions > Post-deploy Smoke > Run workflow > branch `main`, choose the
+namespace. `gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does the same. Only `main` may use the
+`tbd-prod` environment, so a run from another branch fails before it starts.
 
 What it does not cover: the TBD scheduler and the Ziftbook worker have no public endpoint. They run the backend image
 and tag, so a tag that does not pull still shows as `never converged`. A GitHub Actions outage means no smoke; the Route

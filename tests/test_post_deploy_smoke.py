@@ -31,7 +31,8 @@ esac
 GH = r"""#!/usr/bin/env bash
 printf 'gh %s\n' "$*" >> "$LOG"
 case "$1 $2" in
-  "api -H") printf 'echo "app smoke base=$SMOKE_BASE_URL user=${SMOKE_USERNAME:+set} gh=${GH_TOKEN:-unset} SMOKE-OUTPUT-MARKER"; exit %s\n' "$APP_RC" ;;
+  "api -H") [[ "${FETCH_RC:-0}" == 0 ]] || exit "$FETCH_RC"
+            printf 'echo "app smoke base=$SMOKE_BASE_URL user=${SMOKE_USERNAME:+set} gh=${GH_TOKEN:-unset} SMOKE-OUTPUT-MARKER"; exit %s\n' "$APP_RC" ;;
   "issue list") printf '%b' "${EXISTING:-}" ;;
 esac
 """
@@ -47,7 +48,7 @@ def issue(n, ns="tbd-prod"):
 
 
 def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200", app_rc=0, existing="",
-        converge=30, frontend=0):
+        converge=30, frontend=0, fetch_rc=0):
     """Default: the first poll still sees the old version, the second the new one (a real rollout)."""
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
@@ -63,7 +64,7 @@ def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200"
         r = subprocess.run(
             ["bash", str(SCRIPT), ns], capture_output=True, text=True, cwd=d, timeout=60,
             env={**os.environ, "PATH": f"{d/'bin'}:{os.environ['PATH']}", "LOG": str(d / "log"),
-                 "STATE": str(d / "state"), "VERSIONS": versions, "FRONT_CODES": front, "APP_RC": str(app_rc),
+                 "STATE": str(d / "state"), "VERSIONS": versions, "FRONT_CODES": front, "APP_RC": str(app_rc), "FETCH_RC": str(fetch_rc),
                  "EXISTING": existing, "CLUSTERS_DIR": str(d / "clusters"), "CONVERGE_SECONDS": str(converge),
                  "FRONTEND_SECONDS": str(frontend), "GH_REPO": "o/r", "RUN_URL": "u", "GH_TOKEN": "tok",
                  "SMOKE_USERNAME": "x", "SMOKE_PASSWORD": "y"},
@@ -87,6 +88,8 @@ class Pass(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("issue create", log)
         self.assertIn("after 4 poll(s)", r.stdout)
+        # Every poll carries its own cache-busting query, so Cloudflare cannot replay an old body.
+        self.assertIn("/health?smoke=local-4", log)
 
     def test_unchanged_version_settles_before_checking(self):
         # A push that leaves the backend tag alone (a policy, a Secret) is not applied yet on the first poll: the
@@ -113,15 +116,21 @@ class Pass(unittest.TestCase):
         self.assertEqual(log.count("http_code"), 5, log)
 
     def test_app_smoke_is_fetched_at_the_deployed_tag_without_the_token(self):
-        # Kills fetching the script from main, and handing it GH_TOKEN.
+        # Kills fetching the script from main (or a branch named like the tag), and exporting GH_TOKEN to it.
         r, log = run()
-        self.assertIn("repos/fjcloudaiconsulting/tbd/contents/scripts/smoke-test.sh?ref=v0.291.0", log)
+        self.assertIn("repos/fjcloudaiconsulting/tbd/contents/scripts/smoke-test.sh?ref=refs/tags/v0.291.0", log)
         self.assertIn("app smoke base=https://app.thebetterdecision.com user=set gh=unset", r.stdout)
 
     def test_backend_tag_is_read_not_the_migrations_tag(self):
         m = "image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.290.0\n" + TBD.format("v0.291.0")
         r, log = run(manifest=m)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_quoted_or_digest_pinned_tag_is_read(self):
+        for m in ("image: 'ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.0'\n",
+                  "image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.0@sha256:abc\n"):
+            r, log = run(manifest=m)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_ziftbook_has_no_app_smoke(self):
         r, log = run("ziftbook-staging")
@@ -130,10 +139,12 @@ class Pass(unittest.TestCase):
         self.assertIn("https://dev.ziftbook.com/api/healthz", log)
 
     def test_pass_closes_only_its_own_namespace_issue(self):
-        # Both issues open: a tbd-prod pass must leave the ziftbook-staging one (kills a prefix match).
-        r, log = run(existing=issue(3, "ziftbook-staging") + issue(8))
+        # Other issues listed first: the ziftbook-staging one and a title that starts with ours (kills taking the
+        # first row, and a prefix match).
+        r, log = run(existing=issue(3, "ziftbook-staging") + issue(5, "tbd-prod-canary") + issue(8))
         self.assertIn("gh issue close 8", log)
         self.assertNotIn("issue close 3", log)
+        self.assertNotIn("issue close 5", log)
 
     def test_lookup_is_limited_to_the_actions_bot(self):
         # The repo is public: an outsider's issue with the same title must never be the alarm.
@@ -144,8 +155,7 @@ class Pass(unittest.TestCase):
 class Alarm(unittest.TestCase):
     def assert_alarm(self, r, log, text):
         self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("gh issue create", log)
-        self.assertIn("[post-deploy-smoke] tbd-prod", log)
+        self.assertIn("gh issue create --title [post-deploy-smoke] tbd-prod --body", log)
         self.assertIn(text, log)
         self.assertNotIn("issue close", log)
         self.assertNotIn("SMOKE-OUTPUT-MARKER", log)  # the smoke output stays in the run log
@@ -161,6 +171,10 @@ class Alarm(unittest.TestCase):
     def test_frontend_failure_after_two_good_checks(self):
         # Kills checking the frontend once, or ignoring its status code.
         self.assert_alarm(*run(front="200,200,502"), "frontend GET / returned 502")
+
+    def test_app_smoke_fetch_failure(self):
+        # Kills ignoring the fetch: an empty file would "pass" and close the issue.
+        self.assert_alarm(*run(fetch_rc=1), "could not fetch tbd scripts/smoke-test.sh at v0.291.0")
 
     def test_app_smoke_failure(self):
         self.assert_alarm(*run(app_rc=1), "app smoke failed")
