@@ -38,6 +38,13 @@ Every arrow depends on a setting listed in this page. The chain is proven end to
 staging (v0.20.2, 2026-10-03). TBD production (`tbd-prod`, since the INFRA-48 cutover) bumps arrive as
 PRs and are never automerged (proven by Renovate dry run only, check it on the first TBD bump).
 
+The rules are [release contract section 8](https://github.com/fjcloudaiconsulting/.github/blob/main/RELEASE_CONTRACT.md#8-deploy-handoff)
+(decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
+`main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
+runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet); TBD gets staging in
+INFRA-67 and this flow in INFRA-91. A release that fails on staging is fixed forward; marking its GitHub
+release a prerelease keeps it out of the drift watch below.
+
 | # | Step | Needs |
 |---|---|---|
 | 1 | PR merged to the app repo's `main` | Branch protection, required checks |
