@@ -169,7 +169,9 @@ The credentials live in two places, kept equal:
   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh; unset SU SP
   ```
 
-- tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the release and deploy workflows.
+- tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), read only by the DigitalOcean deploy path;
+  deleted after INFRA-49 (configuration map, Actions secrets). From then on the cluster copy is the only one and the
+  rotation below skips `gh secret set`.
 
 **Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
 the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
