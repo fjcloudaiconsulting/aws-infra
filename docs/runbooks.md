@@ -335,9 +335,10 @@ each 1. `sum by (namespace) (container_memory_working_set_bytes{pod!=""})` shows
 For the Alloy UI (pipeline graph, component health): `kubectl -n observability port-forward ds/alloy 12345`, then
 http://localhost:12345.
 
-**Memory:** measured locally at about 150 MiB working set against payloads captured from the node's kubelet; request
-128Mi, limit 256Mi, `GOMEMLIMIT` 200MiB. If `kubectl top` shows it near the limit, look for a new high-cardinality
-series in the app metrics before raising it.
+**Memory:** measured locally (Alloy v1.20.1, this config, the node's real cAdvisor payload, no app traffic yet) at
+52 to 95 MiB working set, about 50 MiB of it heap. Request 128Mi (headroom for app metrics), limit 256Mi, `GOMEMLIMIT`
+200MiB. Scraping the kubelet's `/metrics` as well took it to 160 MiB. If `kubectl top` shows it near the limit, look
+for a new high-cardinality series in the app metrics before raising it.
 
 ## Uptime alarm emails during a TBD deploy
 

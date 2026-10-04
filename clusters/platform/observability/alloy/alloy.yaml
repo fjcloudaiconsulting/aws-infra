@@ -103,6 +103,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          # Measured 52 to 95 MiB working set before any app traffic (docs/runbooks.md, Metrics to Grafana Cloud).
           resources:
             requests:
               cpu: 20m
