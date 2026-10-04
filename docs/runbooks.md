@@ -47,6 +47,45 @@ Swap the namespace for `ziftbook-staging` or `data` (StatefulSets: `kubectl -n d
 release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
 automation.
 
+## Post-deploy smoke
+
+Every push to `main` that changes `clusters/platform/tbd-prod/` or `clusters/platform/ziftbook-staging/` runs the
+**Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
+reaches the apps through Cloudflare like a user. Per namespace:
+
+1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
+   endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
+   `dev.ziftbook.com/api/healthz`, which goes through the frontend to the backend. The Deployments use `Recreate`
+   with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
+   a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
+2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
+3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
+   health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
+   (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
+   reached. Ziftbook has no live smoke script yet (INFRA-120).
+
+Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
+pass closes it. The failure says which step failed:
+
+| Verdict | Meaning | Look at |
+|---|---|---|
+| `never converged (live X, expected Y)` | The new backend never served: Flux did not apply, the image did not pull, the migration or the pod crashed. `live none` means the app was down | [Follow Flux and rollouts](#follow-flux-and-rollouts): `flux get kustomizations`, `kubectl -n <namespace> get pods,events` |
+| `frontend GET / returned N` | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
+| `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` and the backend logs |
+| `could not fetch ...` | The GitHub API did not return the app's smoke script at that tag | The tag exists in the app repo, then re-run |
+| `bad backend tag` | The manifest has no plain `vX.Y.Z` backend tag | The manifest |
+
+Run it again, for example after a fix outside git: Actions > Post-deploy Smoke > Run workflow > branch `main`, choose the
+namespace. `gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does the same. Only `main` may use the
+`tbd-prod` environment, so a run from another branch fails before it starts.
+
+What it does not cover: the TBD scheduler and the Ziftbook worker have no public endpoint. They run the backend image
+and tag, so a tag that does not pull still shows as `never converged`. A GitHub Actions outage means no smoke; the Route
+53 uptime check and the daily release drift probe still run.
+
+The smoke account's credentials are the `tbd-prod` environment secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` in this
+repo. Deployments from `main` only can read them. Rotating them is part of [TBD smoke account](#tbd-smoke-account).
+
 ## Write or rotate a Kubernetes Secret
 
 Secrets are `clusters/**/<name>.secret.yaml`, SOPS-encrypted to the cluster's age key (`.sops.yaml`). Flux decrypts
@@ -167,7 +206,7 @@ TBD's post-deploy smoke test (`scripts/smoke-test.sh` in the tbd repo) logs in a
 email verified, **no MFA** by design (TBD-371, the script cannot answer a TOTP challenge). Its username is also the only
 entry of `FOUNDER_COUNT_EXCLUDE_USERNAMES`, so it is not counted as a founder.
 
-The credentials live in two places, kept equal:
+The credentials live in these places, kept equal:
 
 - `tbd-prod/tbd-smoke` (`clusters/platform/tbd-prod/tbd-smoke.secret.yaml`, SOPS), keys `username` and `password`. Anyone
   with cluster access reads them for a manual run:
@@ -178,14 +217,17 @@ The credentials live in two places, kept equal:
   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh; unset SU SP
   ```
 
+- aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the
+  [post-deploy smoke](#post-deploy-smoke).
 - tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), read only by the DigitalOcean deploy path;
-  deleted after INFRA-49 (configuration map, Actions secrets). From then on the cluster copy is the only one and the
-  rotation below skips `gh secret set`.
+  deleted after INFRA-49 (configuration map, Actions secrets). From then on the rotation below skips the tbd
+  `gh secret set`.
 
 **Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
 the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
 username=...`, expect 1 row), run the smoke test above with the new value, then `printf %s "$P" | gh secret set
-SMOKE_PASSWORD -R fjcloudaiconsulting/tbd` and rewrite `tbd-smoke.secret.yaml` with
+SMOKE_PASSWORD -R fjcloudaiconsulting/tbd`, `printf %s "$P" | gh secret set SMOKE_PASSWORD --env tbd-prod -R
+fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
 
