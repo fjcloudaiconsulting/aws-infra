@@ -198,7 +198,7 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":true}}'
    ```
 
-   Then scale the app Deployment in `tbd-prod` or `ziftbook-staging` to 0.
+   Then scale the app Deployments in `tbd-prod`, `tbd-staging` (both use MySQL) or `ziftbook-staging` to 0.
 2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`).
 3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d ziftbook` block) must
    print `0`. Anything else: stop and decide; never drop a database on reflex.

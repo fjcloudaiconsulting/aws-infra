@@ -43,7 +43,7 @@ flux suspend kustomization flux-system
 flux resume kustomization flux-system
 ```
 
-Swap the namespace for `ziftbook-staging` or `data` (StatefulSets: `kubectl -n data rollout status sts/mysql`). A
+Swap the namespace for `tbd-staging`, `ziftbook-staging` or `data` (StatefulSets: `kubectl -n data rollout status sts/mysql`). A
 release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
 automation.
 
@@ -82,7 +82,8 @@ environment change the names, the cap and the Secret.
 The password is the one in the app's `database-url` (hex, so it needs no escaping). Read it from the SOPS file with
 the offline key loaded, or after the merge from the cluster
 (`kubectl -n tbd-staging get secret tbd -o jsonpath='{.data.database-url}' | base64 -d` in place of the `sops` call).
-Run from the repo root in bash or zsh:
+Run from the repo root in bash or zsh (no comments inside the commands: an interactive zsh does not treat `#` as
+one). The first block prints `exit 0` and nothing else; `exit 1` alone means no password was extracted and nothing ran.
 
 ```sh
 PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/platform/tbd-staging/tbd.secret.yaml \
@@ -93,27 +94,37 @@ CREATE USER IF NOT EXISTS 'tbd_staging'@'%' IDENTIFIED BY '@PW@';
 ALTER USER 'tbd_staging'@'%' IDENTIFIED BY '@PW@' WITH MAX_USER_CONNECTIONS 20;
 GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO 'tbd_staging'@'%';
 SQL
-echo "exit $?"; unset PW   # exit 0 and no other output; exit 1 alone means no password was extracted, nothing ran
-kubectl -n data exec mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SHOW GRANTS FOR tbd_staging"'
-# GRANT USAGE ON *.* TO `tbd_staging`@`%`
-# GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO `tbd_staging`@`%`
+echo "exit $?"; unset PW
+kubectl -n data exec mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -r -e "SHOW GRANTS FOR tbd_staging"'
+```
+
+The check prints exactly:
+
+```text
+GRANT USAGE ON *.* TO `tbd_staging`@`%`
+GRANT ALL PRIVILEGES ON `tbd\_staging`.* TO `tbd_staging`@`%`
 ```
 
 The quoted heredoc keeps the backticks and `\_` literal (`_` is a wildcard in a database grant). The password reaches
-`mysql` on stdin, never on a command line. The cap (20: one connection pool of 15 plus migrations) keeps staging from
+`mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20: one connection pool of 15 plus migrations) keeps staging from
 using up `max_connections` (80) that production needs. Nothing here touches `tbd` or its users, and the MySQL pod
-does not restart. The nightly grants dump includes the new user, so a restore brings it back.
+does not restart. The nightly grants dump includes the new user; a restore brings it back with a working grant only
+once the dump writes raw output (`mysql -r`, INFRA-67 dump PR), so until then rerun this SQL after a restore.
 
 **First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
 captcha for it. Register it yourself before the hostname is reachable (before approving the `cloudflare` apply that
-adds the record, or after emptying the database), through a port-forward:
+adds the record), through a port-forward. Never empty the database while the host is live: remove the IngressRoute
+in git first, register again, then restore it.
+The three `read` lines take the username, the email and the password (silent); the `curl` prints `201`.
 
 ```sh
 kubectl -n tbd-staging port-forward svc/backend 18000:8000 &
-read -r U; read -r E; read -rs P   # username, email, password (silent)
-jq -n --arg u "$U" --arg e "$E" --arg p "$P" '{username:$u,email:$e,password:$p}' \
+read -r U
+read -r E
+read -rs P
+P="$P" jq -n --arg u "$U" --arg e "$E" '{username:$u,email:$e,password:env.P}' \
   | curl -s -o /dev/null -w '%{http_code}\n' -H 'content-type: application/json' --data @- http://127.0.0.1:18000/api/v1/auth/register
-unset P; kill %1   # 201
+unset P; kill %1
 ```
 
 ## Add a public hostname for an app

@@ -1,6 +1,8 @@
 # Staging's own Valkey (INFRA-67): sessions, rate-limit counters and MFA codes. Not data/valkey: Valkey 8 cannot limit a
 # password to one DB index, so a shared instance would let staging read or flush production sessions. Same image as
-# data/valkey.yaml, without persistence: a restart logs staging users out, which is fine here.
+# data/valkey.yaml, without persistence (so a Deployment, not a StatefulSet): a restart logs staging users out, which is
+# fine here. TBD's rate limiter fails open on any Valkey error, a full store included, so the store is sized well above
+# what staging uses.
 apiVersion: v1
 kind: Service
 metadata:
@@ -54,7 +56,7 @@ spec:
             - --save
             - ""
             - --maxmemory
-            - 16mb
+            - 32mb
             - --maxmemory-policy
             - noeviction
           env:
@@ -81,7 +83,7 @@ spec:
               cpu: 10m
               memory: 32Mi
             limits:
-              memory: 64Mi
+              memory: 64Mi # 32mb data, no fork (no persistence)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

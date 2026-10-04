@@ -30,7 +30,7 @@ variable "account_id" {
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
 # Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
-# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `dev` (INFRA-67), added here.
+# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `dev` (INFRA-67), proxied like `app`.
 resource "cloudflare_zone" "tbd" {
   account = { id = var.account_id }
   name    = "thebetterdecision.com"
