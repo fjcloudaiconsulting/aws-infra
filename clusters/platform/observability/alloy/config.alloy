@@ -39,9 +39,10 @@ otelcol.receiver.otlp "apps" {
 // Backstop for the INFRA-84 allowlist: these attributes carry tokens, emails and client addresses (and explode
 // cardinality), so they never leave the node even if an app sets them, on a data point, its scope or its resource
 // (Grafana Cloud turns resource attributes into target_info labels). Old semconv names included.
+// Default error_mode (propagate): a failing statement drops the batch instead of exporting it unscrubbed. Deleting a
+// key can merge two data points that differed only by it (Mimir then rejects the duplicate); only an app that breaks
+// INFRA-84 hits that.
 otelcol.processor.transform "scrub" {
-	error_mode = "ignore"
-
 	metric_statements {
 		context    = "resource"
 		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
@@ -75,7 +76,7 @@ otelcol.receiver.prometheus "scraped" {
 prometheus.exporter.unix "node" {
 	procfs_path    = "/host/proc"
 	sysfs_path     = "/host/sys"
-	set_collectors = ["cpu", "diskstats", "loadavg", "meminfo", "pressure", "uname", "vmstat"]
+	set_collectors = ["cpu", "diskstats", "loadavg", "meminfo", "pressure", "vmstat"]
 
 	disk {
 		device_exclude = "^(loop|ram|dm-|sr)\\d+$"

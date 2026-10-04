@@ -291,12 +291,13 @@ until the new one is active.
 One Grafana Alloy DaemonSet in `observability` (INFRA-85, design in [architecture.md](architecture.md), Telemetry)
 sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
 
-- **Node:** CPU, memory, load, pressure, disk I/O (`job="node"`), from the host's `/proc` and `/sys` (recursive
+- **Node:** CPU, memory, load, pressure, disk I/O, OOM kills (`job="node"`), from the host's `/proc` and `/sys` (recursive
   read-only mounts; the host's `/` is not mounted).
 - **Pods and k3s:** per-container CPU, memory, throttling, OOM events and pod network from cAdvisor, plus the whole node
   (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). Disk space is
   `container_fs_usage_bytes` / `container_fs_limit_bytes{id="/",device="/dev/root"}`; PVCs are local-path directories
-  on that disk. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
+  on that disk. Usage is against the full size, including ext4's reserved blocks (about 5%), so writes fail near 95%:
+  alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
   Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
