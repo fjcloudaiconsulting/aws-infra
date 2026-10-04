@@ -119,13 +119,70 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 |---|---|---|
 | MySQL 8.4 | TBD (`tbd`, users `tbd_app`, `tbd_backup`) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook (`ziftbook`; roles created by Ziftbook's pinned `bootstrap.sql`, run as a Job) | shared_buffers 64MB, no parallel workers |
-| Valkey 8 | TBD sessions | 64mb, noeviction, AOF on (not migrated at cutover) |
+| Valkey 8 | TBD only: sessions, auth nonces, rate limits, locks (the exception in [Jobs, locks, sessions and rate limits](#jobs-locks-sessions-and-rate-limits)) | 64mb, noeviction, AOF on (not migrated at cutover) |
 
 A NetworkPolicy denies ingress to `data` by default: MySQL and Valkey accept `tbd-prod`, Postgres
 accepts `ziftbook-staging`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
 Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).
+
+## Jobs, locks, sessions and rate limits
+
+One standard for every app and environment (decided in INFRA-102): this state lives in the app's own
+database, MySQL or Postgres. No app gets Valkey or Redis for it. Ziftbook is the reference
+implementation.
+
+| Concern | Standard | Postgres | MySQL 8.4 |
+|---|---|---|---|
+| Background jobs | A `jobs` table, indexed on `next_attempt_at`. Enqueue in the caller's transaction with a dedupe key; claim a batch with `FOR UPDATE SKIP LOCKED`; the bumped `next_attempt_at` is both the lease and the backoff; attempts are capped. Handlers must be safe to repeat | One `UPDATE ... RETURNING` (Ziftbook `backend/app/jobs.py`) | `SELECT ... FOR UPDATE SKIP LOCKED`, then `UPDATE`, in one READ COMMITTED transaction (REPEATABLE READ gap locks would block enqueues). No `RETURNING`; no subquery on the table being updated. Dedupe with `INSERT ... ON DUPLICATE KEY UPDATE id = id` |
+| Periodic work | A loop in the worker only when each tick claims its rows (`SKIP LOCKED`) or holds a lease, since every replica runs it; otherwise one scheduler Deployment with `replicas: 1` and `Recreate` | | |
+| Migration lock | A session-level lock held by the migrating connection | `pg_advisory_lock` | `GET_LOCK('<app>_migrate.<db>')` |
+| Short locks (inside one transaction) | Lock the business row `FOR UPDATE` | `pg_advisory_xact_lock` is fine too | No transaction-scoped `GET_LOCK`: lock a row |
+| Leases (held across requests, an external call or a long tick) | A lease row, inserted once by a migration. Acquire and renew with `UPDATE ... SET holder = ?, expires_at = <db now> + ttl WHERE name = ? AND (expires_at < <db now> OR holder = ?)`: 1 matched row means held. Renew before each side effect and stop when a renew fails. Never a session-level lock on a pooled connection: the pool keeps it or loses it silently | `now()` | `NOW(6)` on a `DATETIME(6)` column (whole seconds make a same-second renew match but change nothing, which some drivers report as 0 rows) |
+| Sessions | An opaque random token in the cookie, only its hash in a `sessions` table; idle and absolute expiry checked on every read; revoking deletes the row | Ziftbook `backend/app/auth.py` | |
+| Rate limits | A fixed window per key in a `rate_limits` table, one upsert per attempt in its own transaction, committed before the request runs (a failed login must not roll back its count), keys locked in sorted order. A database error fails the request: never fail open | Ziftbook `backend/app/limits.py` | `ON DUPLICATE KEY UPDATE` assigns left to right: set `hits` before `window_start` |
+| Single-use tokens, nonces, webhook dedupe | A row with a unique key and `expires_at`; a duplicate key means a replay. Purged by the sweeper | | A plain `INSERT`, catching error 1062 (not `ON DUPLICATE KEY UPDATE`, which hides the replay) |
+| Caches | None. An in-process TTL cache when a measured need appears; the database stays the source of truth | | |
+
+Why the database and not Valkey:
+
+- **One failure domain.** Valkey is a second one, with its own outages (on 2026-05-13 its timeouts
+  turned every TBD auth endpoint into a 500). A limiter in the database fails together with the user
+  lookup, so it never has to choose between failing open and failing closed (INFRA-121).
+- **Backups.** The nightly dump covers the database. Valkey is not dumped: its state lives only in
+  its AOF and the node snapshot.
+- **Memory and pods.** No extra pod per app and environment. A shared Valkey is not safe (below), so
+  every environment would need its own, as tbd-staging will (INFRA-67).
+- **Both engines.** Every row in the table works on MySQL 8.4 and Postgres 18; the column on the right
+  lists the dialect differences.
+
+Costs, accepted:
+
+- One committed write per auth attempt on the shared database. A Cloudflare rate-limit rule in front
+  of every app's auth endpoints absorbs bursts first (INFRA-123).
+- Each replica's connection pool now carries sessions and limits too. Cap every app's pool so that
+  replicas x pool stays under the server's `max_connections` before HPA (INFRA-100).
+- After a real restore, delete every session row and every single-use link (Ziftbook `email_tokens` and
+  invite links): sessions signed out and links used or revoked after the dump would otherwise come back
+  ([RESTORE.md](../clusters/platform/data/RESTORE.md#6-real-restore-into-data)).
+
+**A shared Valkey is not an option.** Valkey 8 ACL key patterns (`~tbd:*`) can confine
+reads and writes, but `KEYS`, `SCAN`, `FLUSHDB` and `FLUSHALL` take no key argument and must be denied one
+by one. Database rules (`db=<id>`) exist only from Valkey 9.1.0
+([ACL SETUSER history](https://valkey.io/commands/acl-setuser/)). Neither helps with what stays
+instance-wide: `maxmemory` with `noeviction`, the single command thread, AOF rewrites. One app filling
+the store fails the other app's writes, and TBD's sessions fail closed, so its logins go down.
+
+**The exception: TBD.** TBD keeps Valkey (sessions with Lua rotation and reuse detection, MFA nonces,
+rate limits and throttles, locks, dedupe keys, one cache) until it moves:
+
+1. INFRA-121: rate limits move to MySQL first, so they no longer fail open.
+2. INFRA-122: sessions and the remaining keys move to MySQL, then Valkey is removed in prod and
+   staging. About 3 to 5 days; no fixed sprint.
+
+A new app that wants Valkey needs a measured reason in its PR (for example invalidation that must
+reach every replica), and then gets one per environment, never shared.
 
 ## Backups and restore
 
