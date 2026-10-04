@@ -374,9 +374,10 @@ kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer
 ```
 
-Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1 for `tbd-mysql` (then `mv manifest.json tbd.json`)
-and `ziftbook-postgres` (then `mv manifest.json zif.json`), plus any prefix the cluster has gained since (not the
-droplet's `pfv-data-01`): each `date` must be after the Job's start and `tables` above 0. Record the row count per
+Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1, without its `cd` line (stay in this directory),
+for `tbd-mysql` (then `mv manifest.json tbd.json`) and `ziftbook-postgres` (then `mv manifest.json zif.json`), plus
+any prefix the cluster has gained since (not the droplet's `pfv-data-01`): each `date` must be after the Job's start
+(both UTC, as a stamp `20261004-120000` and as `2026-10-04T12:00:00Z`) and `tables` above 0. Record the row count per
 table with the `NS=data` versions of RESTORE.md's helpers (read-only queries, counts only):
 
 ```bash
