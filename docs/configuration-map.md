@@ -82,7 +82,7 @@ installation, and the grant applies to **every repository in the installation**.
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker.
-- Actions default workflow permission is read-only everywhere checked; "allow Actions to approve PRs" is on in ziftbook, tbd and app-template.
+- Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
   and moving `v1` (owner approval, public contract).
