@@ -7,6 +7,7 @@ carries the table count and the SHA256 of the dump and grants files.
 | prefix | database | written by |
 |---|---|---|
 | `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
+| `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` |
 | `ziftbook-postgres/` | Postgres `ziftbook` | `data/db-backup` |
 | `pfv-data-01/` | MySQL `pfv2` (TBD on DigitalOcean until the INFRA-48 cutover; restores into `tbd`) | the DigitalOcean droplet |
 
