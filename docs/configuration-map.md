@@ -245,7 +245,7 @@ Scopes are what the dashboard shows (names only); `unread` until the owner reads
 | Principal | Held in | Can do today | Scopes |
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | partly known ([HCP Terraform](#hcp-terraform)); full list unread |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | read 2026-10-04 (token `cloudflare-tfc`, no expiry, all IPs): thebetterdecision.com and ziftbook.com: SSL and Certificates Write, Zone WAF Write (INFRA-123); account: Notifications Write; all zones: Zone Settings Write, Zone Write, DNS Write. No Workers Scripts or Workers Routes, so it cannot add a Worker route |
 | Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook repo secret, no environment: any workflow on any branch can read it | deploys `ziftbook-landing` and syncs its two custom domains from `landing/wrangler.jsonc` on each deploy | unread |
 | tbd `CLOUDFLARE_API_TOKEN` (INFRA-60, not created yet) | target: tbd environment secret, `main` only | will deploy `tbd-landing` | target: Workers Editor, Specified Workers `tbd-landing` only |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | whatever was granted at consent; it gets 9109 on the API token lists | unread |
