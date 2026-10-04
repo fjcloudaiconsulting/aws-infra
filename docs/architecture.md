@@ -153,6 +153,77 @@ cluster. Dev and staging environments of every app share the sending domain `m.f
 send-only sending key in its own Secret; production gets `m.<appdomain>` per app. DNS for both is in
 `terraform/cloudflare`. Procedures: [runbooks.md](runbooks.md#mail-mailgun).
 
+## Telemetry
+
+One standard for every app and environment (decided in INFRA-84; adoption tickets INFRA-105 for TBD and INFRA-106 for
+Ziftbook). Each app owns its OpenTelemetry SDK setup and every span; FastAPI's native telemetry supplies only the
+HTTP metrics.
+
+| Signal | How | Library |
+|---|---|---|
+| Traces | The app's own `tracing.py` (the Ziftbook pattern): the HTTP SERVER span in a middleware, SQL spans from SQLAlchemy engine events, job, worker and migration spans | `opentelemetry-sdk` and the OTLP HTTP exporter, no contrib instrumentation packages |
+| Metrics | FastAPI native: `http.server.request.duration` and `http.server.active_requests` | the app registers a global `MeterProvider` before `FastAPI()` is built |
+| Logs | JSON lines on stdout with `request_id`, `trace_id`, `span_id`; no OTLP log export from the app | stdlib `logging` (the Ziftbook `logs.py` pattern) |
+
+Every app builds FastAPI with:
+
+```python
+FastAPI(telemetry={"tracing": False, "metrics": True, "logs": False, "operation_spans": False,
+                   "auto_configure": False, "exclude": lambda scope: scope["path"] in HEALTH_PATHS})
+```
+
+Rules every app keeps (traces and logs alike):
+
+- **Attributes are an allowlist.** The SERVER span carries `http.request.method`, `http.route`,
+  `http.response.status_code` and `error.type` only. Never `url.path` or `url.query`: they carry invite tokens, OAuth
+  codes and customer emails. SQL spans carry the statement, never its parameters, and values are always bound, never
+  formatted into SQL text.
+- **No exception messages.** `record_exception=False` on every span; an error is its class (plus SQLSTATE and
+  constraint for a database error) and its frames, never `str(error)`, which can quote an email. The same holds for log
+  records, including the `sys` and `threading` excepthooks.
+- **Access logs carry no path, query or client IP:** method, route template, status, duration and the correlation
+  ids. uvicorn's own access line (raw path with query, client IP) stays disabled.
+- **`traceparent` only.** The app extracts and injects with a hard-coded `TraceContextTextMapPropagator`, reading only
+  the `traceparent` header; never baggage or `tracestate`, which are client-controlled text that would ride into the
+  jobs table. `OTEL_PROPAGATORS=tracecontext` is a backstop for the global propagator, not the guarantee.
+- **Native tracing, logs and operation spans stay off.** Native tracing always exports the request path and query
+  (only five cloud-signature parameters redacted), and native logs export exception messages. `auto_configure` stays
+  off because it adds a second exporter to a provider the app already configured.
+
+Environment for every process (`<role>` is `api`, `worker` or `migrations`):
+
+| Variable | Value |
+|---|---|
+| `OTEL_SERVICE_NAME` | `<app>-<role>` |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=<app>,deployment.environment.name=<prod or staging>,service.version=<version>` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | the in-cluster collector (INFRA-85); `http://127.0.0.1:4318` for the local LGTM stack |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` |
+| `OTEL_PROPAGATORS` | `tracecontext` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |
+| `OTEL_LOGS_EXPORTER` | `none` |
+
+Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
+forwards metrics (and, as each app adopts this standard, traces) to the Grafana Cloud OTLP gateway, and scrapes the
+node and cAdvisor (`/metrics/cadvisor` only: k3s kubelet `/metrics` carries the whole control plane, about 58k series).
+Tailing pod stdout into Grafana Cloud Logs comes later, under the rules below. One collector, so the Grafana Cloud
+credentials (a write-only access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two
+copies during a rollout. Not the `k8s-monitoring` Helm chart, which deploys several Alloys plus node-exporter and
+kube-state-metrics. Measured by INFRA-85 against the real cAdvisor payload: 52 to 100 MiB working set (request 128Mi,
+limit 256Mi).
+
+The collector is the second line of defense, not the first:
+
+- It tails logs only from an allowlist of app namespaces, and from each app only after that app has adopted this
+  standard (TBD after INFRA-105, which disables its raw access line). Never `data`: Postgres logs row values on
+  constraint errors.
+- It deletes `url.path`, `url.query`, `url.full`, `client.address`, `http.request.header.*` and `exception.message`
+  from every span before export.
+- Grafana Labs becomes a sub-processor for whatever reaches it; the apps' privacy documents must name it.
+
+Known cost: the SERVER span lives in an `@app.middleware("http")` middleware, which ends it before FastAPI records the
+duration metric, so histogram exemplars do not link to traces (a pure ASGI middleware would fix it). Revisit native
+tracing when FastAPI can leave out the path and query.
+
 ## Secrets
 
 Kubernetes Secrets live in git as `*.secret.yaml`, SOPS-encrypted to the cluster's age key, and
@@ -183,7 +254,7 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 | Spend | AWS budget `platform-monthly` | SNS `platform-alerts`, email |
 | Stale backup | freshness probe | GitHub issue `[backup-stale]` |
 
-There is no in-cluster observability stack; the node has no memory to spare.
+There is no in-cluster observability stack yet; INFRA-85 adds the Alloy collector from [Telemetry](#telemetry).
 
 ## Cost
 
