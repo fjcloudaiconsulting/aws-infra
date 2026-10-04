@@ -198,7 +198,7 @@ Rules:
 - A CI deploy token is an account-owned token with the **Editor** role scoped to **its one Worker**, no
   Zone > Workers Routes, no Snippets, no Pages, stored as an environment secret limited to `main`. Product-scope
   Editor (the legacy "Workers Scripts: Edit") rewrites every Worker in the account, current and future, so either
-  landing token could replace the other app's landing. Zone > Workers Routes > Edit on a zone can route any hostname
+  landing token could replace the other app's landing. Zone > Workers Routes > Write on a zone can route any hostname
   of it, node hostnames included: Cloudflare tokens cannot be limited by hostname.
 - Custom domains are attached by the owner (or Terraform), not by CI, and are not declared in `wrangler.jsonc`: a
   per-Worker Editor deploys an existing Worker only while the deploy does not add, change or remove a route or
