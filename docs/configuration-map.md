@@ -141,8 +141,7 @@ own role.
 
 ## Cloudflare
 
-- `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year. Proxied to the
-  node: `ping` and `app` (TBD production since INFRA-48, a CNAME to `ping`); the rest is DNS-only.
+- `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
 - `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
   minimum TLS 1.2, SSL Full strict) and the proxied record `dev.ziftbook.com` are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
