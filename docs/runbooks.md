@@ -9,6 +9,44 @@ One-off procedures have their own page: the TBD cutover from DigitalOcean, with 
 [tbd-cutover.md](tbd-cutover.md) (INFRA-48); database restores are
 [`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md).
 
+## Follow Flux and rollouts
+
+One GitRepository and one Kustomization, both named `flux-system`, apply all of `clusters/platform` from `main`.
+Flux polls git every minute and re-applies at least every 10 minutes. In Argo CD terms: the Kustomization is the
+only Application, `reconcile` is Sync, `suspend` is turning auto-sync off. Flux has no UI here; the CLI is the view.
+
+```bash
+export KUBECONFIG=~/.kube/platform
+
+# Which commit is live: both lines show main@sha1:<merge commit>, READY True.
+flux get sources git
+flux get kustomizations
+# Apply a merge now instead of waiting for the poll (source first, then the apply).
+flux reconcile kustomization flux-system --with-source
+# What the last apply changed ("Deployment/tbd-prod/scheduler configured") and any failure, newest last.
+flux events --for Kustomization/flux-system
+flux logs --level=error --since=1h
+# Every object Flux manages (pruning removes what leaves git).
+flux tree kustomization flux-system
+
+# Rollouts: Flux only applies the manifest; it does not wait for pods (no healthChecks), so READY True can hide a
+# crashing pod. Check the workload itself.
+kubectl -n tbd-prod rollout status deploy/backend --timeout=5m
+kubectl -n tbd-prod get deploy,pods                       # READY 1/1, RESTARTS 0
+kubectl -n tbd-prod get events --sort-by=.lastTimestamp | tail -20
+kubectl -n tbd-prod logs deploy/backend -c migrate        # init container: migrations
+kubectl -n tbd-prod logs deploy/backend -f --since=10m    # app log, follow
+kubectl -n tbd-prod get deploy -o jsonpath='{..image}' | tr ' ' '\n' | sort -u   # images actually running
+
+# Hold Flux during manual work (it would revert live edits), then hand back. Resume re-applies git at once.
+flux suspend kustomization flux-system
+flux resume kustomization flux-system
+```
+
+Swap the namespace for `ziftbook-staging` or `data` (StatefulSets: `kubectl -n data rollout status sts/mysql`). A
+release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
+automation.
+
 ## Write or rotate a Kubernetes Secret
 
 Secrets are `clusters/**/<name>.secret.yaml`, SOPS-encrypted to the cluster's age key (`.sops.yaml`). Flux decrypts
