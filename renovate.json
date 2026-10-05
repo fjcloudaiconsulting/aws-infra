@@ -15,6 +15,12 @@
   ],
   "packageRules": [
     {
+      "description": "Workspace cloudflare-tokens plans every PR with the bootstrap token, which can mint any Cloudflare token (INFRA-133): no provider bump branch, and so no plan, until the owner ticks it on the dashboard.",
+      "matchFileNames": ["terraform/cloudflare-tokens/**"],
+      "additionalBranchPrefix": "cloudflare-tokens-",
+      "dependencyDashboardApproval": true
+    },
+    {
       "description": "Database majors are one-way data-dir upgrades: never proposed. Upgrade by hand after a fresh dump (clusters/platform/data/RESTORE.md).",
       "matchPackageNames": ["mysql", "postgres", "valkey/valkey"],
       "matchUpdateTypes": ["major"],

@@ -16,11 +16,10 @@ terraform {
   }
 }
 
-# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace. It must also cover zone
-# fjconsulting.dev (read for the shared dev Mailgun records, INFRA-47). Account-scoped
-# token with Zone:Edit, DNS:Edit and Zone Settings:Edit; a zone-scoped token cannot create the zone and
-# only fails at apply. Origin pulls (INFRA-93) add a separate policy, SSL and Certificates:Edit on
-# thebetterdecision.com and ziftbook.com only, and Account Notifications:Edit.
+# Auth: CLOUDFLARE_API_TOKEN, a sensitive env var on the TFC workspace, written by workspace cloudflare-tokens
+# (INFRA-133). Its scopes live in terraform/cloudflare-tokens/main.tf, one policy per zone this stack touches
+# (thebetterdecision.com, ziftbook.com, fjconsulting.dev) plus Notifications on the account. A zone missing there
+# fails here only at apply; creating a new zone needs account-wide Zone Write, which the token does not have.
 provider "cloudflare" {}
 
 variable "account_id" {
@@ -30,8 +29,8 @@ variable "account_id" {
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
 # Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
-# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `www`, proxied for its
-# redirect (INFRA-61).
+# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), `dev` (INFRA-67), proxied like
+# `app`, and `www`, proxied for its redirect (INFRA-61).
 # The apex is the Worker `tbd-landing` since INFRA-61: a custom domain attached by hand, whose own read-only
 # record is not managed here (docs/configuration-map.md, Worker and Snippet access).
 resource "cloudflare_zone" "tbd" {
@@ -57,6 +56,8 @@ locals {
     # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update; the
     # rollback (revert) is one too, back to DNS-only `pfv-xccvs.ondigitalocean.app` with ttl 60.
     app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
+    # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Same path as `app`.
+    dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
 
     # ACM DNS validation for the apex CloudFront certificate (tbd-apex workspace, us-east-1).
     # Must keep resolving or ACM renewal fails.
@@ -114,8 +115,8 @@ resource "cloudflare_ruleset" "tbd_redirects" {
 }
 
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com (dev, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, apex and
-# www since INFRA-61).
+# hostnames: ziftbook.com (dev, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, `dev` since
+# INFRA-67, apex and www since INFRA-61).
 # ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
   filter = { name = "ziftbook.com", account = { id = var.account_id } }

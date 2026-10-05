@@ -25,6 +25,10 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: tbd-prod
+        # TBD staging (INFRA-67): its own database and user, no grant outside tbd_staging.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tbd-staging
         # INFRA-30 dump job.
         - podSelector:
             matchLabels:

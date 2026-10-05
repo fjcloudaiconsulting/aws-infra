@@ -43,7 +43,7 @@ flux suspend kustomization flux-system
 flux resume kustomization flux-system
 ```
 
-Swap the namespace for `ziftbook-staging` or `data` (StatefulSets: `kubectl -n data rollout status sts/mysql`). A
+Swap the namespace for `tbd-staging`, `ziftbook-staging` or `data` (StatefulSets: `kubectl -n data rollout status sts/mysql`). A
 release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
 automation.
 
@@ -110,6 +110,63 @@ grep -c '<key>: ENC' "$F"   # must print 1; 0 means not encrypted: do not commit
 Commit, push, merge. Flux applies it within a few minutes. A pod reads env at start, so after a key change run
 `kubectl -n <namespace> rollout restart deploy/<name>`. To edit a multi-key Secret instead, load the offline key
 first (`export SOPS_AGE_KEY_FILE=<path to the key file>`), then `sops edit <file>`.
+
+## MySQL database per app environment
+
+Each app environment gets its own database and user in the shared MySQL (`data/mysql-0`), with grants on that
+database only. The image creates `tbd` and `tbd_app` on an empty volume only, so any later database is created by
+hand as root, which can log in only over the pod's socket. The SQL is additive and idempotent: a rerun creates
+nothing twice and resets the password and connection cap. TBD staging (INFRA-67) is the example; for another
+environment change the names, the cap and the Secret.
+
+The password is the one in the app's `database-url` (hex, so it needs no escaping). Read it from the SOPS file with
+the offline key loaded, or after the merge from the cluster
+(`kubectl -n tbd-staging get secret tbd -o jsonpath='{.data.database-url}' | base64 -d` in place of the `sops` call).
+Run from the repo root in bash or zsh (no comments inside the commands: an interactive zsh does not treat `#` as
+one). The first block prints `exit 0` and nothing else; `exit 1` alone means no password was extracted and nothing ran.
+
+```sh
+PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/platform/tbd-staging/tbd.secret.yaml \
+  | sed -E 's#^mysql\+aiomysql://tbd_staging:([0-9a-f]+)@.*#\1#')
+[[ $PW =~ ^[0-9a-f]{64}$ ]] && sed "s/@PW@/$PW/g" <<'SQL' | kubectl -n data exec -i mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
+CREATE DATABASE IF NOT EXISTS tbd_staging;
+CREATE USER IF NOT EXISTS 'tbd_staging'@'%' IDENTIFIED BY '@PW@';
+ALTER USER 'tbd_staging'@'%' IDENTIFIED BY '@PW@' WITH MAX_USER_CONNECTIONS 20;
+GRANT ALL PRIVILEGES ON tbd_staging.* TO 'tbd_staging'@'%';
+SQL
+echo "exit $?"; unset PW
+kubectl -n data exec mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -r -e "SHOW GRANTS FOR tbd_staging"'
+```
+
+The check prints exactly:
+
+```text
+GRANT USAGE ON *.* TO `tbd_staging`@`%`
+GRANT ALL PRIVILEGES ON `tbd_staging`.* TO `tbd_staging`@`%`
+```
+
+In a database grant `_` is still a (deprecated) wildcard, so `tbd_staging` also matches `tbd` + any one character +
+`staging`: no other database has such a name. It is left unescaped on purpose: the nightly grants dump would double an
+escaping backslash, and the replayed grant would name a different database. The password reaches
+`mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20: one connection pool of 15 plus migrations) keeps staging from
+using up `max_connections` (80) that production needs. Nothing here touches `tbd` or its users, and the MySQL pod
+does not restart. The nightly grants dump includes the new user, so a restore brings it back.
+
+**First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
+captcha for it. Register it yourself before the hostname is reachable (before approving the `cloudflare` apply that
+adds the record), through a port-forward. Never empty the database while the host is live: remove the IngressRoute
+in git first, register again, then restore it.
+The three `read` lines take the username, the email and the password (silent); the `curl` prints `201`.
+
+```sh
+kubectl -n tbd-staging port-forward svc/backend 18000:8000 &
+read -r U
+read -r E
+read -rs P
+P="$P" jq -n --arg u "$U" --arg e "$E" '{username:$u,email:$e,password:env.P}' \
+  | curl -s -o /dev/null -w '%{http_code}\n' -H 'content-type: application/json' --data @- http://127.0.0.1:18000/api/v1/auth/register
+unset P; kill %1
+```
 
 ## Add a public hostname for an app
 
@@ -230,6 +287,54 @@ SMOKE_PASSWORD -R fjcloudaiconsulting/tbd`, `printf %s "$P" | gh secret set SMOK
 fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
+
+## Cloudflare API tokens
+
+Every account-owned Cloudflare token is in [`terraform/cloudflare-tokens`](../terraform/cloudflare-tokens/main.tf)
+(INFRA-133), applied by workspace `cloudflare-tokens` after approval like every other stack. The workspace runs with
+the bootstrap token (Account API Tokens: Edit), the only token made by hand and the only one it does not manage.
+
+- **Change a scope:** edit the token's policies in a PR. The plan shows the policy diff; the apply updates the token in
+  place and its value does not change, so no consumer needs touching. Keep one key per level in every `resources`
+  object (one policy per zone): the provider compares the API's bytes, and a two-key object can come back reordered
+  and fail the apply. Permission group ids: `GET /accounts/<id>/tokens/permission_groups` with the bootstrap token.
+- **New token for a consumer Terraform can write** (an HCP Terraform variable today): add a
+  `cloudflare_account_token` with `create_before_destroy` and the consumer resource reading its `.value`, as
+  `cloudflare_workspace` does. Its value then never passes through a person.
+- **Token made by hand** (or by another project): add it to `imported-tokens.json`.
+  [`set-bootstrap-token.sh`](../terraform/cloudflare-tokens/set-bootstrap-token.sh) writes every such token in that
+  shape to `~/Downloads/INFRA-133-imported-tokens.json` (`resources` as the exact compact string the API returns).
+  The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`, so dropping an entry makes
+  the plan fail instead of deleting the token at Cloudflare. To stop managing one (Terraform rejects `removed` on a
+  single `for_each` instance), use two PRs, each applied:
+  1. Drop the entry, add a standalone `resource "cloudflare_account_token" "leaving"` with exactly the entry's values
+     (same policy and permission group order, `resources` strings copied verbatim), and
+     `moved { from = cloudflare_account_token.imported["<key>"] to = cloudflare_account_token.leaving }` (one argument
+     per line). Plan: the move, 0 to change.
+  2. Delete that resource and the `moved` block, add `removed { from = cloudflare_account_token.leaving }` with
+     `lifecycle { destroy = false }` inside it. Plan: "will no longer be managed", 0 to destroy.
+
+  An imported token with an expiry drops out of state once it expires and the next plan tries to create it with a past
+  date: renew it (dashboard, then update `expires_on` in the file) or stop managing it as above before it expires.
+- **Rotate a token Terraform made:** HCP Terraform > `cloudflare-tokens` > New run > Plan and apply, with "Replace
+  resources" set to that token. The new token is created, the consumer rewritten, then the old one deleted. Then start
+  a plan on the consumer's workspace to prove it.
+- **Rotate an imported token:** its consumer is not in Terraform, so a replace would mint a value nothing receives.
+  Wire the consumer first (a `tfe_variable`, or a GitHub secret resource with a credential to write it), or rotate
+  it by hand in the dashboard (Roll) and set the new value at the consumer.
+- **Rotate the team token** (`TFE_TOKEN`): HCP Terraform > Settings > Teams > `cloudflare-tokens` > Team API tokens >
+  create a new one and delete the old, then store the new one as the sensitive env var `TFE_TOKEN` of workspace
+  `cloudflare-tokens` (never through chat). It can only read runs and write the variables of workspace `cloudflare`.
+- **Rotate the bootstrap token:** dashboard > Manage Account > Account API Tokens > the bootstrap > Roll, then
+  `pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh; pbcopy </dev/null` from the repo root (the
+  clipboard is cleared even when the script fails).
+- **Bootstrap token leaked:** its blast radius is the whole account. It can mint a token with any permission, widen
+  any existing token, and roll any token (which hands out the new value), so treat every account token as exposed.
+  1. Delete it in the dashboard (Manage Account > Account API Tokens), make a new one, store it with the script.
+  2. Delete every account token not in `terraform/cloudflare-tokens` (tokens it minted survive its delete).
+  3. Plan and apply `cloudflare-tokens`: policy drift on managed tokens shows up and is reverted.
+  4. Replace-run every token Terraform made; Roll every imported one and set its value at its consumer.
+  5. Read the account audit log for token creations, edits and rolls, and the zones' audit for what they did.
 
 ## Origin pull client certificate (Authenticated Origin Pulls)
 
@@ -419,8 +524,8 @@ ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` and `curl
 ## Node memory and the upsize
 
 The node is one Lightsail `medium_3_0` (4 GB, 3832Mi allocatable). Lightsail has no memory metric, so memory is read
-from the kubelet; INFRA-108 turns the trigger below into a Grafana Cloud alert once INFRA-85 ships metrics. Until then,
-run the check weekly and before every new workload.
+from the kubelet, and Grafana Cloud alerts on it (INFRA-108, [Memory alerts](#memory-alerts) below). Run the check
+below before every new workload and when an alert fires.
 
 ### Check
 
@@ -441,19 +546,65 @@ Baseline, 2026-10-04 12:11Z, TBD prod and Ziftbook staging live, little traffic:
 2497Mi, RSS 1806Mi, of which the k3s process (API server, datastore, kubelet, containerd) 846Mi and all pods 872Mi
 (`mysql-0` 222Mi the largest). Requests 1916Mi (49%), limits 5290Mi (138%).
 
+2026-10-05 10:48Z, the same plus Alloy (INFRA-85), k3s on `GOGC=50` and Flux capped at 256Mi (INFRA-80): available 1817Mi (47%),
+working set 2014Mi, RSS 1594Mi, k3s process 625Mi, all pods 955Mi (`mysql-0` 235Mi the largest, Alloy 54Mi). Requests 2044Mi
+(53%), limits 4010Mi (104%). Decision on INFRA-80: stay on `medium_3_0` until a trigger below fires.
+
 ### Trigger
 
 Upsize when any of these holds:
 
-1. `availableMi` under **768** (20% of allocatable) at three checks on different days of normal running, or for 30
-   minutes once the INFRA-108 alert exists.
-2. Any container `OOMKilled`, any `Evicted` pod, or `MemoryPressure=True`.
+1. `availableMi` under **768** (20% of allocatable) for 30 minutes: alert `NodeMemoryLow` emails it (it uses 20% of
+   the node's memory, 766Mi). Three checks on different days under 768 count too.
+2. Any container `OOMKilled`, any `Evicted` pod, or `MemoryPressure=True`: alerts `NodeOOMKill` and
+   `NodeMemoryPressure` (and `NodeMemoryCritical` on the way there). Evictions themselves have no metric: a dip
+   under 100Mi shorter than the 60 s scrape can evict unseen, so run the check after any unexplained restart.
 3. Before a new workload goes on the node: `availableMi` minus its expected use (the RSS of a comparable workload
    already running, else its memory requests) would land under 768. Memory requests above 85% of allocatable
    (3257Mi) also block it, since the scheduler stops placing pods.
 
 The next bundle is `large_3_0` (8 GB, 2 vCPU, 160 GB, $44 a month against $24); Lightsail has nothing between 4 and
 8 GB. Bundle and spend are the owner's call, recorded on INFRA-80.
+
+### Memory alerts
+
+Grafana Cloud evaluates rule group `node-memory` (folder Platform) every minute and emails the owner through contact
+point `owner-email` (Grafana's own mail, no credential). Definitions: [`grafana/`](../grafana/). "Available" is the
+kubelet's number, `machine_memory_bytes - container_memory_working_set_bytes{id="/"}` from cAdvisor, the same value as
+`availableMi` in the check above (both 1779Mi on 2026-10-05). It read about 165Mi above node_exporter's `MemAvailable`
+on 2026-10-05, because the working set leaves out inactive page cache.
+
+| Alert | Fires when | Severity, repeat |
+|---|---|---|
+| `NodeMemoryLow` | available under 20% of the node (766Mi today) for 30 min | warning, daily |
+| `NodeMemoryCritical` | available under 10% for 5 min | critical, every 4 h |
+| `NodeMemoryPressure` | available under 200Mi at one evaluation (the kubelet sets MemoryPressure and evicts at 100Mi) | critical, every 4 h |
+| `NodeOOMKill` | the kernel OOM-killed any process in the last 10 min (`node_vmstat_oom_kill`, containers and k3s alike) | critical, every 4 h |
+| `NodeMetricsAbsent` | the `node` or `cadvisor` scrape is not up for 10 min (Alloy down, node down): the alerts above are blind | warning, daily |
+
+The thresholds are ratios, so they follow an upsize. When the cAdvisor series stop, the memory rules keep their last
+state (no "resolved" mail while memory is still low) and `NodeMetricsAbsent` reports the gap. Trend: dashboard
+**Node memory** (`/d/node-memory`), 7 days by default; the rules link to its panel.
+
+The rules and the contact point are API-provisioned, so the Grafana UI cannot edit them (silences still work:
+Alerting > Silences). The dashboard is not locked: UI edits to it are lost on the next apply. To change any of them,
+edit the file in `grafana/`, merge, then apply it with a short-lived token: Grafana > Administration > Users and
+access > Service accounts > Add service account (role Editor) > Add service account token (expiry 1 day). From the
+repo root, in bash or zsh, with `<stack>` from the stack's URL (Cloud Portal > the stack > Launch); the token only
+passes through `read -rs` and curl's stdin, never its arguments:
+
+```bash
+read -rs T; G=https://<stack>.grafana.net
+api() { printf 'Authorization: Bearer %s\n' "$T" | curl -sS --fail-with-body -H @- -H 'Content-Type: application/json' -X "$1" "$G$2" --data-binary "@$3" && echo; }
+api PUT /api/v1/provisioning/folder/platform/rule-groups/node-memory grafana/node-memory.rules.json
+api PUT /api/v1/provisioning/contact-points/owner-email grafana/contact-point.json
+api POST /api/dashboards/db grafana/node-memory.dashboard.json
+unset T
+```
+
+Each call prints the JSON Grafana returns; an error prints its reason. Then delete the service account. A fresh
+stack first needs the folder (`POST /api/folders` with `{"uid":"platform","title":"Platform"}`) and the contact point
+once (`POST /api/v1/provisioning/contact-points`).
 
 ### Upsize: snapshot to a larger bundle
 
