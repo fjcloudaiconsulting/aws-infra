@@ -481,10 +481,11 @@ The rules and the contact point are API-provisioned, so the Grafana UI cannot ed
 Alerting > Silences). The dashboard is not locked: UI edits to it are lost on the next apply. To change any of them,
 edit the file in `grafana/`, merge, then apply it with a short-lived token: Grafana > Administration > Users and
 access > Service accounts > Add service account (role Editor) > Add service account token (expiry 1 day). From the
-repo root, in bash or zsh; the token only passes through `read -rs` and curl's stdin, never its arguments:
+repo root, in bash or zsh, with `<stack>` from the stack's URL (Cloud Portal > the stack > Launch); the token only
+passes through `read -rs` and curl's stdin, never its arguments:
 
 ```bash
-read -rs T; G=https://<stack>.grafana.net   # the stack's URL: Cloud Portal > the stack > Launch
+read -rs T; G=https://<stack>.grafana.net
 api() { printf 'Authorization: Bearer %s\n' "$T" | curl -sS --fail-with-body -H @- -H 'Content-Type: application/json' -X "$1" "$G$2" --data-binary "@$3" && echo; }
 api PUT /api/v1/provisioning/folder/platform/rule-groups/node-memory grafana/node-memory.rules.json
 api PUT /api/v1/provisioning/contact-points/owner-email grafana/contact-point.json
