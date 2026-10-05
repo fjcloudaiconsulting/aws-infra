@@ -52,6 +52,7 @@ spec:
 ---
 # Rotate: change the key in mysql.secret.yaml, run ALTER USER ... IDENTIFIED BY via `kubectl -n data exec -it mysql-0 -- mysql -uroot -p`,
 # then restart the consumers (tbd-prod holds its own copy of the app password).
+# Databases added later (tbd_staging, INFRA-67) are created by hand: docs/runbooks.md "MySQL database per app environment".
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

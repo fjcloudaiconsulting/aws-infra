@@ -1,0 +1,20 @@
+# dev.thebetterdecision.com (INFRA-67): tbd-prod/ingress.yaml for the staging host. The default TLS store's origin-cert
+# covers *.thebetterdecision.com. The Cloudflare record is `dev` in terraform/cloudflare.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app
+  namespace: tbd-staging
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`dev.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`))
+      kind: Rule
+      services:
+        - name: backend
+          port: 8000
+    - match: Host(`dev.thebetterdecision.com`)
+      kind: Rule
+      services:
+        - name: frontend
+          port: 3000

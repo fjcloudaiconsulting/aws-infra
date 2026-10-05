@@ -1,0 +1,205 @@
+# TBD API on staging (INFRA-67): tbd-prod/backend.yaml with staging values. APP_ENV stays "production", so the migrate
+# init container and the production validators run exactly as in prod. Database tbd_staging and user tbd_staging live
+# in the shared MySQL (created by hand, docs/runbooks.md "MySQL database per app environment"); sessions use the
+# staging Valkey in this namespace (valkey.yaml), never data/valkey. Secret tbd: tbd.secret.yaml, no prod value in it.
+# Not set on staging: Google SSO (no staging OAuth client), Mailgun webhook signing key, founder-count list, AI key prev.
+# Captcha is a Turnstile widget of its own, bound to the dev host (Secret tbd-captcha, made by the owner): the public
+# test keys would let anyone script sign-ups and send mail from the shared dev domain. No scheduler pod: add a copy of
+# tbd-prod/scheduler.yaml when a change needs it.
+# Images are pinned to the prod tag until INFRA-91 makes staging follow releases; bump backend and migrations together.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: tbd-staging
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: tbd-staging
+spec:
+  replicas: 1
+  # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.291.0
+          env:
+            - name: APP_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: redis-url
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: jwt-secret-key
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: backend
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: APP_URL
+              value: "https://dev.thebetterdecision.com"
+            - name: BACKEND_CORS_ORIGINS
+              value: "https://dev.thebetterdecision.com"
+            - name: COOKIE_SECURE
+              value: "true"
+            # Shared dev sending domain, own sending key (docs/runbooks.md "Mail"). Optional: without the key TBD only
+            # logs each mail's recipient and subject.
+            - name: MAILGUN_DOMAIN
+              value: "m.fjconsulting.dev"
+            - name: MAILGUN_REGION
+              value: "eu"
+            - name: EMAIL_FROM
+              value: "The Better Decision (staging) <noreply@m.fjconsulting.dev>"
+            - name: MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-mailgun
+                  key: api-key
+                  optional: true
+            - name: AI_NATIVE_ENABLED
+              value: "false"
+            - name: AI_DISPATCH_TIMEOUT_S
+              value: "30"
+            - name: AI_NATIVE_CURRENT_CONSENT_VERSION
+              value: "ai-tos-2026-05-22"
+            - name: CAPTCHA_REQUIRED
+              value: "true"
+            - name: CAPTCHA_PROVIDER
+              value: "turnstile"
+            - name: CAPTCHA_VERIFY_URL
+              value: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+            - name: CAPTCHA_VERIFY_TIMEOUT_S
+              value: "5"
+            - name: CAPTCHA_VERIFY_TOTAL_TIMEOUT_S
+              value: "20"
+            - name: CAPTCHA_EXPECTED_HOSTNAME
+              value: "dev.thebetterdecision.com"
+            - name: CAPTCHA_EXPECTED_ACTION
+              value: "register"
+            - name: BILLING_UI_ENABLED
+              value: "false"
+            - name: FEATURE_REPORTS_V2
+              value: "true"
+            - name: FEATURE_PLANS
+              value: "false"
+            - name: FEATURE_CUSTOM_DASHBOARD
+              value: "true"
+            - name: SCHEDULER_ENABLED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: redis-url
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: jwt-secret-key
+            - name: MFA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: mfa-encryption-key
+            - name: AI_CREDENTIAL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: ai-credential-encryption-key
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+            - name: CAPTCHA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-captcha
+                  key: secret
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

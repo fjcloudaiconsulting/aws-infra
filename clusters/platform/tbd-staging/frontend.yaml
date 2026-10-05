@@ -1,0 +1,86 @@
+# TBD web on staging (INFRA-67): tbd-prod/frontend.yaml with staging values. Google SSO is off (no staging OAuth
+# client) and the captcha site key is the staging Turnstile widget's (Secret tbd-captcha, see backend.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: tbd-staging
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: tbd-staging
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # nextjs in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.291.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: HOSTNAME
+              value: 0.0.0.0
+            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
+            - name: BACKEND_INTERNAL_URL
+              value: http://backend:8000
+            # Access-log client IP, as in backend.yaml and tbd-prod (INFRA-97); images before that tbd release ignore it.
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
+            - name: TBD_GOOGLE_SSO_ENABLED
+              value: "false"
+            # Public, but kept beside the widget's secret so one owner step writes both.
+            - name: TBD_CAPTCHA_SITE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-captcha
+                  key: site-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
