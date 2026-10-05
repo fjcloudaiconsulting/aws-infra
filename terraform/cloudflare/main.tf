@@ -30,7 +30,8 @@ variable "account_id" {
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
 # Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
-# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `www` (INFRA-61).
+# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `www`, proxied for its
+# redirect (INFRA-61).
 # The apex is the Worker `tbd-landing` since INFRA-61: a custom domain attached by hand, whose own read-only
 # record is not managed here (docs/configuration-map.md, Worker and Snippet access).
 resource "cloudflare_zone" "tbd" {
@@ -45,7 +46,7 @@ resource "cloudflare_zone" "tbd" {
 
 locals {
   tbd_records = {
-    # www: proxied only so the redirect rule below (tbd_www) can answer it; Cloudflare never fetches this target.
+    # www: proxied only so the redirect rule `tbd_redirects` below can answer it; Cloudflare never fetches this target.
     # It stays the CloudFront name so the change is in place, and if the rule is ever off CloudFront still sends
     # its own 301 to the apex. INFRA-62 must retarget it before deleting the distribution.
     www = { name = "www.thebetterdecision.com", type = "CNAME", content = "d1vhzkck8shsp8.cloudfront.net", ttl = 1, proxied = true }
@@ -84,7 +85,7 @@ resource "cloudflare_dns_record" "tbd" {
   proxied  = try(each.value.proxied, false)
 }
 
-# www -> apex, 301, path and query kept (INFRA-61; CloudFront did the same). A zone rule rather than Worker code: the
+# www -> apex, 301, path and query kept (INFRA-61; CloudFront's redirect kept the path but dropped the query). A zone rule rather than Worker code: the
 # Worker would have to run first on every request (run_worker_first) to see the host, and every asset hit would then
 # count against the Free plan's Worker requests. Free allows 10 such rules per zone. A rule added in the dashboard is
 # drift that the next apply removes. The workspace token needs Zone > Single Redirect > Edit on this zone.

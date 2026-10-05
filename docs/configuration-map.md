@@ -270,7 +270,7 @@ Scopes are what the dashboard shows (names only), as of 2026-10-05:
 | Principal | Held in | Can do today | Scopes |
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | read 2026-10-04 (token `cloudflare-tfc`, no expiry, all IPs): thebetterdecision.com and ziftbook.com: SSL and Certificates Write, Zone WAF Write (INFRA-123); thebetterdecision.com: Single Redirect Write (INFRA-61); account: Notifications Write; all zones: Zone Settings Write, Zone Write, DNS Write. No Workers Scripts or Workers Routes, so it cannot add a Worker route |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | read 2026-10-04 (token `cloudflare-tfc`, no expiry, all IPs): thebetterdecision.com and ziftbook.com: SSL and Certificates Write, Zone WAF Write (INFRA-123); account: Notifications Write; all zones: Zone Settings Write, Zone Write, DNS Write. No Workers Scripts or Workers Routes, so it cannot add a Worker route. INFRA-61 needs Zone > Single Redirect > Edit (API name Dynamic URL Redirects Write) on thebetterdecision.com: the PR plan's ruleset dry run answered 403 with Zone WAF Write alone. Re-read and re-date this cell once the owner adds it |
 | Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Workers Editor, Specified Workers `ziftbook-landing` only |
 | tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (the apex since INFRA-61, and its workers.dev preview); never touches its custom domain | Workers Editor, Specified Workers `tbd-landing` only |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
@@ -290,7 +290,9 @@ Rules:
   (staging); since INFRA-61 `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, holds its deploy token, or (while the token is a plain repo
   secret) has write access to the repo. Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
-  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98: unrecorded.
+  token could already serve any page on the apex, which is the bigger risk. A same-zone subrequest also carries the
+  zone's Authenticated Origin Pulls client certificate, so Traefik's mTLS does not stop it. Owner decision on INFRA-98:
+  unrecorded; merging INFRA-61 (aws-infra#105) accepts this residual for production.
 - No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
   `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
