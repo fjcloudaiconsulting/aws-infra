@@ -1,1 +1,88 @@
-{}
+{
+  "fjconsulting_website_github_actions": {
+    "id": "a5b58ddeddbc2869e6193fdc1fb5bb44",
+    "name": "fjconsulting-website-github-actions",
+    "policies": [
+      {
+        "effect": "allow",
+        "permission_groups": [
+          {
+            "id": "8d28297797f24fb8a0c332fe0866ec89",
+            "name": "Pages Write"
+          }
+        ],
+        "resources": "{\"com.cloudflare.api.account.fb5eb042529f2621c6de3f34c6801174\":\"*\"}"
+      }
+    ]
+  },
+  "fjconsulting_website_terraform_cloud": {
+    "id": "991e8bec64039f51f0ec055d9d21025f",
+    "name": "fjconsulting-website-terraform-cloud",
+    "policies": [
+      {
+        "effect": "allow",
+        "permission_groups": [
+          {
+            "id": "8d28297797f24fb8a0c332fe0866ec89",
+            "name": "Pages Write"
+          }
+        ],
+        "resources": "{\"com.cloudflare.api.account.fb5eb042529f2621c6de3f34c6801174\":\"*\"}"
+      },
+      {
+        "effect": "allow",
+        "permission_groups": [
+          {
+            "id": "3030687196b94b638145a3953da2b699",
+            "name": "Zone Settings Write"
+          },
+          {
+            "id": "4755a26eedb94da69e1066d98aa820be",
+            "name": "DNS Write"
+          },
+          {
+            "id": "8d28297797f24fb8a0c332fe0866ec89",
+            "name": "Pages Write"
+          },
+          {
+            "id": "c8fed203ed3043cba015a93ad1616f1f",
+            "name": "Zone Read"
+          }
+        ],
+        "resources": "{\"com.cloudflare.api.account.zone.ff907e2dae27da386ae2f24dd51e76b2\":\"*\"}"
+      }
+    ]
+  },
+  "tbd_landing_deploy": {
+    "id": "4a2de704f0f9a7bd7802c31dedc9fe81",
+    "name": "tbd-landing deploy",
+    "policies": [
+      {
+        "effect": "allow",
+        "permission_groups": [
+          {
+            "id": "7e79ec33834341f28dd431ab73884400",
+            "name": "Individual Workers Editor"
+          }
+        ],
+        "resources": "{\"com.cloudflare.api.account.fb5eb042529f2621c6de3f34c6801174\":{\"com.cloudflare.edge.worker.script.0dc170a707af49cd82de8a9b7a3cb26f\":\"*\"}}"
+      }
+    ]
+  },
+  "ziftbook_landing_deploy": {
+    "id": "39dedc527ecc7d9e7b1b5143dd9226e4",
+    "name": "ziftbook-landing deploy",
+    "policies": [
+      {
+        "effect": "allow",
+        "permission_groups": [
+          {
+            "id": "7e79ec33834341f28dd431ab73884400",
+            "name": "Individual Workers Editor"
+          }
+        ],
+        "resources": "{\"com.cloudflare.api.account.fb5eb042529f2621c6de3f34c6801174\":{\"com.cloudflare.edge.worker.script.6983adf196f54fbcbcc9f530113a8660\":\"*\"}}"
+      }
+    ]
+  }
+}
