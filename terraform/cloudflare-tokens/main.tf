@@ -145,4 +145,11 @@ resource "cloudflare_account_token" "imported" {
     resources         = p.resources
     permission_groups = [for g in p.permission_groups : { id = g.id }]
   }]
+
+  # These belong to other consumers (another project's CI among them): a dropped or renamed entry, or a replace,
+  # would delete a token whose value nothing here can redeliver. To stop managing one, use a `removed` block with
+  # `lifecycle { destroy = false }`.
+  lifecycle {
+    prevent_destroy = true
+  }
 }

@@ -4,7 +4,7 @@
 # It also writes ~/Downloads/INFRA-133-imported-tokens.json: every other account-owned token, except those named
 # "tf: ...", as the API describes it (id, name, policies, conditions; never a value), in the shape of
 # imported-tokens.json. Prints nothing secret. Needs the owner's HCP Terraform login (~/.terraform.d).
-# Usage, from the repo root: pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh && pbcopy </dev/null
+# Usage, from the repo root: pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh; pbcopy </dev/null
 set -euo pipefail
 CF="$(cat)"; CF="${CF//[$'\r\n ']/}"
 [ -n "$CF" ] || { echo "empty token on stdin"; exit 1; }
@@ -44,6 +44,8 @@ print("Permission group ids:", "OK" if not bad else "MISMATCH %s" % bad)
 st, d = call(api + "/tokens?per_page=50", cf)
 if st != 200:
     sys.exit("The token cannot list account tokens; nothing stored.")
+if d.get("result_info", {}).get("total_count", 0) > len(d["result"]):
+    sys.exit("More than 50 account tokens: page through them before importing; nothing stored.")
 out, skipped = {}, []
 for t in d["result"]:
     if t["id"] == me or t["name"].startswith("tf: "):

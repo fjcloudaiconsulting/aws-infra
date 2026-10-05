@@ -17,6 +17,7 @@
     {
       "description": "Workspace cloudflare-tokens plans every PR with the bootstrap token, which can mint any Cloudflare token (INFRA-133): no provider bump branch, and so no plan, until the owner ticks it on the dashboard.",
       "matchFileNames": ["terraform/cloudflare-tokens/**"],
+      "additionalBranchPrefix": "cloudflare-tokens-",
       "dependencyDashboardApproval": true
     },
     {

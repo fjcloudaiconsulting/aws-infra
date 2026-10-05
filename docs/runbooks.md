@@ -304,19 +304,28 @@ the bootstrap token (Account API Tokens: Edit), the only token made by hand and 
 - **Token made by hand** (or by another project): add it to `imported-tokens.json`.
   [`set-bootstrap-token.sh`](../terraform/cloudflare-tokens/set-bootstrap-token.sh) writes every such token in that
   shape to `~/Downloads/INFRA-133-imported-tokens.json` (`resources` as the exact compact string the API returns).
-  The PR's plan must show the import and no change.
+  The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`: to stop managing one,
+  drop its entry and add a `removed { from = cloudflare_account_token.imported["<key>"] lifecycle { destroy = false } }`
+  block, or the plan refuses (and without the guard would delete the token at Cloudflare).
 - **Rotate a token Terraform made:** HCP Terraform > `cloudflare-tokens` > New run > Plan and apply, with "Replace
   resources" set to that token. The new token is created, the consumer rewritten, then the old one deleted. Then start
   a plan on the consumer's workspace to prove it.
 - **Rotate an imported token:** its consumer is not in Terraform, so a replace would mint a value nothing receives.
   Wire the consumer first (a `tfe_variable`, or a GitHub secret resource with a credential to write it), or rotate
   it by hand in the dashboard (Roll) and set the new value at the consumer.
+- **Rotate the team token** (`TFE_TOKEN`): HCP Terraform > Settings > Teams > `cloudflare-tokens` > Team API tokens >
+  create a new one and delete the old, then store the new one as the sensitive env var `TFE_TOKEN` of workspace
+  `cloudflare-tokens` (never through chat). It can only read runs and write the variables of workspace `cloudflare`.
 - **Rotate the bootstrap token:** dashboard > Manage Account > Account API Tokens > the bootstrap > Roll, then
-  `pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh && pbcopy </dev/null` from the repo root.
-- **Bootstrap token leaked:** delete it in the dashboard first (Manage Account > Account API Tokens). Tokens it minted
-  survive the delete, so list the account's tokens and delete any not in `terraform/cloudflare-tokens`; read the
-  account audit log for token creations. Then make a new bootstrap and store it with the script. Its blast radius is
-  the whole account: it can mint a token with any permission.
+  `pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh; pbcopy </dev/null` from the repo root (the
+  clipboard is cleared even when the script fails).
+- **Bootstrap token leaked:** its blast radius is the whole account. It can mint a token with any permission, widen
+  any existing token, and roll any token (which hands out the new value), so treat every account token as exposed.
+  1. Delete it in the dashboard (Manage Account > Account API Tokens), make a new one, store it with the script.
+  2. Delete every account token not in `terraform/cloudflare-tokens` (tokens it minted survive its delete).
+  3. Plan and apply `cloudflare-tokens`: policy drift on managed tokens shows up and is reverted.
+  4. Replace-run every token Terraform made; Roll every imported one and set its value at its consumer.
+  5. Read the account audit log for token creations, edits and rolls, and the zones' audit for what they did.
 
 ## Origin pull client certificate (Authenticated Origin Pulls)
 
