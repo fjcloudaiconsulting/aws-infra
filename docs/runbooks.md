@@ -441,6 +441,10 @@ Baseline, 2026-10-04 12:11Z, TBD prod and Ziftbook staging live, little traffic:
 2497Mi, RSS 1806Mi, of which the k3s process (API server, datastore, kubelet, containerd) 846Mi and all pods 872Mi
 (`mysql-0` 222Mi the largest). Requests 1916Mi (49%), limits 5290Mi (138%).
 
+2026-10-05 10:48Z, the same plus Alloy (INFRA-85), k3s on `GOGC=50` and Flux capped at 256Mi (INFRA-80): available 1817Mi (47%),
+working set 2014Mi, RSS 1594Mi, k3s process 625Mi, all pods 955Mi (`mysql-0` 235Mi the largest, Alloy 54Mi). Requests 2044Mi
+(53%), limits 4010Mi (104%). Decision on INFRA-80: stay on `medium_3_0` until a trigger below fires.
+
 ### Trigger
 
 Upsize when any of these holds:
