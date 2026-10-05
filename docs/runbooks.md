@@ -304,11 +304,17 @@ the bootstrap token (Account API Tokens: Edit), the only token made by hand and 
 - **Token made by hand** (or by another project): add it to `imported-tokens.json`.
   [`set-bootstrap-token.sh`](../terraform/cloudflare-tokens/set-bootstrap-token.sh) writes every such token in that
   shape to `~/Downloads/INFRA-133-imported-tokens.json` (`resources` as the exact compact string the API returns).
-  The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`: to stop managing one,
-  drop its entry and add a `removed { from = cloudflare_account_token.imported["<key>"] lifecycle { destroy = false } }`
-  block, or the plan refuses (and without the guard would delete the token at Cloudflare). An imported token with an
-  expiry drops out of state once it expires and the next plan tries to create it with a past date: renew it (dashboard,
-  then update `expires_on` in the file) or remove it with a `removed` block before it expires.
+  The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`, so dropping an entry makes
+  the plan fail instead of deleting the token at Cloudflare. To stop managing one (Terraform rejects `removed` on a
+  single `for_each` instance), use two PRs, each applied:
+  1. Drop the entry, add a standalone `resource "cloudflare_account_token" "leaving"` with the same arguments, and
+     `moved { from = cloudflare_account_token.imported["<key>"] to = cloudflare_account_token.leaving }` (one argument
+     per line). Plan: the move, 0 to change.
+  2. Delete that resource and the `moved` block, add `removed { from = cloudflare_account_token.leaving }` with
+     `lifecycle { destroy = false }` inside it. Plan: "will no longer be managed", 0 to destroy.
+
+  An imported token with an expiry drops out of state once it expires and the next plan tries to create it with a past
+  date: renew it (dashboard, then update `expires_on` in the file) or stop managing it as above before it expires.
 - **Rotate a token Terraform made:** HCP Terraform > `cloudflare-tokens` > New run > Plan and apply, with "Replace
   resources" set to that token. The new token is created, the consumer rewritten, then the old one deleted. Then start
   a plan on the consumer's workspace to prove it.
