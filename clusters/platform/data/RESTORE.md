@@ -200,7 +200,7 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":true}}'
    ```
 
-   Then scale the app Deployment in `tbd-prod` or `ziftbook-staging` to 0.
+   Then scale the app Deployments in `tbd-prod`, `tbd-staging` (both use MySQL) or `ziftbook-staging` to 0.
 2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`).
 3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d ziftbook` block) must
    print `0`. Anything else: stop and decide; never drop a database on reflex.
@@ -220,7 +220,19 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
        'echo "ALTER ROLE postgres PASSWORD :'\''pw'\''" | psql -U postgres -Xq -v pw="$POSTGRES_PASSWORD"'
      ```
 6. Step 5's checks, then remove the copies: `kubectl -n data exec "$POD" -- rm /tmp/dump.sql.gz /tmp/grants.sql.gz`.
-7. Resume (`suspend` was set by hand, so Flux does not clear it):
+7. Revoke what the dump brings back: sessions signed out after it, and links used or revoked after
+   it. Everyone signs in again; owners resend open invites, and pending sign-ups and resets start over.
+   Postgres (`POD=postgres-0`):
+
+   ```bash
+   pg -d ziftbook -c 'TRUNCATE sessions; DELETE FROM email_tokens; UPDATE invites SET token_hash = NULL'
+   ```
+
+   TBD keeps its sessions in Valkey until INFRA-122, which adds its tables here. Jobs that ran after
+   the dump run again (handlers are safe to repeat). Owners re-check their invite list afterwards: an
+   invite whose `email.invite` job was still pending in the dump gets a fresh link when that job runs;
+   every other open invite needs a resend.
+8. Resume (`suspend` was set by hand, so Flux does not clear it):
 
    ```bash
    kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":false}}'

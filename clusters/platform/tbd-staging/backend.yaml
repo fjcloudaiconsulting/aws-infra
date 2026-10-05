@@ -1,22 +1,17 @@
-# TBD API in production (INFRA-43). Replicas stay 0 while TBD runs on DigitalOcean; the INFRA-48 cutover window
-# sets them to 1 after the data restore (docs/tbd-cutover.md). Secret tbd: tbd.secret.yaml, written by the owner.
-# The migrate init container (the `migrations` image target, INFRA-39) runs `python /app/scripts/migrate.py`
-# (alembic upgrade head) before every start, so a new version never serves on an old schema. A Job named by
-# version cannot work under Flux (immutable pod template, no ordering before Deployments). Only this pod migrates;
-# alembic env.py takes a MySQL GET_LOCK (INFRA-83), so a second migrator would wait, then find the work done.
-# Images track vX.Y.Z only. Production bumps arrive as PRs and never automerge (renovate.json: the staging
-# automerge rule matches ziftbook-staging paths only). Tag v0.0.0 is a placeholder: before the cutover it becomes
-# the first tbd release that carries both INFRA-42 (tbd#823) and INFRA-83 (tbd#824); bump backend, migrations,
-# scheduler and frontend together.
-# The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
-# PFV_RUNTIME is deliberately unset (DigitalOcean only). CLIENT_IP_HEADER=cf-connecting-ip: Cloudflare overwrites that
-# header, and Traefik requires our zone's Authenticated Origin Pulls cert (INFRA-93), so only our zone reaches the
-# origin and get_client_ip reads the visitor from it (INFRA-83). frontend.yaml sets the same value (INFRA-97).
+# TBD API on staging (INFRA-67): tbd-prod/backend.yaml with staging values. APP_ENV stays "production", so the migrate
+# init container and the production validators run exactly as in prod. Database tbd_staging and user tbd_staging live
+# in the shared MySQL (created by hand, docs/runbooks.md "MySQL database per app environment"); sessions use the
+# staging Valkey in this namespace (valkey.yaml), never data/valkey. Secret tbd: tbd.secret.yaml, no prod value in it.
+# Not set on staging: Google SSO (no staging OAuth client), Mailgun webhook signing key, founder-count list, AI key prev.
+# Captcha is a Turnstile widget of its own, bound to the dev host (Secret tbd-captcha, made by the owner): the public
+# test keys would let anyone script sign-ups and send mail from the shared dev domain. No scheduler pod: add a copy of
+# tbd-prod/scheduler.yaml when a change needs it.
+# Images are pinned to the prod tag until INFRA-91 makes staging follow releases; bump backend and migrations together.
 apiVersion: v1
 kind: Service
 metadata:
   name: backend
-  namespace: tbd-prod
+  namespace: tbd-staging
 spec:
   selector:
     app: backend
@@ -27,7 +22,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: tbd-prod
+  namespace: tbd-staging
 spec:
   replicas: 1
   # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
@@ -41,6 +36,7 @@ spec:
       labels:
         app: backend
     spec:
+      priorityClassName: staging
       automountServiceAccountToken: false
       securityContext:
         runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
@@ -50,7 +46,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.292.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.291.0
           env:
             - name: APP_ENV
               value: production
@@ -90,7 +86,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.292.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.0
           ports:
             - containerPort: 8000
           env:
@@ -101,17 +97,25 @@ spec:
             - name: LOG_LEVEL
               value: "INFO"
             - name: APP_URL
-              value: "https://app.thebetterdecision.com"
+              value: "https://dev.thebetterdecision.com"
             - name: BACKEND_CORS_ORIGINS
-              value: "https://app.thebetterdecision.com,https://thebetterdecision.com,https://www.thebetterdecision.com"
+              value: "https://dev.thebetterdecision.com"
             - name: COOKIE_SECURE
               value: "true"
+            # Shared dev sending domain, own sending key (docs/runbooks.md "Mail"). Optional: without the key TBD only
+            # logs each mail's recipient and subject.
             - name: MAILGUN_DOMAIN
-              value: "m.thebetterdecision.com"
+              value: "m.fjconsulting.dev"
             - name: MAILGUN_REGION
               value: "eu"
             - name: EMAIL_FROM
-              value: "The Better Decision <noreply@m.thebetterdecision.com>"
+              value: "The Better Decision (staging) <noreply@m.fjconsulting.dev>"
+            - name: MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-mailgun
+                  key: api-key
+                  optional: true
             - name: AI_NATIVE_ENABLED
               value: "false"
             - name: AI_DISPATCH_TIMEOUT_S
@@ -129,7 +133,7 @@ spec:
             - name: CAPTCHA_VERIFY_TOTAL_TIMEOUT_S
               value: "20"
             - name: CAPTCHA_EXPECTED_HOSTNAME
-              value: "app.thebetterdecision.com"
+              value: "dev.thebetterdecision.com"
             - name: CAPTCHA_EXPECTED_ACTION
               value: "register"
             - name: BILLING_UI_ENABLED
@@ -167,47 +171,16 @@ spec:
                 secretKeyRef:
                   name: tbd
                   key: ai-credential-encryption-key
-            - name: AI_CREDENTIAL_ENCRYPTION_KEY_PREV
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: ai-credential-encryption-key-prev
-                  optional: true
             - name: API_TOKEN_HMAC_KEY
               valueFrom:
                 secretKeyRef:
                   name: tbd
                   key: api-token-hmac-key
-            - name: MAILGUN_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: mailgun-api-key
-            - name: MAILGUN_WEBHOOK_SIGNING_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: mailgun-webhook-signing-key
-            - name: GOOGLE_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: google-client-id
-            - name: GOOGLE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: google-client-secret
             - name: CAPTCHA_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: tbd
-                  key: captcha-secret
-            - name: FOUNDER_COUNT_EXCLUDE_USERNAMES
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: founder-count-exclude-usernames
+                  name: tbd-captcha
+                  key: secret
           readinessProbe:
             httpGet:
               path: /ready
@@ -216,7 +189,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi # near the working set, so staging (over its request sooner) is evicted first
+              memory: 128Mi
             limits:
               memory: 384Mi
           securityContext:

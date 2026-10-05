@@ -1,0 +1,10 @@
+{
+  "uid": "owner-email",
+  "name": "owner-email",
+  "type": "email",
+  "settings": {
+    "addresses": "flamarion@fjconsulting.io",
+    "singleEmail": true
+  },
+  "disableResolveMessage": false
+}

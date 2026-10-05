@@ -19,7 +19,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
   cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
-- Namespaces: `tbd-prod`, `ziftbook-staging`, `data`, plus `netbird` (owner kubectl access over NetBird, runbook
+- Namespaces: `tbd-prod`, `tbd-staging`, `ziftbook-staging`, `data`, `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
   `clusters/platform/netbird/README.md`).
 
 ## Layout and commands
@@ -29,6 +29,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 - `clusters/<cluster>/`: Kubernetes manifests reconciled by Flux.
 - `aws/bootstrap/`: IAM documents for the HCP Terraform OIDC roles, minted once by root (see each stack's
   README). A workspace never manages its own role.
+- `grafana/`: Grafana Cloud alert rules, contact point and dashboard as API payloads; applied by hand after merge
+  (runbooks.md "Memory alerts"). Nothing applies them automatically: keep git and the stack in step.
 - CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff`, `init -backend=false && validate`
   for every stack, tflint (`.tflint.hcl`), and the Python tests (`python3 -m unittest discover -s tests`: backup probe, SOPS check). A second job runs kubeconform on
   `clusters/` and `.github/scripts/check-sops-secrets.py` (every Secret under `clusters/` must be SOPS-encrypted). Locally: `terraform fmt -recursive`,
@@ -53,7 +55,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates, following Flux and rollouts); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates, following Flux and rollouts, the post-deploy smoke, node memory and the upsize, metrics to Grafana Cloud); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory

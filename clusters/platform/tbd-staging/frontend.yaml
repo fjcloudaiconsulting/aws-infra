@@ -1,13 +1,10 @@
-# TBD web (Next.js standalone) in production (INFRA-43). Replicas stay 0 while TBD runs on DigitalOcean; the
-# INFRA-48 cutover window sets them to 1 and adds the app.thebetterdecision.com IngressRoute (docs/tbd-cutover.md).
-# Config is runtime-only since INFRA-40 (lib/runtime-config.ts reads TBD_* per request); the values below mirror
-# the DigitalOcean frontend component. Image tag v0.0.0 is a placeholder (see backend.yaml); production bumps
-# arrive as Renovate PRs and never automerge (renovate.json).
+# TBD web on staging (INFRA-67): tbd-prod/frontend.yaml with staging values. Google SSO is off (no staging OAuth
+# client) and the captcha site key is the staging Turnstile widget's (Secret tbd-captcha, see backend.yaml).
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: tbd-prod
+  namespace: tbd-staging
 spec:
   selector:
     app: frontend
@@ -18,7 +15,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: tbd-prod
+  namespace: tbd-staging
 spec:
   replicas: 1
   strategy:
@@ -31,6 +28,7 @@ spec:
       labels:
         app: frontend
     spec:
+      priorityClassName: staging
       automountServiceAccountToken: false
       securityContext:
         runAsUser: 1001 # nextjs in the image; runAsNonRoot cannot check a named user
@@ -40,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.292.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.291.0
           ports:
             - containerPort: 3000
           env:
@@ -49,16 +47,17 @@ spec:
             # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
             - name: BACKEND_INTERNAL_URL
               value: http://backend:8000
-            # Access-log client IP, same rule and value as backend.yaml (INFRA-97). Trustworthy because Traefik requires
-            # our zone's Authenticated Origin Pulls cert (INFRA-93). Images before the INFRA-97 tbd release ignore it.
+            # Access-log client IP, as in backend.yaml and tbd-prod (INFRA-97); images before that tbd release ignore it.
             - name: CLIENT_IP_HEADER
               value: cf-connecting-ip
-            # Exactly "true" shows "Sign in with Google" on /login and /register.
             - name: TBD_GOOGLE_SSO_ENABLED
-              value: "true"
-            # Turnstile site key (public), checked by the backend against CAPTCHA_EXPECTED_HOSTNAME.
+              value: "false"
+            # Public, but kept beside the widget's secret so one owner step writes both.
             - name: TBD_CAPTCHA_SITE_KEY
-              value: "0x4AAAAAADTu1HIFconXLShc"
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-captcha
+                  key: site-key
           readinessProbe:
             httpGet:
               path: /health
@@ -67,7 +66,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 96Mi
             limits:
               memory: 256Mi
           securityContext:

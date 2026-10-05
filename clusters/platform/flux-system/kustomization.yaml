@@ -4,3 +4,14 @@ resources:
   - gotk-components.yaml
   - gotk-sync.yaml
   - sops-smoke.secret.yaml
+# Upstream sets a 1Gi memory limit per controller, 2Gi of limits on a 4 GB node where each used about
+# 40Mi in the 2026-10-04 samples (INFRA-80). 256Mi leaves six times that. Patched here, not in
+# gotk-components.yaml, so `flux install --export` can regenerate that file.
+patches:
+  - target:
+      kind: Deployment
+      name: (source-controller|kustomize-controller)
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 256Mi

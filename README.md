@@ -21,6 +21,7 @@ How to do the recurring changes (write or rotate a Secret, add a hostname or zon
 | `terraform/<stack>/` | One Terraform root per HCP Terraform workspace (org `FlamaCorp`) | HCP Terraform VCS flow: plan on PR, apply on merge after approval in the TFC UI |
 | `clusters/<cluster>/` | Kubernetes manifests | Flux, reconciling `main` |
 | `aws/bootstrap/` | IAM trust and permission documents for the HCP Terraform roles (a workspace never manages its own role) | Root, once by CLI; see each stack's README |
+| `grafana/` | Grafana Cloud alert rules, contact point and dashboard (API payloads) | By hand through the Grafana API after merge, see [runbooks](docs/runbooks.md#memory-alerts) |
 
 ## Rules
 
@@ -45,11 +46,11 @@ decrypts with the private key held in-cluster as `flux-system/sops-age`.
 
 ```sh
 export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt   # sops looks elsewhere on macOS
-sops encrypt -i clusters/platform/<path>/<name>.secret.yaml
 sops edit clusters/platform/<path>/<name>.secret.yaml   # later changes
 ```
 
-Encrypting needs only the public key in `.sops.yaml`; editing needs the private key (offline backup).
+A new Secret is encrypted from a pipe, never written as plaintext first: recipe in
+[docs/runbooks.md](docs/runbooks.md). Encrypting needs only the public key in `.sops.yaml`; editing needs the private key (offline backup).
 
 Bootstrap on a fresh cluster (once): create namespace `flux-system` and the Secret `sops-age` with the
 private key under a name ending in `.agekey` (Flux ignores other names), typed at a silent prompt
