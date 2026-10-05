@@ -419,8 +419,8 @@ ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` and `curl
 ## Node memory and the upsize
 
 The node is one Lightsail `medium_3_0` (4 GB, 3832Mi allocatable). Lightsail has no memory metric, so memory is read
-from the kubelet; INFRA-108 turns the trigger below into a Grafana Cloud alert once INFRA-85 ships metrics. Until then,
-run the check weekly and before every new workload.
+from the kubelet, and Grafana Cloud alerts on it (INFRA-108, [Memory alerts](#memory-alerts) below). Run the check
+below before every new workload and when an alert fires.
 
 ### Check
 
@@ -449,15 +449,57 @@ working set 2014Mi, RSS 1594Mi, k3s process 625Mi, all pods 955Mi (`mysql-0` 235
 
 Upsize when any of these holds:
 
-1. `availableMi` under **768** (20% of allocatable) at three checks on different days of normal running, or for 30
-   minutes once the INFRA-108 alert exists.
-2. Any container `OOMKilled`, any `Evicted` pod, or `MemoryPressure=True`.
+1. `availableMi` under **768** (20% of allocatable) for 30 minutes: alert `NodeMemoryLow` emails it (it uses 20% of
+   the node's memory, 766Mi). Three checks on different days under 768 count too.
+2. Any container `OOMKilled`, any `Evicted` pod, or `MemoryPressure=True`: alerts `NodeOOMKill` and
+   `NodeMemoryPressure` (and `NodeMemoryCritical` on the way there). Evictions themselves have no metric: a dip
+   under 100Mi shorter than the 60 s scrape can evict unseen, so run the check after any unexplained restart.
 3. Before a new workload goes on the node: `availableMi` minus its expected use (the RSS of a comparable workload
    already running, else its memory requests) would land under 768. Memory requests above 85% of allocatable
    (3257Mi) also block it, since the scheduler stops placing pods.
 
 The next bundle is `large_3_0` (8 GB, 2 vCPU, 160 GB, $44 a month against $24); Lightsail has nothing between 4 and
 8 GB. Bundle and spend are the owner's call, recorded on INFRA-80.
+
+### Memory alerts
+
+Grafana Cloud evaluates rule group `node-memory` (folder Platform) every minute and emails the owner through contact
+point `owner-email` (Grafana's own mail, no credential). Definitions: [`grafana/`](../grafana/). "Available" is the
+kubelet's number, `machine_memory_bytes - container_memory_working_set_bytes{id="/"}` from cAdvisor, the same value as
+`availableMi` in the check above (both 1779Mi on 2026-10-05). It read about 165Mi above node_exporter's `MemAvailable`
+on 2026-10-05, because the working set leaves out inactive page cache.
+
+| Alert | Fires when | Severity, repeat |
+|---|---|---|
+| `NodeMemoryLow` | available under 20% of the node (766Mi today) for 30 min | warning, daily |
+| `NodeMemoryCritical` | available under 10% for 5 min | critical, every 4 h |
+| `NodeMemoryPressure` | available under 200Mi at one evaluation (the kubelet sets MemoryPressure and evicts at 100Mi) | critical, every 4 h |
+| `NodeOOMKill` | the kernel OOM-killed any process in the last 10 min (`node_vmstat_oom_kill`, containers and k3s alike) | critical, every 4 h |
+| `NodeMetricsAbsent` | the `node` or `cadvisor` scrape is not up for 10 min (Alloy down, node down): the alerts above are blind | warning, daily |
+
+The thresholds are ratios, so they follow an upsize. When the cAdvisor series stop, the memory rules keep their last
+state (no "resolved" mail while memory is still low) and `NodeMetricsAbsent` reports the gap. Trend: dashboard
+**Node memory** (`/d/node-memory`), 7 days by default; the rules link to its panel.
+
+The rules and the contact point are API-provisioned, so the Grafana UI cannot edit them (silences still work:
+Alerting > Silences). The dashboard is not locked: UI edits to it are lost on the next apply. To change any of them,
+edit the file in `grafana/`, merge, then apply it with a short-lived token: Grafana > Administration > Users and
+access > Service accounts > Add service account (role Editor) > Add service account token (expiry 1 day). From the
+repo root, in bash or zsh, with `<stack>` from the stack's URL (Cloud Portal > the stack > Launch); the token only
+passes through `read -rs` and curl's stdin, never its arguments:
+
+```bash
+read -rs T; G=https://<stack>.grafana.net
+api() { printf 'Authorization: Bearer %s\n' "$T" | curl -sS --fail-with-body -H @- -H 'Content-Type: application/json' -X "$1" "$G$2" --data-binary "@$3" && echo; }
+api PUT /api/v1/provisioning/folder/platform/rule-groups/node-memory grafana/node-memory.rules.json
+api PUT /api/v1/provisioning/contact-points/owner-email grafana/contact-point.json
+api POST /api/dashboards/db grafana/node-memory.dashboard.json
+unset T
+```
+
+Each call prints the JSON Grafana returns; an error prints its reason. Then delete the service account. A fresh
+stack first needs the folder (`POST /api/folders` with `{"uid":"platform","title":"Platform"}`) and the contact point
+once (`POST /api/v1/provisioning/contact-points`).
 
 ### Upsize: snapshot to a larger bundle
 

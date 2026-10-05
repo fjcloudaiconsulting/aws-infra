@@ -29,6 +29,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 - `clusters/<cluster>/`: Kubernetes manifests reconciled by Flux.
 - `aws/bootstrap/`: IAM documents for the HCP Terraform OIDC roles, minted once by root (see each stack's
   README). A workspace never manages its own role.
+- `grafana/`: Grafana Cloud alert rules, contact point and dashboard as API payloads; applied by hand after merge
+  (runbooks.md "Memory alerts"). Nothing applies them automatically: keep git and the stack in step.
 - CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff`, `init -backend=false && validate`
   for every stack, tflint (`.tflint.hcl`), and the Python tests (`python3 -m unittest discover -s tests`: backup probe, SOPS check). A second job runs kubeconform on
   `clusters/` and `.github/scripts/check-sops-secrets.py` (every Secret under `clusters/` must be SOPS-encrypted). Locally: `terraform fmt -recursive`,
