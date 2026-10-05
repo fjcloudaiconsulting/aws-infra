@@ -288,6 +288,36 @@ fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
 
+## Cloudflare API tokens
+
+Every account-owned Cloudflare token is in [`terraform/cloudflare-tokens`](../terraform/cloudflare-tokens/main.tf)
+(INFRA-133), applied by workspace `cloudflare-tokens` after approval like every other stack. The workspace runs with
+the bootstrap token (Account API Tokens: Edit), the only token made by hand and the only one it does not manage.
+
+- **Change a scope:** edit the token's policies in a PR. The plan shows the policy diff; the apply updates the token in
+  place and its value does not change, so no consumer needs touching. Keep one key per level in every `resources`
+  object (one policy per zone): the provider compares the API's bytes, and a two-key object can come back reordered
+  and fail the apply. Permission group ids: `GET /accounts/<id>/tokens/permission_groups` with the bootstrap token.
+- **New token for a consumer Terraform can write** (an HCP Terraform variable today): add a
+  `cloudflare_account_token` with `create_before_destroy` and the consumer resource reading its `.value`, as
+  `cloudflare_workspace` does. Its value then never passes through a person.
+- **Token made by hand** (or by another project): add it to `imported-tokens.json`.
+  [`set-bootstrap-token.sh`](../terraform/cloudflare-tokens/set-bootstrap-token.sh) writes every such token in that
+  shape to `~/Downloads/INFRA-133-imported-tokens.json` (`resources` as the exact compact string the API returns).
+  The PR's plan must show the import and no change.
+- **Rotate a token Terraform made:** HCP Terraform > `cloudflare-tokens` > New run > Plan and apply, with "Replace
+  resources" set to that token. The new token is created, the consumer rewritten, then the old one deleted. Then start
+  a plan on the consumer's workspace to prove it.
+- **Rotate an imported token:** its consumer is not in Terraform, so a replace would mint a value nothing receives.
+  Wire the consumer first (a `tfe_variable`, or a GitHub secret resource with a credential to write it), or rotate
+  it by hand in the dashboard (Roll) and set the new value at the consumer.
+- **Rotate the bootstrap token:** dashboard > Manage Account > Account API Tokens > the bootstrap > Roll, then
+  `pbpaste | bash terraform/cloudflare-tokens/set-bootstrap-token.sh && pbcopy </dev/null` from the repo root.
+- **Bootstrap token leaked:** delete it in the dashboard first (Manage Account > Account API Tokens). Tokens it minted
+  survive the delete, so list the account's tokens and delete any not in `terraform/cloudflare-tokens`; read the
+  account audit log for token creations. Then make a new bootstrap and store it with the script. Its blast radius is
+  the whole account: it can mint a token with any permission.
+
 ## Origin pull client certificate (Authenticated Origin Pulls)
 
 The Lightsail firewall admits every Cloudflare IP, so any Cloudflare zone could reach the node. Zone-level
