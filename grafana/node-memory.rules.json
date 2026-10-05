@@ -1,0 +1,329 @@
+{
+  "title": "node-memory",
+  "interval": 60,
+  "rules": [
+    {
+      "uid": "node-memory-low",
+      "title": "NodeMemoryLow",
+      "folderUID": "platform",
+      "ruleGroup": "node-memory",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "(max by (instance) (machine_memory_bytes{job=\"cadvisor\"}) - max by (instance) (container_memory_working_set_bytes{job=\"cadvisor\", id=\"/\"})) / max by (instance) (machine_memory_bytes{job=\"cadvisor\"})",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    0.2
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "30m",
+      "noDataState": "OK",
+      "execErrState": "KeepLast",
+      "labels": {
+        "severity": "warning",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 20% (768Mi on the 4 GB node) for 30 minutes. Upsize trigger 1.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "__dashboardUid__": "node-memory",
+        "__panelId__": "1"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "24h"
+      }
+    },
+    {
+      "uid": "node-memory-critical",
+      "title": "NodeMemoryCritical",
+      "folderUID": "platform",
+      "ruleGroup": "node-memory",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "(max by (instance) (machine_memory_bytes{job=\"cadvisor\"}) - max by (instance) (container_memory_working_set_bytes{job=\"cadvisor\", id=\"/\"})) / max by (instance) (machine_memory_bytes{job=\"cadvisor\"})",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    0.1
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "5m",
+      "noDataState": "OK",
+      "execErrState": "KeepLast",
+      "labels": {
+        "severity": "critical",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 10% for 5 minutes. OOM kills and evictions are close.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "__dashboardUid__": "node-memory",
+        "__panelId__": "1"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "4h"
+      }
+    },
+    {
+      "uid": "node-memory-pressure",
+      "title": "NodeMemoryPressure",
+      "folderUID": "platform",
+      "ruleGroup": "node-memory",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "max by (instance) (machine_memory_bytes{job=\"cadvisor\"}) - max by (instance) (container_memory_working_set_bytes{job=\"cadvisor\", id=\"/\"})",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    209715200
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "1m",
+      "noDataState": "OK",
+      "execErrState": "KeepLast",
+      "labels": {
+        "severity": "critical",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "Node memory available is {{ humanize1024 $values.A.Value }}B, under 200Mi. The kubelet sets MemoryPressure and evicts pods at 100Mi. Upsize trigger 2.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "__dashboardUid__": "node-memory",
+        "__panelId__": "1"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "4h"
+      }
+    },
+    {
+      "uid": "node-oom-kill",
+      "title": "NodeOOMKill",
+      "folderUID": "platform",
+      "ruleGroup": "node-memory",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "increase(node_vmstat_oom_kill{job=\"node\"}[10m])",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "0s",
+      "noDataState": "OK",
+      "execErrState": "KeepLast",
+      "labels": {
+        "severity": "critical",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "The kernel OOM-killed a process on the node in the last 10 minutes. Find the container with the runbook check. Upsize trigger 2.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "__dashboardUid__": "node-memory",
+        "__panelId__": "1"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "4h"
+      }
+    },
+    {
+      "uid": "node-metrics-absent",
+      "title": "NodeMetricsAbsent",
+      "folderUID": "platform",
+      "ruleGroup": "node-memory",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "count(up{job=~\"node|cadvisor\"} == 1) or vector(0)",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    2
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "10m",
+      "noDataState": "Alerting",
+      "execErrState": "Alerting",
+      "labels": {
+        "severity": "warning",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "Node or cAdvisor metrics stopped reaching Grafana Cloud for 10 minutes, so the memory alerts are blind. Check the Alloy pod (runbook: Metrics to Grafana Cloud).",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "24h"
+      }
+    }
+  ]
+}
