@@ -306,7 +306,9 @@ the bootstrap token (Account API Tokens: Edit), the only token made by hand and 
   shape to `~/Downloads/INFRA-133-imported-tokens.json` (`resources` as the exact compact string the API returns).
   The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`: to stop managing one,
   drop its entry and add a `removed { from = cloudflare_account_token.imported["<key>"] lifecycle { destroy = false } }`
-  block, or the plan refuses (and without the guard would delete the token at Cloudflare).
+  block, or the plan refuses (and without the guard would delete the token at Cloudflare). An imported token with an
+  expiry drops out of state once it expires and the next plan tries to create it with a past date: renew it (dashboard,
+  then update `expires_on` in the file) or remove it with a `removed` block before it expires.
 - **Rotate a token Terraform made:** HCP Terraform > `cloudflare-tokens` > New run > Plan and apply, with "Replace
   resources" set to that token. The new token is created, the consumer rewritten, then the old one deleted. Then start
   a plan on the consumer's workspace to prove it.

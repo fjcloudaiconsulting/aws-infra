@@ -61,7 +61,8 @@ locals {
 
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
   # object with two keys at one level can come back in another order and fail the apply. Keep one key per level:
-  # one policy per zone.
+  # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
+  # two zones with identical group lists could swap resources: keep their lists different (or merge the zones).
   cloudflare_workspace_policies = {
     # Managed zone: settings, records, rate limit (INFRA-123), origin pulls (INFRA-93).
     tbd = ["Zone Write", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write"]

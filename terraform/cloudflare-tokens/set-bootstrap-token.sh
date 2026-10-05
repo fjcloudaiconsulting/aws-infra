@@ -48,14 +48,18 @@ if d.get("result_info", {}).get("total_count", 0) > len(d["result"]):
     sys.exit("More than 50 account tokens: page through them before importing; nothing stored.")
 out, skipped = {}, []
 for t in d["result"]:
-    if t["id"] == me or t["name"].startswith("tf: "):
-        skipped.append(t["name"])
+    # Expired or exposed-and-revoked tokens drop out of the provider's state on read: an import of one fails the plan.
+    if t["id"] == me or t["name"].startswith("tf: ") or t.get("status") in ("expired", "revoked (exposed)"):
+        skipped.append("%s (%s)" % (t["name"], t.get("status")))
         continue
-    entry = {"id": t["id"], "name": t["name"], "policies": [
-        # resources as the exact compact string the API returns: the provider compares it byte for byte.
-        {"effect": p["effect"], "resources": json.dumps(p["resources"], separators=(",", ":")),
-         "permission_groups": [{"id": g["id"], "name": g.get("name", "")} for g in p["permission_groups"]]}
-        for p in t["policies"]]}
+    # The order the provider keeps after an import (sortPolicies in its custom.go): groups by id, policies by
+    # (effect, resources). Any other order plans an update of the imported token. resources is the exact compact
+    # string the API returns: the provider compares it byte for byte.
+    policies = [{"effect": p["effect"], "resources": json.dumps(p["resources"], separators=(",", ":")),
+                 "permission_groups": sorted(({"id": g["id"], "name": g.get("name", "")} for g in p["permission_groups"]),
+                                             key=lambda g: g["id"])}
+                for p in t["policies"]]
+    entry = {"id": t["id"], "name": t["name"], "policies": sorted(policies, key=lambda p: (p["effect"], p["resources"]))}
     for k in ("expires_on", "not_before"):
         if t.get(k):
             entry[k] = t[k]
