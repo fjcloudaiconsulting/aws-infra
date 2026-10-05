@@ -7,6 +7,7 @@ carries the table count and the SHA256 of the dump and grants files.
 | prefix | database | written by |
 |---|---|---|
 | `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
+| `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` |
 | `ziftbook-postgres/` | Postgres `ziftbook` | `data/db-backup` |
 | `pfv-data-01/` | MySQL `pfv2` (TBD on DigitalOcean until the INFRA-48 cutover; restores into `tbd`) | the DigitalOcean droplet |
 
@@ -27,7 +28,7 @@ There are two targets:
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019
-PREFIX=tbd-mysql   # or ziftbook-postgres, pfv-data-01
+PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, pfv-data-01
 M=$(aws s3api list-objects-v2 --bucket "$B" --prefix "$PREFIX/" \
   --query 'reverse(sort_by(Contents[?contains(Key, `/manifest_`)], &LastModified))[0].Key' --output text)
 aws s3 cp "s3://$B/$M" manifest.json && jq . manifest.json   # date, tables, both keys and SHA256s
@@ -109,9 +110,10 @@ Expect `/tmp/dump.sql.gz: OK` and `/tmp/grants.sql.gz: OK`. Anything else: stop,
 
 Grants first, so the data restore can reference the users.
 
-**MySQL** (`tbd-mysql`, `pfv-data-01`). The dump has no `CREATE DATABASE` or `USE` (dumped without
-`--databases`), so the droplet's `pfv2` dump loads into `tbd` as is; the grants use
-`CREATE USER IF NOT EXISTS`, so existing users keep their passwords.
+**MySQL** (`tbd-mysql`, `pfv-data-01`, `tbd-staging-mysql`). The dump has no `CREATE DATABASE` or `USE` (dumped
+without `--databases`), so the droplet's `pfv2` dump loads into `tbd` as is; the grants use
+`CREATE USER IF NOT EXISTS`, so existing users keep their passwords. For `tbd-staging-mysql`, write `tbd_staging`
+for every `tbd` database name in this step and in step 5, or the staging data lands in production's `tbd`.
 For `pfv-data-01`, drop the `gzip -dc /tmp/grants.sql.gz | mysql -uroot &&` line: the droplet
 writes password hashes as raw text, which MySQL rejects (`ERROR 1827`), and on the cluster the app
 users come from the `mysql` secret anyway.
