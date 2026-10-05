@@ -73,8 +73,7 @@ locals {
   }
 }
 
-# Token of the `cloudflare` workspace. It replaces the hand-made token `cloudflare-tfc` (left out of the imports and
-# deleted by hand once `cloudflare` plans clean with this one) with the same scopes,
+# Token of the `cloudflare` workspace. It replaces the hand-made user token `cloudflare-tfc` with the same scopes,
 # narrowed from "all zones" to the three zones Terraform uses. A new zone needs a policy here first (creating a zone
 # needs account-wide Zone Write, which this token no longer has).
 resource "cloudflare_account_token" "cloudflare_workspace" {

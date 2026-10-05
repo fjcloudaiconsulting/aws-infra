@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: scheduler
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.292.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.293.0
           env:
             - name: APP_ENV
               value: "production"
