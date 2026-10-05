@@ -47,6 +47,45 @@ Swap the namespace for `ziftbook-staging` or `data` (StatefulSets: `kubectl -n d
 release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
 automation.
 
+## Post-deploy smoke
+
+Every push to `main` that changes `clusters/platform/tbd-prod/` or `clusters/platform/ziftbook-staging/` runs the
+**Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
+reaches the apps through Cloudflare like a user. Per namespace:
+
+1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
+   endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
+   `dev.ziftbook.com/api/healthz`, which goes through the frontend to the backend. The Deployments use `Recreate`
+   with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
+   a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
+2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
+3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
+   health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
+   (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
+   reached. Ziftbook has no live smoke script yet (INFRA-120).
+
+Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
+pass closes it. The failure says which step failed:
+
+| Verdict | Meaning | Look at |
+|---|---|---|
+| `never converged (live X, expected Y)` | The new backend never served: Flux did not apply, the image did not pull, the migration or the pod crashed. `live none` means the app was down | [Follow Flux and rollouts](#follow-flux-and-rollouts): `flux get kustomizations`, `kubectl -n <namespace> get pods,events` |
+| `frontend GET / returned N` | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
+| `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` and the backend logs |
+| `could not fetch ...` | The GitHub API did not return the app's smoke script at that tag | The tag exists in the app repo, then re-run |
+| `bad backend tag` | The manifest has no plain `vX.Y.Z` backend tag | The manifest |
+
+Run it again, for example after a fix outside git: Actions > Post-deploy Smoke > Run workflow > branch `main`, choose the
+namespace. `gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does the same. Only `main` may use the
+`tbd-prod` environment, so a run from another branch fails before it starts.
+
+What it does not cover: the TBD scheduler and the Ziftbook worker have no public endpoint. They run the backend image
+and tag, so a tag that does not pull still shows as `never converged`. A GitHub Actions outage means no smoke; the Route
+53 uptime check and the daily release drift probe still run.
+
+The smoke account's credentials are the `tbd-prod` environment secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` in this
+repo. Deployments from `main` only can read them. Rotating them is part of [TBD smoke account](#tbd-smoke-account).
+
 ## Write or rotate a Kubernetes Secret
 
 Secrets are `clusters/**/<name>.secret.yaml`, SOPS-encrypted to the cluster's age key (`.sops.yaml`). Flux decrypts
@@ -167,7 +206,7 @@ TBD's post-deploy smoke test (`scripts/smoke-test.sh` in the tbd repo) logs in a
 email verified, **no MFA** by design (TBD-371, the script cannot answer a TOTP challenge). Its username is also the only
 entry of `FOUNDER_COUNT_EXCLUDE_USERNAMES`, so it is not counted as a founder.
 
-The credentials live in two places, kept equal:
+The credentials live in these places, kept equal:
 
 - `tbd-prod/tbd-smoke` (`clusters/platform/tbd-prod/tbd-smoke.secret.yaml`, SOPS), keys `username` and `password`. Anyone
   with cluster access reads them for a manual run:
@@ -178,14 +217,17 @@ The credentials live in two places, kept equal:
   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh; unset SU SP
   ```
 
+- aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the
+  [post-deploy smoke](#post-deploy-smoke).
 - tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), read only by the DigitalOcean deploy path;
-  deleted after INFRA-49 (configuration map, Actions secrets). From then on the cluster copy is the only one and the
-  rotation below skips `gh secret set`.
+  deleted after INFRA-49 (configuration map, Actions secrets). From then on the rotation below skips the tbd
+  `gh secret set`.
 
 **Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
 the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
 username=...`, expect 1 row), run the smoke test above with the new value, then `printf %s "$P" | gh secret set
-SMOKE_PASSWORD -R fjcloudaiconsulting/tbd` and rewrite `tbd-smoke.secret.yaml` with
+SMOKE_PASSWORD -R fjcloudaiconsulting/tbd`, `printf %s "$P" | gh secret set SMOKE_PASSWORD --env tbd-prod -R
+fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
 
@@ -298,6 +340,66 @@ until the new one is active.
    certificate per zone. Run the check, then delete the workspace variable `origin_pull_private_key_<N>`.
 6. Remove `origin-pull-ca-<N>` from `secretNames`. Merge. Delete its Secret file. Merge. Run the check and update the
    expiry row in the configuration map.
+
+## Metrics to Grafana Cloud (Alloy)
+
+One Grafana Alloy DaemonSet in `observability` (INFRA-85, design in [architecture.md](architecture.md), Telemetry)
+sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
+
+- **Node:** CPU, memory, load, pressure, disk I/O, OOM kills (`job="node"`), from the host's `/proc` and `/sys` (recursive
+  read-only mounts; the host's `/` is not mounted).
+- **Pods and k3s:** per-container CPU, memory, throttling, OOM events and pod network from cAdvisor, plus the whole node
+  (`id="/"`) and the k3s service (`id="/system.slice/k3s.service"`) (`job="cadvisor"`). Disk space is
+  `container_fs_usage_bytes` / `container_fs_limit_bytes{id="/",device="/dev/root"}`; PVCs are local-path directories
+  on that disk. Usage is against the full size, including ext4's reserved blocks (about 5%), so writes fail near 95%:
+  alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
+  Alloy's memory).
+- **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
+  and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  `exception.message` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr` from data point,
+  scope and resource attributes.
+
+Traces and logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
+a change there rolls the pod (the ConfigMap name carries a hash).
+
+**Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file
+`clusters/platform/observability/grafana-cloud.secret.yaml`. The token belongs to a Grafana Cloud access policy with the
+`metrics:write` scope only. To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
+Cloud access policies > the policy > Add token), regenerate the whole file (only the public key is needed), merge,
+restart, then delete the old token. The plaintext only passes through a pipe, never a file:
+
+```sh
+F=clusters/platform/observability/grafana-cloud.secret.yaml
+read -rs T; printf %s "$T" | kubectl create secret generic grafana-cloud -n observability \
+  --from-literal=otlp-endpoint='<OTLP endpoint>' --from-literal=instance-id='<Instance ID>' \
+  --from-file=token=/dev/stdin --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"; unset T
+grep -cE '(otlp-endpoint|instance-id|token): ENC\[' "$F"   # 3
+# After the merge (env is read at start):
+kubectl -n observability rollout restart ds/alloy
+```
+
+**Check** it is working:
+
+```sh
+kubectl -n observability get pods                 # alloy-xxxxx 1/1 Running; CreateContainerConfigError = Secret missing
+kubectl -n observability logs ds/alloy --since=10m | grep -E 'level=(error|warn)'
+# Nothing, or only "Failed to open directory, disabling udev device properties" once at start (harmless).
+# A pod that never starts with a recursiveReadOnly error: the runtime lacks recursive read-only mounts.
+# "401" or "Unauthorized" from otelcol.exporter.otlphttp: wrong token, instance ID or a revoked token.
+kubectl -n observability top pod                  # memory: limit 256Mi
+```
+
+In Grafana Cloud, Explore with the Prometheus data source: `up` shows one series per job (`node`, `cadvisor`),
+each 1. `sum by (namespace) (container_memory_working_set_bytes{container!=""})` shows memory per namespace.
+For the Alloy UI (pipeline graph, component health): `kubectl -n observability port-forward ds/alloy 12345`, then
+http://localhost:12345.
+
+**Memory:** measured locally (Alloy v1.20.1, this config, the node's real cAdvisor payload, no app traffic yet) at
+52 to 100 MiB working set: about 55 MiB anonymous memory plus up to about 45 MiB of the Alloy binary's page cache.
+Request 128Mi (headroom for app metrics), limit 256Mi, `GOMEMLIMIT` 200MiB. Scraping the kubelet's `/metrics` as well took it to 160 MiB. If `kubectl top` shows it near the limit, look
+for a new high-cardinality series in the app metrics before raising it.
 
 ## Uptime alarm emails during a TBD deploy
 

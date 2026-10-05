@@ -31,17 +31,16 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.20.4
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.21.0
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
           env:
             - name: ZIF_MIGRATE_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: ziftbook
                   key: migrate-database-url
-            - name: OTEL_TRACES_EXPORTER
-              value: none
-            - name: OTEL_LOGS_EXPORTER
-              value: none
           resources:
             requests:
               cpu: 20m
@@ -58,8 +57,11 @@ spec:
               mountPath: /tmp
       containers:
         - name: worker
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.20.4
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.21.0
           command: [python, -m, app.worker]
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
           env:
             - name: ZIF_DATABASE_URL
               valueFrom:
@@ -81,10 +83,6 @@ spec:
                   name: ziftbook-mailgun
                   key: api-key
                   optional: true
-            - name: OTEL_TRACES_EXPORTER
-              value: none
-            - name: OTEL_LOGS_EXPORTER
-              value: none
           resources:
             requests:
               cpu: 20m

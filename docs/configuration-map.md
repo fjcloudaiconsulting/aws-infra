@@ -1,7 +1,7 @@
 # Configuration map
 
 Settings that live **outside git**: GitHub org and repo settings, GitHub Apps, Mend Renovate, HCP
-Terraform, AWS, Cloudflare, the cluster's out-of-band secrets, Jira. They were set by hand in UIs and
+Terraform, AWS, Cloudflare, Grafana Cloud, the cluster's out-of-band secrets, Jira. They were set by hand in UIs and
 consoles, so git cannot show drift and a wrong value fails silently. This page says what is set, where,
 what depends on it, and how it shows when it breaks. Names only: secret values never go in this repo
 (it is public).
@@ -28,9 +28,11 @@ in the same PR or right after.
 | Ziftbook staging sends no mail (once ZIF-151 ships) | Secret `ziftbook-mailgun` (key `api-key`) missing (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Write `ziftbook-mailgun.secret.yaml` (INFRA-47 guide, part D), then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
 | Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by a CA in `kube-system/origin-pull-ca-<gen>`, or a listed Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
+| Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
+| No new metrics in Grafana Cloud | Alloy pod in `CreateContainerConfigError` (Secret `observability/grafana-cloud` missing), or the exporter logs `401` (token revoked, or wrong Instance ID) | `kubectl -n observability get pods`, `kubectl -n observability logs ds/alloy` | Write the Secret per the [runbook](runbooks.md#metrics-to-grafana-cloud-alloy), then `kubectl -n observability rollout restart ds/alloy` |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
 | tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. tbd#840 (INFRA-44, after INFRA-49) removes the DO jobs. Never restore the token except in a rollback |
 
@@ -108,7 +110,13 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
-- Ziftbook repo secret `CLOUDFLARE_API_TOKEN`: deploys the landing Worker. Scopes and rules:
+- **Environments `tbd-prod` and `ziftbook-staging`** (aws-infra, INFRA-114): the post-deploy smoke jobs run in them.
+  `tbd-prod`: deployment branches "Selected branches and tags", `main` only, no tag rule, no required reviewers;
+  secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` (the [TBD smoke account](#cluster-out-of-band-material)). A missing
+  secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `ziftbook-staging` holds nothing (a job
+  that names a missing environment creates it, without restrictions).
+- **Environment `landing`** (tbd and ziftbook, INFRA-60/INFRA-98): deployment branches `main` only; secret
+  `CLOUDFLARE_API_TOKEN`, a per-Worker token for that app's landing Worker. Scopes and rules:
   [Worker and Snippet access](#worker-and-snippet-access-infra-98).
 - Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
 - Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
@@ -127,7 +135,7 @@ Every GitHub secret or variable has a workflow on `main` that reads it; one with
 The app-template README carries the same rule for new apps.
 
 Inventory, 2026-10-04, every repo in the org (names from the API, consumers from `main`). Org level: no Actions secrets,
-Actions variables or Dependabot secrets. aws-infra, `.github` and app-template: none at any level
+Actions variables or Dependabot secrets. aws-infra (until INFRA-114's `tbd-prod` environment, row below), `.github` and app-template: none at any level
 (app-template's `ci.yml` reads the two `release` secrets, which each new repo sets per its checklist).
 tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copilot` and fjconsulting-website's environment `dev` hold nothing.
 
@@ -139,6 +147,7 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | stay while the apex is served from S3 and CloudFront (INFRA-60 moves it to a Worker) |
 | tbd | repo | secret `DIGITALOCEAN_ACCESS_TOKEN` | `deploy.yml`, `deploy-drift-probe.yml`, `release.yml` `deploy` | DigitalOcean only (holds a dummy since INFRA-48) | delete after INFRA-49, once tbd#840 (INFRA-44) removes its readers |
 | tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
+| aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
 | ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
 | ziftbook | repo | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline | stays |
 | fjconsulting-website | repo | secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `deploy-dev.yml` | pipeline | stays |
@@ -172,7 +181,7 @@ name is pinned in an AWS trust policy: never rename it.
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev). For origin pulls (INFRA-93) a separate policy grants SSL and Certificates: Edit on thebetterdecision.com and ziftbook.com only (it also lets the token issue certificates there), and Account Notifications: Edit for the expiry alert; variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev). For origin pulls (INFRA-93) a separate policy grants SSL and Certificates: Edit on thebetterdecision.com and ziftbook.com only (it also lets the token issue certificates there), and Account Notifications: Edit for the expiry alert. The rate limit (INFRA-123) needs Zone WAF: Edit on the same two zones; variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
@@ -222,6 +231,10 @@ own role.
   so the node serves no one but our zones: a direct connection, or another Cloudflare account's zone pointed at the
   node, fails the TLS handshake. The Route 53 health check is unaffected because it resolves a proxied hostname, so
   it goes through Cloudflare. The CA key was discarded after signing. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
+- Rate limit (INFRA-123, `terraform/cloudflare/rate_limit.tf`): a new sign-in or token endpoint in either app needs its
+  path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
+  zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
+  2026-10-04 on both app zones).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 
 ### Worker and Snippet access (INFRA-98)
@@ -239,16 +252,15 @@ outbound fetch (only its assets binding). One Pages project, `fjconsulting-websi
 hostname in that zone). One account member, the owner (Super Administrator).
 
 Who can put code on a zone (a Pages project with a custom domain on an app zone counts the same as a Worker).
-Scopes are what the dashboard shows (names only); `unread` until the owner reads them (guide
-`INFRA-98-owner-steps.md`):
+Scopes are what the dashboard shows (names only), as of 2026-10-05:
 
 | Principal | Held in | Can do today | Scopes |
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
 | `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | read 2026-10-04 (token `cloudflare-tfc`, no expiry, all IPs): thebetterdecision.com and ziftbook.com: SSL and Certificates Write, Zone WAF Write (INFRA-123); account: Notifications Write; all zones: Zone Settings Write, Zone Write, DNS Write. No Workers Scripts or Workers Routes, so it cannot add a Worker route |
-| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook repo secret, no environment: any workflow on any branch can read it | deploys `ziftbook-landing` and syncs its two custom domains from `landing/wrangler.jsonc` on each deploy | unread |
-| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60, not created yet) | target: tbd environment secret, `main` only | will deploy `tbd-landing` | target: Workers Editor, Specified Workers `tbd-landing` only |
-| Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | whatever was granted at consent; it gets 9109 on the API token lists | unread |
+| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Workers Editor, Specified Workers `ziftbook-landing` only |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (workers.dev preview until INFRA-61) | Workers Editor, Specified Workers `tbd-landing` only |
+| Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
 
 Rules:
 
@@ -259,7 +271,7 @@ Rules:
   of it, node hostnames included: Cloudflare tokens cannot be limited by hostname.
 - Custom domains are attached by the owner (or Terraform), not by CI, and are not declared in `wrangler.jsonc`: a
   per-Worker Editor deploys an existing Worker only while the deploy does not add, change or remove a route or
-  custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook still declares them (INFRA-113).
+  custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook stopped declaring them in ziftbook#181 (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
   (staging); after INFRA-61 `tbd-landing` (apex and www) -> `app.thebetterdecision.com` (production). Who can change
@@ -268,6 +280,17 @@ Rules:
   token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98: unrecorded.
 - No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
   `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
+
+## Grafana Cloud
+
+Made by hand by the owner (INFRA-85); the cluster side is `clusters/platform/observability/`. Procedures:
+[runbooks.md](runbooks.md#metrics-to-grafana-cloud-alloy).
+
+| Item | Where | Notes |
+|---|---|---|
+| Stack (EU region) | grafana.com Cloud Portal, the org's stack | Its OTLP endpoint (`https://otlp-gateway-prod-eu-<n>.grafana.net/otlp`) and Instance ID are keys `otlp-endpoint` and `instance-id` of Secret `observability/grafana-cloud` |
+| Access policy `k3s-alloy-metrics-write` | Grafana Cloud > Administration > Cloud access policies | Realm: the stack only. Scope `metrics:write` only; add `traces:write` and `logs:write` only when Alloy starts sending them (INFRA-105, INFRA-106, INFRA-110) |
+| Token `alloy-platform-node` on that policy | Key `token` of Secret `observability/grafana-cloud` (`clusters/platform/observability/grafana-cloud.secret.yaml`, a whole new file each time) | No expiry; rotate on suspicion. Write-only: it cannot read or delete data |
 
 ## DigitalOcean (rollback target until INFRA-49)
 
@@ -291,7 +314,7 @@ State left by the INFRA-48 cutover window, all by hand. Undo it only to roll bac
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values come from the DigitalOcean app (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed: procedure in [tbd-cutover.md](tbd-cutover.md#1-write-the-tbd-secret-owner-before-the-rehearsal-about-30-minutes), which also checks it by fingerprint against DigitalOcean. A rotated MySQL app or Valkey password must be written here too |
-| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), and tbd Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` until INFRA-99 deletes them after INFRA-49 ([Actions secrets](#actions-secrets-and-variables)) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). While both stores exist they must hold the same values; the cluster copy is the readable one and the only one kept. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
+| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114), and tbd Actions secrets of the same names until INFRA-99 deletes them after INFRA-49 ([Actions secrets](#actions-secrets-and-variables)) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, later TBD staging) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
 | k3s node name (after an upsize) | `node-name:` in `/etc/rancher/k3s/config.yaml` on the node, added by hand in [the upsize runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2; `node-init.sh.tftpl` does not write it | Keeps the old name (`ip-172-26-3-190`) on a new instance, since every local-path volume is pinned to it. Configuration management (INFRA-64) must keep it |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |
@@ -312,5 +335,6 @@ commit body only.
 | Origin CA certificates (one per zone: thebetterdecision.com, ziftbook.com) | see Cloudflare dashboard of each zone | Issue, re-encrypt `origin-cert.secret.yaml` or `origin-cert-ziftbook.secret.yaml` (namespace `kube-system`), push |
 | Origin pull client certificate, generation 1 (one leaf for both zones) and its CA (INFRA-93) | leaf 2036-10-01, CA 10 days later (`openssl x509 -in terraform/cloudflare/origin-pull/1.crt -noout -enddate`). Cloudflare emails 30 and 14 days before (`cloudflare_notification_policy.origin_pull_expiry`) | New CA and leaf, Traefik trusts both during the swap: [runbook](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
+| Grafana Cloud token `alloy-platform-node` | no expiry, rotate on suspicion | Grafana Cloud section |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
