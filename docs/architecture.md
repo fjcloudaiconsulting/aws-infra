@@ -11,7 +11,7 @@ flowchart LR
   subgraph cloudflare["Cloudflare (terraform/cloudflare)"]
     cf["DNS and proxy<br/>thebetterdecision.com: Full strict"]
   end
-  worker["Worker ziftbook-landing<br/>ziftbook.com apex and www<br/>(not managed in this repo)"]
+  worker["Workers ziftbook-landing, tbd-landing<br/>ziftbook.com apex and www, thebetterdecision.com apex<br/>(code in the app repos)"]
   cf --> worker
 
   subgraph aws_platform["AWS eu-central-1 (terraform/platform)"]
@@ -53,7 +53,7 @@ flowchart LR
   hc --> cf
 
   subgraph oldacct["Old AWS account (terraform/tbd-apex)"]
-    apex["TBD apex site: S3 + CloudFront"]
+    apex["TBD apex site: S3 + CloudFront<br/>(rollback only since INFRA-61, until INFRA-62)"]
   end
 
   subgraph control["Control plane"]
@@ -78,8 +78,10 @@ certificate covers one zone, so `TLSStore default` holds one per zone (`origin-c
 default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
 [runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
-endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), managed outside this
-repo.
+endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
+thebetterdecision.com apex is the Worker `tbd-landing`; their code and deploys live in the app repos, and their custom
+domains are attached by hand ([configuration-map.md](configuration-map.md#worker-and-snippet-access-infra-98)).
+`www.thebetterdecision.com` is a proxied record that a redirect rule in `terraform/cloudflare` sends to the apex (301).
 
 Both app zones rate-limit the apps' sign-in and token endpoints at the edge (INFRA-123): more than 20 requests in 10 s
 from one IP (per Cloudflare data center) to those paths gets a 429 from Cloudflare for 10 s, which caps the volume one

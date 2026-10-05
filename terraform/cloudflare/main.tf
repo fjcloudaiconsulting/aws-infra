@@ -30,7 +30,9 @@ variable "account_id" {
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
 # Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
-# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48).
+# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), and `www` (INFRA-61).
+# The apex is the Worker `tbd-landing` since INFRA-61: a custom domain attached by hand, whose own read-only
+# record is not managed here (docs/configuration-map.md, Worker and Snippet access).
 resource "cloudflare_zone" "tbd" {
   account = { id = var.account_id }
   name    = "thebetterdecision.com"
@@ -43,9 +45,10 @@ resource "cloudflare_zone" "tbd" {
 
 locals {
   tbd_records = {
-    # Apex + www: Route 53 A/AAAA aliases to CloudFront become CNAMEs (flattened at the apex).
-    apex = { name = "thebetterdecision.com", type = "CNAME", content = "d1vhzkck8shsp8.cloudfront.net", ttl = 300 }
-    www  = { name = "www.thebetterdecision.com", type = "CNAME", content = "d1vhzkck8shsp8.cloudfront.net", ttl = 300 }
+    # www: proxied only so the redirect rule below (tbd_www) can answer it; Cloudflare never fetches this target.
+    # It stays the CloudFront name so the change is in place, and if the rule is ever off CloudFront still sends
+    # its own 301 to the apex. INFRA-62 must retarget it before deleting the distribution.
+    www = { name = "www.thebetterdecision.com", type = "CNAME", content = "d1vhzkck8shsp8.cloudfront.net", ttl = 1, proxied = true }
 
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }
 
@@ -81,8 +84,37 @@ resource "cloudflare_dns_record" "tbd" {
   proxied  = try(each.value.proxied, false)
 }
 
+# www -> apex, 301, path and query kept (INFRA-61; CloudFront did the same). A zone rule rather than Worker code: the
+# Worker would have to run first on every request (run_worker_first) to see the host, and every asset hit would then
+# count against the Free plan's Worker requests. Free allows 10 such rules per zone. A rule added in the dashboard is
+# drift that the next apply removes. The workspace token needs Zone > Single Redirect > Edit on this zone.
+resource "cloudflare_ruleset" "tbd_redirects" {
+  zone_id = cloudflare_zone.tbd.id
+  name    = "default"
+  kind    = "zone"
+  phase   = "http_request_dynamic_redirect"
+
+  rules = [{
+    ref         = "www_to_apex"
+    description = "www to the apex, 301, keeps path and query (INFRA-61)"
+    expression  = "(http.host eq \"www.thebetterdecision.com\")"
+    action      = "redirect"
+    enabled     = true
+    action_parameters = {
+      from_value = {
+        status_code           = 301
+        preserve_query_string = true
+        target_url = {
+          expression = "concat(\"https://thebetterdecision.com\", http.request.uri.path)"
+        }
+      }
+    }
+  }]
+}
+
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com (dev), thebetterdecision.com (ping, and `app` since the INFRA-48 cutover).
+# hostnames: ziftbook.com (dev, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, apex and
+# www since INFRA-61).
 # ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
   filter = { name = "ziftbook.com", account = { id = var.account_id } }
@@ -98,7 +130,8 @@ locals {
     always_use_https = "on"
     # HSTS without includeSubDomains or preload, so a host that cannot do HTTPS stays reachable
     # and backing out is max_age = 0 (browsers keep the old max_age until they revisit).
-    # One year (INFRA-75): the zone header overrides the ziftbook landing worker's, whose smoke expects it.
+    # One year (INFRA-75): the zone header overrides the landing Workers' own (ziftbook's smoke expects it). On the TBD
+    # apex it replaces the two years with includeSubDomains and preload that CloudFront sent (INFRA-61).
     security_header = {
       strict_transport_security = {
         enabled            = true
