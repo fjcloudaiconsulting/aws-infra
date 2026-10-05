@@ -50,7 +50,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.291.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.291.2
           env:
             - name: APP_ENV
               value: production
@@ -90,7 +90,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.2
           ports:
             - containerPort: 8000
           env:
