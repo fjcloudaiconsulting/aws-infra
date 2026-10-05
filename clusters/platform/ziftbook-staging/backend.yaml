@@ -67,7 +67,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.21.0
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.20.99
           ports:
             - containerPort: 8000
           envFrom:
