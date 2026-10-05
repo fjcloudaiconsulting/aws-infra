@@ -50,13 +50,14 @@ locals {
   # Permission group ids are global and survive renames (the dashboard's "Single Redirect" is the API's
   # "Dynamic URL Redirects"). A wrong id fails the apply with a 400 before any consumer is touched.
   pg = {
-    "DNS Write"                  = "4755a26eedb94da69e1066d98aa820be"
-    "Notifications Write"        = "c3c847c5802d4ce3ba00e3e97b3c8555"
-    "SSL and Certificates Write" = "c03055bc037c4ea9afb9a9f104b7b721"
-    "Zone Read"                  = "c8fed203ed3043cba015a93ad1616f1f"
-    "Zone Settings Write"        = "3030687196b94b638145a3953da2b699"
-    "Zone WAF Write"             = "fb6778dc191143babbfaa57993f1d275"
-    "Zone Write"                 = "e6d2666161e84845a636613608cee8d5"
+    "DNS Write"                   = "4755a26eedb94da69e1066d98aa820be"
+    "Dynamic URL Redirects Write" = "74e1036f577a48528b78d2413b40538d"
+    "Notifications Write"         = "c3c847c5802d4ce3ba00e3e97b3c8555"
+    "SSL and Certificates Write"  = "c03055bc037c4ea9afb9a9f104b7b721"
+    "Zone Read"                   = "c8fed203ed3043cba015a93ad1616f1f"
+    "Zone Settings Write"         = "3030687196b94b638145a3953da2b699"
+    "Zone WAF Write"              = "fb6778dc191143babbfaa57993f1d275"
+    "Zone Write"                  = "e6d2666161e84845a636613608cee8d5"
   }
 
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
@@ -64,8 +65,8 @@ locals {
   # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
   # two zones with identical group lists could swap resources: keep their lists different (or merge the zones).
   cloudflare_workspace_policies = {
-    # Managed zone: settings, records, rate limit (INFRA-123), origin pulls (INFRA-93).
-    tbd = ["Zone Write", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write"]
+    # Managed zone: settings, records, rate limit (INFRA-123), origin pulls (INFRA-93), www redirect rule (INFRA-61).
+    tbd = ["Zone Write", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write", "Dynamic URL Redirects Write"]
     # Zone read by a data source; its settings, `dev` record, rate limit and origin pulls are managed.
     ziftbook = ["Zone Read", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write"]
     # Zone read by a data source; only the shared dev Mailgun records `m.` are managed (INFRA-47).
