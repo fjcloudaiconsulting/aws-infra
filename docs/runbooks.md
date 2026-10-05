@@ -307,7 +307,8 @@ the bootstrap token (Account API Tokens: Edit), the only token made by hand and 
   The PR's plan must show the import and no change. Imported tokens have `prevent_destroy`, so dropping an entry makes
   the plan fail instead of deleting the token at Cloudflare. To stop managing one (Terraform rejects `removed` on a
   single `for_each` instance), use two PRs, each applied:
-  1. Drop the entry, add a standalone `resource "cloudflare_account_token" "leaving"` with the same arguments, and
+  1. Drop the entry, add a standalone `resource "cloudflare_account_token" "leaving"` with exactly the entry's values
+     (same policy and permission group order, `resources` strings copied verbatim), and
      `moved { from = cloudflare_account_token.imported["<key>"] to = cloudflare_account_token.leaving }` (one argument
      per line). Plan: the move, 0 to change.
   2. Delete that resource and the `moved` block, add `removed { from = cloudflare_account_token.leaving }` with
