@@ -21,6 +21,7 @@ How to do the recurring changes (write or rotate a Secret, add a hostname or zon
 | `terraform/<stack>/` | One Terraform root per HCP Terraform workspace (org `FlamaCorp`) | HCP Terraform VCS flow: plan on PR, apply on merge after approval in the TFC UI |
 | `clusters/<cluster>/` | Kubernetes manifests | Flux, reconciling `main` |
 | `aws/bootstrap/` | IAM trust and permission documents for the HCP Terraform roles (a workspace never manages its own role) | Root, once by CLI; see each stack's README |
+| `grafana/` | Grafana Cloud alert rules, contact point and dashboard (API payloads) | By hand through the Grafana API after merge, see [runbooks](docs/runbooks.md#memory-alerts) |
 
 ## Rules
 
