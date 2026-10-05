@@ -49,14 +49,14 @@
         }
       ],
       "for": "30m",
-      "noDataState": "OK",
+      "noDataState": "KeepLast",
       "execErrState": "KeepLast",
       "labels": {
         "severity": "warning",
         "component": "node"
       },
       "annotations": {
-        "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 20% (768Mi on the 4 GB node) for 30 minutes. Upsize trigger 1.",
+        "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 20% (766Mi on the 4 GB node) for 30 minutes. Upsize trigger 1.",
         "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
         "__dashboardUid__": "node-memory",
         "__panelId__": "1"
@@ -114,7 +114,7 @@
         }
       ],
       "for": "5m",
-      "noDataState": "OK",
+      "noDataState": "KeepLast",
       "execErrState": "KeepLast",
       "labels": {
         "severity": "critical",
@@ -178,8 +178,8 @@
           }
         }
       ],
-      "for": "1m",
-      "noDataState": "OK",
+      "for": "0s",
+      "noDataState": "KeepLast",
       "execErrState": "KeepLast",
       "labels": {
         "severity": "critical",
@@ -317,7 +317,7 @@
       },
       "annotations": {
         "summary": "Node or cAdvisor metrics stopped reaching Grafana Cloud for 10 minutes, so the memory alerts are blind. Check the Alloy pod (runbook: Metrics to Grafana Cloud).",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize"
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#metrics-to-grafana-cloud-alloy"
       },
       "notification_settings": {
         "receiver": "owner-email",
