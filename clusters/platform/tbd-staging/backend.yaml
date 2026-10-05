@@ -86,7 +86,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.291.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.292.2
           ports:
             - containerPort: 8000
           env:
