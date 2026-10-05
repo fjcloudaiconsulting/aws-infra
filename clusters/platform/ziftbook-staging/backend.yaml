@@ -41,7 +41,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.20.4
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.21.0
           envFrom:
             - configMapRef:
                 name: otel # otel.yaml
