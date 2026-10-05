@@ -28,6 +28,7 @@ in the same PR or right after.
 | TBD staging backend stuck in `Init` (migrate restarts with "Access denied" or "Unknown database") | The `tbd_staging` database or user does not exist, or its password differs from `tbd-staging/tbd` `database-url` | `kubectl -n tbd-staging logs deploy/backend -c migrate` | Rerun [MySQL database per app environment](runbooks.md#mysql-database-per-app-environment); it is idempotent and resets the password |
 | TBD staging pods in `CreateContainerConfigError` | Secret `tbd-captcha` (keys `site-key`, `secret`) missing | `kubectl -n tbd-staging describe pod` | Cloudflare dashboard > Turnstile > widget `tbd-staging` (hostname `dev.thebetterdecision.com`): write its site key and secret key as keys `site-key` and `secret` of a new `tbd-staging/tbd-captcha.secret.yaml`, as in [runbooks.md](runbooks.md#write-or-rotate-a-kubernetes-secret) |
 | Ziftbook staging sends no mail (once ZIF-151 ships) | Secret `ziftbook-mailgun` (key `api-key`) missing (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Write `ziftbook-mailgun.secret.yaml` (INFRA-47 guide, part D), then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
+| `cloudflare` plan fails with Cloudflare `Authentication error` | Token `tf: cloudflare workspace` was deleted, rolled in the dashboard, or the variable was overwritten by hand | Workspace `cloudflare-tokens` | A deleted token: plan and apply there, it is recreated and the variable rewritten. Rolled, or the variable overwritten: neither shows in a plan, so start a run with Replace resources = `cloudflare_account_token.cloudflare_workspace`. Change token scopes only in `terraform/cloudflare-tokens` |
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
 | Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by a CA in `kube-system/origin-pull-ca-<gen>`, or a listed Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
@@ -152,7 +153,8 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
 | aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
 | ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
-| ziftbook | repo | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline | stays |
+| tbd | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `apex-deploy.yml` `deploy-worker` | pipeline; token `tbd-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
+| ziftbook | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline; token `ziftbook-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
 | fjconsulting-website | repo | secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `deploy-dev.yml` | pipeline | stays |
 
 `GHCR_READ_TOKEN` is a Mend org secret, not a GitHub one (see [Mend Renovate](#mend-renovate)). No app
@@ -178,14 +180,15 @@ Hosted Mend app, Free plan, repos selected at
 
 ## HCP Terraform
 
-Org `FlamaCorp`. Workspaces are created by the owner in the UI (VCS flow, plan on PR, apply on merge
-after approval in the UI). The workspace name must equal the `cloud` block name, and the `tbd-backups`
+Org `FlamaCorp`. Workspaces are created in the UI or through the API with the owner's token (VCS flow, plan on PR,
+apply on merge after approval in the UI). The workspace name must equal the `cloud` block name, and the `tbd-backups`
 name is pinned in an AWS trust policy: never rename it.
 
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN` (account-scoped, must cover zones thebetterdecision.com, ziftbook.com and fjconsulting.dev). For origin pulls (INFRA-93) a separate policy grants SSL and Certificates: Edit on thebetterdecision.com and ziftbook.com only (it also lets the token issue certificates there), and Account Notifications: Edit for the expiry alert. The rate limit (INFRA-123) needs Zone WAF: Edit on the same two zones; variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN`, written by `cloudflare-tokens` (token `tf: cloudflare workspace`; its scopes are `cloudflare_account_token.cloudflare_workspace` there, never edit them in the dashboard); variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
+| `cloudflare-tokens` (INFRA-133) | `terraform/cloudflare-tokens` | Env `CLOUDFLARE_API_TOKEN` (**sensitive**): the bootstrap token, the one hand-made Cloudflare token (account-owned, Account API Tokens: Edit only, stored by the owner with a script that checks it first). It can mint any token, so treat it as account admin: only this workspace holds it, and the workspace does not manage it. Env `TFE_TOKEN` (**sensitive**): token of team `cloudflare-tokens`, custom access on workspace `cloudflare` only (variables write, runs read). Its state holds the value of every token it creates: remote state sharing off, destroy plans off, auto-apply off. Any in-repo branch whose PR touches `terraform/cloudflare-tokens/**` plans with these credentials (a `data "external"` there could read them), so only the owner and his agents push there, and Renovate needs dashboard approval for it; HCP Terraform never plans fork PRs |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `tbd-apex` | `terraform/tbd-apex` | Old AWS account: `TFC_AWS_RUN_ROLE_ARN` by design, variables `domain`, `aws_region`, `aws_account_id`; see its README |
 
@@ -240,6 +243,11 @@ own role.
   zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
   2026-10-04 on both app zones).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
+- API tokens (INFRA-133): every account-owned token is managed by `terraform/cloudflare-tokens` (workspace
+  `cloudflare-tokens`), except the bootstrap token that workspace runs with. Change a scope there, never in the
+  dashboard: the next plan shows a hand edit as drift and the apply reverts it. User tokens (My Profile > API Tokens)
+  are out of reach: an account-owned token cannot read or manage them. After the cutover no automation uses one.
+  Procedures: [runbooks.md](runbooks.md#cloudflare-api-tokens).
 
 ### Worker and Snippet access (INFRA-98)
 
@@ -261,9 +269,10 @@ Scopes are what the dashboard shows (names only), as of 2026-10-05:
 | Principal | Held in | Can do today | Scopes |
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | read 2026-10-04 (token `cloudflare-tfc`, no expiry, all IPs): thebetterdecision.com and ziftbook.com: SSL and Certificates Write, Zone WAF Write (INFRA-123); account: Notifications Write; all zones: Zone Settings Write, Zone Write, DNS Write. No Workers Scripts or Workers Routes, so it cannot add a Worker route |
-| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Workers Editor, Specified Workers `ziftbook-landing` only |
-| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (workers.dev preview until INFRA-61) | Workers Editor, Specified Workers `tbd-landing` only |
+| Bootstrap token (INFRA-133) | HCP Terraform workspace `cloudflare-tokens`, env var `CLOUDFLARE_API_TOKEN`; that workspace's PR plans run provider code with it | mints, edits and deletes any account-owned token, so indirectly everything | Account API Tokens Write only. The only hand-made Cloudflare token |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write; ziftbook.com: the same with Zone Read instead of Zone Write; fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. Until the INFRA-133 cutover the hand-made user token `cloudflare-tfc` (all zones: Zone, Zone Settings, DNS Write; the two app zones: SSL and Certificates, Zone WAF Write; account: Notifications Write) is still the one in use |
+| Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Individual Workers Editor on `ziftbook-landing` only; token `ziftbook-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (workers.dev preview until INFRA-61) | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
 
 Rules:
@@ -344,5 +353,7 @@ commit body only.
 | Origin pull client certificate, generation 1 (one leaf for both zones) and its CA (INFRA-93) | leaf 2036-10-01, CA 10 days later (`openssl x509 -in terraform/cloudflare/origin-pull/1.crt -noout -enddate`). Cloudflare emails 30 and 14 days before (`cloudflare_notification_policy.origin_pull_expiry`) | New CA and leaf, Traefik trusts both during the swap: [runbook](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | Grafana Cloud token `alloy-platform-node` | no expiry, rotate on suspicion | Grafana Cloud section |
+| Cloudflare account-owned tokens (all managed by `cloudflare-tokens`) | per token; `expires_on` in `terraform/cloudflare-tokens` | [runbook](runbooks.md#cloudflare-api-tokens). A token Terraform made gets a replace run, its consumer is rewritten in the same apply; an imported one needs its consumer wired in Terraform first |
+| Cloudflare bootstrap token, HCP Terraform team token `cloudflare-tokens` | no expiry, rotate on suspicion | [runbook](runbooks.md#cloudflare-api-tokens) |
 | AWS credits | 2027-08-27 | README, AWS credits |
 | Root `aws login` session | hours | `aws login --profile tbd` |
