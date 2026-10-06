@@ -29,6 +29,9 @@ cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019
 PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, ziftbook-prod-postgres
+# Ziftbook only: the database, the app namespace and the bootstrap Job that go with the set.
+ZDB=ziftbook ZNS=ziftbook-staging ZJOB=ziftbook-bootstrap                 # ziftbook-postgres
+# ZDB=ziftbook_prod ZNS=ziftbook-prod ZJOB=ziftbook-prod-bootstrap        # ziftbook-prod-postgres
 M=$(aws s3api list-objects-v2 --bucket "$B" --prefix "$PREFIX/" \
   --query 'reverse(sort_by(Contents[?contains(Key, `/manifest_`)], &LastModified))[0].Key' --output text)
 aws s3 cp "s3://$B/$M" manifest.json && jq . manifest.json   # date, tables, both keys and SHA256s
@@ -122,7 +125,7 @@ kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
   gzip -dc /tmp/dump.sql.gz | mysql -uroot tbd && echo restored'
 ```
 
-**Postgres** (`ziftbook-postgres`). The globals recreate every role, so `role "postgres" already
+**Postgres** (`ziftbook-postgres`, `ziftbook-prod-postgres`). The globals recreate every role, so `role "postgres" already
 exists` is the one expected error; the dump carries its own `CREATE DATABASE`.
 
 ```bash
@@ -167,13 +170,13 @@ skips tables owned by extensions.
 
 ```bash
 jq .tables manifest.json
-pg -d ziftbook <<'SQL'
+pg -d "$ZDB" <<'SQL'
 SELECT count(*) FROM pg_tables t WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND NOT EXISTS
   (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.deptype = 'e'
     AND d.objid = format('%I.%I', t.schemaname, t.tablename)::regclass);
 SELECT rolname FROM pg_roles WHERE rolname NOT LIKE 'pg\_%' ORDER BY 1;
 SQL
-pg -d ziftbook <<'SQL' | pg -d ziftbook
+pg -d "$ZDB" <<'SQL' | pg -d "$ZDB"
 SELECT format('SELECT %L, count(*) FROM %I.%I;', schemaname || '.' || tablename, schemaname, tablename)
 FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1;
 SQL
@@ -197,18 +200,19 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    kubectl -n data patch cronjob db-backup -p '{"spec":{"suspend":true}}'
    ```
 
-   Then scale the app Deployments in `tbd-prod`, `tbd-staging` (both use MySQL) or `ziftbook-staging` to 0.
+   Then scale the app Deployments in `tbd-prod`, `tbd-staging` (both use MySQL) or `$ZNS` (Ziftbook) to 0.
 2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`).
-3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d ziftbook` block) must
+3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d "$ZDB"` block) must
    print `0`. Anything else: stop and decide; never drop a database on reflex.
-4. Postgres only: the entrypoint created an empty `ziftbook` that the dump's `CREATE DATABASE`
-   would collide with. With the gate at `0`: `pg -d postgres -c 'DROP DATABASE ziftbook'`.
+4. Postgres only: the entrypoint (`ziftbook`) or the bootstrap Job (`ziftbook_prod`) created an empty `$ZDB` that the dump's `CREATE DATABASE`
+   would collide with. With the gate at `0`: `pg -d postgres -c "DROP DATABASE $ZDB"`. The other
+   Ziftbook database on the same server stays as it is.
 5. Step 4.
    - MySQL: the entrypoint and `10-backup-user.sh` created `tbd_app` and `tbd_backup` from the
      `mysql` secret, and `IF NOT EXISTS` leaves them as they are.
    - Postgres: the entrypoint creates only `postgres`, so the globals bring back every role **with
      its password as of that night**, `postgres` included. Make the secrets authoritative again:
-     `kubectl -n data delete job ziftbook-bootstrap` (Flux recreates it on resume and it resets the
+     `kubectl -n data delete job "$ZJOB"` (Flux recreates it on resume and it resets the
      app passwords). If `admin-password` changed after that night, set it from
      the pod's env (the value never leaves the pod):
 
@@ -222,7 +226,7 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    Postgres (`POD=postgres-0`):
 
    ```bash
-   pg -d ziftbook -c 'TRUNCATE sessions; DELETE FROM email_tokens; UPDATE invites SET token_hash = NULL'
+   pg -d "$ZDB" -c 'TRUNCATE sessions; DELETE FROM email_tokens; UPDATE invites SET token_hash = NULL'
    ```
 
    TBD keeps its sessions in Valkey until INFRA-122, which adds its tables here. Jobs that ran after

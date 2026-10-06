@@ -1,6 +1,5 @@
 # Nightly dumps of TBD MySQL (production and, since INFRA-67, staging) and Ziftbook Postgres (staging and, since INFRA-82,
-# production) to the Object Lock
-# bucket (terraform/tbd-backups).
+# production) to the Object Lock bucket (terraform/tbd-backups).
 # Each dump init container exits 0 and writes <set>.ok (its upload list) only when its dump verifies;
 # upload sends each verified set dump, grants, manifest (manifest last, so the probe sees only complete
 # nights) and fails the Job if a set is missing. Run now: kubectl -n data create job --from=cronjob/db-backup db-backup-manual
