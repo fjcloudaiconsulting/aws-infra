@@ -123,27 +123,42 @@ first (`export SOPS_AGE_KEY_FILE=<path to the key file>`), then `sops edit <file
 
 ## Ziftbook production secrets
 
-`ziftbook-prod/ziftbook` and the namespace's `ghcr-pull` are staging's values with the namespace and the database name
-changed (the roles and their passwords are shared, [Postgres roles](configuration-map.md#cluster-out-of-band-material)),
-so they are derived from the staging files, never typed. Needs the offline key. From the repo root; nothing is printed
-except the two counts, which must be `2` and `1`:
+Three files, none typed by hand. Production has its own Postgres login roles (`ziftbook_prod_app`,
+`ziftbook_prod_migrate`, see `data/postgres-bootstrap-prod.yaml`), so `data/postgres-ziftbook-prod` (their passwords, read
+by the bootstrap Job) and `ziftbook-prod/ziftbook` (the two connection URLs) are generated together, from fresh random
+passwords, with the public key only. Run from the repo root in bash; nothing is printed except the two counts (3 each:
+two values and the MAC):
 
 ```sh
+set -euo pipefail
+PM=$(openssl rand -hex 32); PA=$(openssl rand -hex 32); H=postgres.data.svc.cluster.local
+enc() { sops encrypt --filename-override "$1" --input-type yaml --output-type yaml /dev/stdin > "$1.tmp" && mv "$1.tmp" "$1"; }
+printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: postgres-ziftbook-prod\n  namespace: data\ntype: Opaque\nstringData:\n  migrate-password: %s\n  app-password: %s\n' "$PM" "$PA" \
+  | enc clusters/platform/data/postgres-ziftbook-prod.secret.yaml
+printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: ziftbook\n  namespace: ziftbook-prod\ntype: Opaque\nstringData:\n  database-url: postgresql+psycopg://ziftbook_prod_app:%s@%s:5432/ziftbook_prod\n  migrate-database-url: postgresql+psycopg://ziftbook_prod_migrate:%s@%s:5432/ziftbook_prod\n' "$PA" "$H" "$PM" "$H" \
+  | enc clusters/platform/ziftbook-prod/ziftbook.secret.yaml
+unset PM PA
+grep -c 'ENC\[' clusters/platform/data/postgres-ziftbook-prod.secret.yaml clusters/platform/ziftbook-prod/ziftbook.secret.yaml
+```
+
+To rotate, run it again and commit both files; Flux does not rerun the bootstrap Job for a Secret change: delete it
+(`kubectl -n data delete job ziftbook-prod-bootstrap`, Flux recreates it), then restart `deploy/backend` and
+`deploy/worker` in `ziftbook-prod`.
+
+The namespace's `ghcr-pull` is staging's credential, which only the offline key can read, so it is derived from the
+staging file (owner, needs `SOPS_AGE_KEY_FILE`); it prints `1`:
+
+```sh
+set -euo pipefail
 export SOPS_AGE_KEY_FILE=<path to the key file>
-F=clusters/platform/ziftbook-prod/ziftbook.secret.yaml
-sops -d clusters/platform/ziftbook-staging/ziftbook.secret.yaml \
-  | sed -E 's#/ziftbook$#/ziftbook_prod#; s#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
-  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
-sops -d "$F" | grep -c '/ziftbook_prod$'
 G=clusters/platform/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
 sops -d clusters/platform/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
   | sed -E 's#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
-  | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G"
+  | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G.tmp" && mv "$G.tmp" "$G"
 sops -d "$G" | grep -c 'namespace: ziftbook-prod$'
 ```
 
-Commit both files. Until they are merged the production pods wait (`CreateContainerConfigError`, `ImagePullBackOff`)
-and start by themselves once Flux applies them. A rotated Ziftbook role password must be redone here too.
+Until the pull secret is merged the production pods wait (`ImagePullBackOff`) and start by themselves once Flux applies it.
 
 ## MySQL database per app environment
 

@@ -1,13 +1,16 @@
 # Ziftbook production database (INFRA-82): the same bootstrap as ziftbook-bootstrap (postgres-bootstrap.yaml, same
 # pinned bootstrap.sql), run against its own database `ziftbook_prod`, created here first (CREATE DATABASE has no IF NOT
-# EXISTS, so the check is a query). Roles are cluster-wide and the Ziftbook migrations name them (ziftbook_app,
-# ziftbook_migrate), so production shares both roles, and their passwords, with staging: the same postgres Secret keys,
-# so the ALTER ROLE in bootstrap.sql changes nothing. Isolation between the two databases is therefore by database, not
-# by credential: staging's connection strings would open production's data too. Own roles per environment need the
-# role names in the Ziftbook migrations to become settings first.
+# EXISTS, so the check is a query). The Ziftbook migrations hardcode the role names ziftbook_app and ziftbook_migrate,
+# and roles are cluster-wide, so bootstrap.sql reuses staging's two roles (the same postgres Secret keys: its ALTER ROLE
+# changes nothing). Production's applications do not log in as them. Two login roles of its own, ziftbook_prod_app and
+# ziftbook_prod_migrate (passwords: Secret postgres-ziftbook-prod), are members of those roles without inheriting, and
+# default to SET ROLE to them at login, so every statement runs as ziftbook_app or ziftbook_migrate (ownership, default
+# privileges and RLS as the migrations expect) while the connect check is made against the login role. Then CONNECT on
+# ziftbook_prod is taken from PUBLIC and the shared roles and given to the two login roles only, and PUBLIC loses CONNECT
+# on staging's `ziftbook`: staging's credentials cannot open production, and production's cannot open staging.
 # Ordering: Flux applies everything in one batch. The production backend and worker retry their migrate init container
-# until this Job has created the database, so no ordering between them is needed. Rotation and failure notes: see
-# postgres-bootstrap.yaml.
+# until this Job has created the database and roles, so no ordering between them is needed. Rotation and failure notes:
+# see postgres-bootstrap.yaml.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -61,7 +64,32 @@ spec:
               until pg_isready -q; do sleep 2; done
               psql -v ON_ERROR_STOP=1 -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = 'ziftbook_prod'" | grep -q 1 ||
                 psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ziftbook_prod'
-              exec psql -v ON_ERROR_STOP=1 -f /work/bootstrap.sql
+              psql -v ON_ERROR_STOP=1 -f /work/bootstrap.sql
+              exec psql -v ON_ERROR_STOP=1 <<'SQL'
+              \getenv prod_migrate_password ZIF_PROD_MIGRATE_PASSWORD
+              \getenv prod_app_password ZIF_PROD_APP_PASSWORD
+
+              SELECT 'CREATE ROLE ziftbook_prod_migrate LOGIN'
+              WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ziftbook_prod_migrate') \gexec
+
+              SELECT 'CREATE ROLE ziftbook_prod_app LOGIN'
+              WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ziftbook_prod_app') \gexec
+
+              ALTER ROLE ziftbook_prod_migrate PASSWORD :'prod_migrate_password';
+              ALTER ROLE ziftbook_prod_app PASSWORD :'prod_app_password';
+
+              GRANT ziftbook_migrate TO ziftbook_prod_migrate WITH INHERIT FALSE, SET TRUE;
+              GRANT ziftbook_app TO ziftbook_prod_app WITH INHERIT FALSE, SET TRUE;
+              ALTER ROLE ziftbook_prod_migrate SET role = ziftbook_migrate;
+              ALTER ROLE ziftbook_prod_app SET role = ziftbook_app;
+
+              REVOKE CONNECT ON DATABASE :"DBNAME" FROM PUBLIC, ziftbook_app, ziftbook_migrate;
+              GRANT CONNECT ON DATABASE :"DBNAME" TO ziftbook_prod_app, ziftbook_prod_migrate;
+
+              -- Production's login roles reach nothing of staging's: PUBLIC could connect to every database.
+              REVOKE CONNECT ON DATABASE ziftbook FROM PUBLIC;
+
+              SQL
           env:
             - name: PGHOST
               value: postgres
@@ -84,6 +112,16 @@ spec:
                 secretKeyRef:
                   name: postgres
                   key: ziftbook-app-password
+            - name: ZIF_PROD_MIGRATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ziftbook-prod
+                  key: migrate-password
+            - name: ZIF_PROD_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ziftbook-prod
+                  key: app-password
           resources:
             requests:
               cpu: 10m
