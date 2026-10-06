@@ -266,7 +266,7 @@ and no in-cluster mail server.
 | Environment | Sending domain | DNS |
 |---|---|---|
 | Every dev/staging environment of every app | `m.fjconsulting.dev`, shared | `fjdev_mail` in `terraform/cloudflare` |
-| Production | `m.<appdomain>`, one per app (TBD: `m.thebetterdecision.com`; Ziftbook: `m.ziftbook.com`, wired in `ziftbook-prod/worker.yaml`, not yet created in Mailgun) | the app zone's records in `terraform/cloudflare` |
+| Production | `m.<appdomain>`, one per app (TBD: `m.thebetterdecision.com`; Ziftbook: `m.ziftbook.com`, created 2026-10-06, wired in `ziftbook-prod/worker.yaml`, INFRA-139) | the app zone's records in `terraform/cloudflare` |
 
 Each environment has its **own sending key**: send-only, scoped to the domain, and revoked on its own if it leaks.
 A domain's record set is MX `mxa`/`mxb.eu.mailgun.org`, SPF `include:mailgun.org`, DKIM TXT, DMARC with Mailgun
