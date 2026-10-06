@@ -55,7 +55,7 @@ CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Produc
 1. After the release run's `promote` job is green, wait for the staging bump on `main`
    (`git log origin/main -3 -- clusters/platform/tbd-staging`). Tick "run again" on the Dependency Dashboard to force it.
 2. Check staging runs the tag: `curl -s https://dev.thebetterdecision.com/health` reports the new version.
-3. Merge the `tbd images` PR for `tbd-prod`; its tags must equal the ones now in `tbd-staging`. Update its branch if it is behind.
+3. Merge the `tbd images` PR for `tbd-prod` once `Kubernetes checks` is green: its step `prod tags not ahead of staging` (INFRA-89) fails while the PR's tags are newer than `tbd-staging` on its tree. Update its branch if it is behind.
 4. A release broken on staging is fixed forward: do not merge the prod PR, release the fix; a newer tag replaces the PR.
 
 ## Post-deploy smoke
