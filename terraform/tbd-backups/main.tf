@@ -172,7 +172,7 @@ data "aws_iam_policy_document" "kms" {
 
   # ⚠ THIS is where the independence comes from. An explicit Deny in a KEY
   # policy cannot be overridden by any IAM policy or any bucket policy, so
-  # neither the droplet nor the probe can ever be granted read of the plaintext,
+  # neither a backup writer nor the probe can ever be granted read of the plaintext,
   # however sloppy a future identity policy gets. That is the property SSE-S3
   # cannot offer at any price: with AES256, s3:GetObject IS plaintext.
   #
@@ -192,7 +192,6 @@ data "aws_iam_policy_document" "kms" {
       test     = "ArnEquals"
       variable = "aws:PrincipalArn"
       values = [
-        "arn:aws:iam::${var.aws_account_id}:user/pfv-backup-uploader",
         "arn:aws:iam::${var.aws_account_id}:user/k3s-backup-uploader",
         "arn:aws:iam::${var.aws_account_id}:role/github-actions-backup-probe",
       ]
@@ -209,7 +208,7 @@ resource "aws_s3_bucket" "backups" {
   # ⚠ Object Lock can ONLY be enabled at creation. Retrofitting it means a new
   # bucket and a migration, so it is decided here even though nothing depends on
   # it on day one. The credential that writes these objects lives on the very
-  # box being defended, so a compromised droplet must not be able to overwrite
+  # box being defended, so a compromised node must not be able to overwrite
   # history -- versioning alone does not stop overwrite-in-place of the current
   # version.
   object_lock_enabled = true
@@ -371,7 +370,7 @@ data "aws_iam_policy_document" "bucket" {
     condition {
       test     = "ArnEquals"
       variable = "aws:PrincipalArn"
-      values   = [aws_iam_user.uploader.arn, aws_iam_user.k3s_uploader.arn]
+      values   = [aws_iam_user.k3s_uploader.arn]
     }
   }
 
@@ -410,39 +409,8 @@ resource "aws_s3_bucket_policy" "backups" {
 }
 
 # ---------------------------------------------------------------------------
-# The droplet's put-only identity.
-#
-# ⚠ A long-lived key is used because the droplet has no OIDC identity and
-# IAM Roles Anywhere would need a PKI and a certificate on the box -- far more
-# machinery than a 620 KB nightly PUT justifies. The mitigation is that the key
-# can only PUT and can only ENCRYPT: it cannot read, list, delete, or decrypt a
-# single byte of what it wrote. A stolen key is a nuisance, not a breach.
-# ---------------------------------------------------------------------------
-resource "aws_iam_user" "uploader" {
-  name = "pfv-backup-uploader"
-}
-
-resource "aws_iam_user_policy" "uploader" {
-  name = "pfv-backup-uploader-put-only"
-  user = aws_iam_user.uploader.name
-
-  # Loaded from a committed JSON rather than written inline, so
-  # .github/scripts/check-tbd-backups-fences.py can json.load it and assert
-  # the action set in BOTH directions. A regex over HCL could not.
-  policy = templatefile("${path.module}/policies/backup-uploader.json", {
-    bucket      = var.bucket_name
-    prefix      = var.backup_prefix
-    kms_key_arn = aws_kms_key.backups.arn
-  })
-}
-
-resource "aws_iam_access_key" "uploader" {
-  user = aws_iam_user.uploader.name
-}
-
-# ---------------------------------------------------------------------------
 # The k3s node's put-only identity (INFRA-30): one user for the MySQL and
-# Postgres dump CronJobs, same put + encrypt grant as above, one copy per prefix.
+# Postgres dump CronJobs, put + encrypt only, one policy copy per prefix.
 #
 # ⚠ No aws_iam_access_key here on purpose. The owner mints the key with the CLI
 # and pipes it straight into a SOPS-encrypted Secret (see README), so the secret
@@ -524,6 +492,6 @@ resource "aws_iam_role_policy" "backup_probe" {
 
   policy = templatefile("${path.module}/policies/backup-probe.json", {
     bucket   = var.bucket_name
-    prefixes = jsonencode([for p in concat([var.backup_prefix], local.k3s_backup_prefixes) : "${p}/*"])
+    prefixes = jsonencode([for p in local.k3s_backup_prefixes : "${p}/*"])
   })
 }

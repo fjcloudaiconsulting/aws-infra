@@ -1,9 +1,7 @@
 # TBD scheduler in production (INFRA-43): the backend image with SCHEDULER_ENABLED=true, no Service. The loop runs
 # inside the app process (app.main lifespan), so this pod also serves the API port, which nothing routes to.
 # Exactly one pod: Recreate and replicas capped at 1 (the loop also takes a Redis lock, scheduler_lock_ttl_seconds,
-# as a second line of defence). Replicas stay 0 until the INFRA-48 DNS switch, which sets this to 1 in the same PR,
-# after backend.yaml is live: a copy of prod data must not run jobs or send mail while DigitalOcean still might
-# (docs/tbd-cutover.md). It does not migrate (backend.yaml does). No CLIENT_IP_HEADER (INFRA-83): the pod listens on the
+# as a second line of defence). It does not migrate (backend.yaml does). No CLIENT_IP_HEADER (INFRA-83): the pod listens on the
 # API port, but no Service or route reaches it, so it never resolves a visitor IP.
 apiVersion: apps/v1
 kind: Deployment

@@ -1,5 +1,4 @@
-# app.thebetterdecision.com (INFRA-48): Cloudflare (proxied, Full strict) to Traefik, with the routes DigitalOcean's ingress
-# had (.do/app.yaml in tbd): /api, /health and /ready go to the backend, everything else to the frontend. Traefik
+# app.thebetterdecision.com (INFRA-48): Cloudflare (proxied, Full strict) to Traefik, with these routes: /api, /health and /ready go to the backend, everything else to the frontend. Traefik
 # tries the longer rule first, so the backend route wins for its prefixes. The default TLS store's origin-cert covers
 # *.thebetterdecision.com. The hostname is unreachable until the Cloudflare record points here (terraform/cloudflare).
 apiVersion: traefik.io/v1alpha1

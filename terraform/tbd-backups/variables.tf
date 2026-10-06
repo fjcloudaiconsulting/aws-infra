@@ -24,12 +24,6 @@ variable "bucket_name" {
   default     = "tbd-mysql-backups-884686184019"
 }
 
-variable "backup_prefix" {
-  description = "Key prefix the droplet may write under. The uploader's IAM policy is scoped to this prefix and nothing else."
-  type        = string
-  default     = "pfv-data-01"
-}
-
 variable "retention_days" {
   # ⚠ Must exceed object_lock_days, or the lifecycle rule fights the lock and
   # expiration silently fails on every locked object.

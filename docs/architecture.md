@@ -196,7 +196,6 @@ reach every replica), and then gets one per environment, never shared.
   grants, manifest last) to the Object Lock bucket under `tbd-mysql/` and `ziftbook-postgres/`.
   It uses a put-only IAM user (`k3s-backup-uploader`), SSE-KMS and a SHA256 checksum. Objects are
   locked for 7 days (GOVERNANCE).
-- The droplet still writes `pfv-data-01/` until it is retired (INFRA-49).
 - A GitHub Actions probe at 04:17 UTC checks all three prefixes, each with its own size floor, and
   opens a `[backup-stale]` issue when one is stale.
 - Lightsail snapshots at 03:00 UTC cover the whole node.

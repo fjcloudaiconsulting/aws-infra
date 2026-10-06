@@ -1,6 +1,6 @@
 # Restoring the database dumps
 
-The nightly `db-backup` CronJob (and, until INFRA-49, the droplet) writes one set per night to
+The nightly `db-backup` CronJob writes one set per night to
 `tbd-mysql-backups-884686184019`: `<prefix>/YYYY/MM/DD/{<db>,grants,manifest}_<stamp>`. The manifest
 carries the table count and the SHA256 of the dump and grants files.
 
@@ -9,7 +9,6 @@ carries the table count and the SHA256 of the dump and grants files.
 | `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
 | `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` |
 | `ziftbook-postgres/` | Postgres `ziftbook` | `data/db-backup` |
-| `pfv-data-01/` | MySQL `pfv2` (TBD on DigitalOcean until the INFRA-48 cutover; restores into `tbd`) | the DigitalOcean droplet |
 
 Only root (or the break-glass user) can read the dumps: the uploaders are put-only and the probe is
 list-only (`terraform/tbd-backups`). Run everything from a Mac with AWS profile `tbd` and the
@@ -19,7 +18,7 @@ manifest. Never print table contents or the grants file (it holds password hashe
 There are two targets:
 
 - **Drill:** throwaway servers in a scratch namespace (steps 1-5). Run it before any one-way door
-  that relies on the backups (droplet retirement, INFRA-49) and after a backup format change.
+  that relies on the backups and after a backup format change.
 - **Real restore:** the `data` StatefulSet pod after its volume was lost (step 6).
 
 ## 1. Pick a set
@@ -28,7 +27,7 @@ There are two targets:
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019
-PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, pfv-data-01
+PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres
 M=$(aws s3api list-objects-v2 --bucket "$B" --prefix "$PREFIX/" \
   --query 'reverse(sort_by(Contents[?contains(Key, `/manifest_`)], &LastModified))[0].Key' --output text)
 aws s3 cp "s3://$B/$M" manifest.json && jq . manifest.json   # date, tables, both keys and SHA256s
@@ -110,13 +109,10 @@ Expect `/tmp/dump.sql.gz: OK` and `/tmp/grants.sql.gz: OK`. Anything else: stop,
 
 Grants first, so the data restore can reference the users.
 
-**MySQL** (`tbd-mysql`, `pfv-data-01`, `tbd-staging-mysql`). The dump has no `CREATE DATABASE` or `USE` (dumped
-without `--databases`), so the droplet's `pfv2` dump loads into `tbd` as is; the grants use
+**MySQL** (`tbd-mysql`, `tbd-staging-mysql`). The dump has no `CREATE DATABASE` or `USE` (dumped
+without `--databases`), so a dump loads into `tbd` as is; the grants use
 `CREATE USER IF NOT EXISTS`, so existing users keep their passwords. For `tbd-staging-mysql`, write `tbd_staging`
 for every `tbd` database name in this step and in step 5, or the staging data lands in production's `tbd`.
-For `pfv-data-01`, drop the `gzip -dc /tmp/grants.sql.gz | mysql -uroot &&` line: the droplet
-writes password hashes as raw text, which MySQL rejects (`ERROR 1827`), and on the cluster the app
-users come from the `mysql` secret anyway.
 
 ```bash
 kubectl -n "$NS" exec "$POD" -- sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"

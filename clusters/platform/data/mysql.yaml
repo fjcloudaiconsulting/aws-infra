@@ -22,7 +22,7 @@ data:
     max_connections = 80
     # Default 4000 open-table handles; TBD has under 100 tables.
     table_open_cache = 400
-    # Same as the droplet (TBD my.cnf.j2).
+    # TBD's MySQL settings (my.cnf.j2 in the tbd repo).
     character-set-server = utf8mb4
     collation-server = utf8mb4_0900_ai_ci
     # TBD-416: never wait 365 days on a metadata lock.

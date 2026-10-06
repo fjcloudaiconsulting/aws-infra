@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Purpose
 
 Single home for the infrastructure of FJ Consulting apps: TBD (`fjcloudaiconsulting/tbd`, in prod on this
-cluster since the 2026-10-04 cutover; DigitalOcean is kept archived until INFRA-49) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
+cluster since the 2026-10-04 cutover) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
 app code, Dockerfiles and CI; this repo owns where and how they run. Work is tracked in Jira `INFRA`.
 
 ## Target architecture (decided 2026-10-01)
@@ -39,7 +39,7 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
 
 ## Constraints that are easy to break
 
-- AWS account `884686184019` holds the TBD backup chain (bucket, KMS key, `pfv-backup-uploader`, `k3s-backup-uploader`,
+- AWS account `884686184019` holds the TBD backup chain (bucket, KMS key, `k3s-backup-uploader`,
   `tfc-backups-*` roles, OIDC providers). The TFC role trust is pinned to workspace name `tbd-backups`:
   do not rename it. If a rename is ever unavoidable, or any trust statement must change, add the new
   statement, apply, then remove the old one; never edit in place.

@@ -5,8 +5,7 @@ Step-by-step procedures for the recurring changes. Why things are built this way
 [configuration-map.md](configuration-map.md). Every command below uses the owner's kubeconfig
 (`~/.kube/platform`, over NetBird) and never prints a secret value.
 
-One-off procedures have their own page: the TBD cutover from DigitalOcean, with rehearsal and rollback, is
-[tbd-cutover.md](tbd-cutover.md) (INFRA-48); database restores are
+Database restores are
 [`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md).
 
 ## Follow Flux and rollouts
@@ -276,17 +275,14 @@ The credentials live in these places, kept equal:
 
 - aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the
   [post-deploy smoke](#post-deploy-smoke).
-- tbd repo Actions secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), read only by the DigitalOcean deploy path;
-  deleted after INFRA-49 (configuration map, Actions secrets). From then on the rotation below skips the tbd
-  `gh secret set`.
 
 **Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
 the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
 username=...`, expect 1 row), run the smoke test above with the new value, then `printf %s "$P" | gh secret set
-SMOKE_PASSWORD -R fjcloudaiconsulting/tbd`, `printf %s "$P" | gh secret set SMOKE_PASSWORD --env tbd-prod -R
+SMOKE_PASSWORD --env tbd-prod -R
 fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
-rotated 2026-10-04 (INFRA-48), on the DigitalOcean database before the cutover copy.
+rotated 2026-10-04 (INFRA-48).
 
 ## Cloudflare API tokens
 
@@ -642,7 +638,7 @@ kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # t
 
 Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1, without its `cd` line (stay in this directory),
 for `tbd-mysql` (then `mv manifest.json tbd.json`) and `ziftbook-postgres` (then `mv manifest.json zif.json`), plus
-any prefix the cluster has gained since (not the droplet's `pfv-data-01`): each `date` must be after the Job's start
+any prefix the cluster has gained since: each `date` must be after the Job's start
 (both UTC, as a stamp `20261004-120000` and as `2026-10-04T12:00:00Z`) and `tables` above 0. Record the row count per
 table with the `NS=data` versions of RESTORE.md's helpers (read-only queries, counts only):
 

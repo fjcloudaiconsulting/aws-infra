@@ -33,7 +33,7 @@ uploader = json.loads((STACK / "policies/backup-uploader.json").read_text())
 probe = json.loads((STACK / "policies/backup-probe.json").read_text().replace("${prefixes}", "[]"))
 check(actions(uploader) == {"s3:PutObject", "kms:GenerateDataKey", "kms:Encrypt", "kms:DescribeKey"},
       f"uploader policy actions are {sorted(actions(uploader))}; it must stay exactly put + encrypt "
-      "(read access would let a compromised droplet harvest every historical dump)")
+      "(read access would let a compromised uploader harvest every historical dump)")
 check(actions(probe) == {"s3:ListBucket"}, f"probe policy actions are {sorted(actions(probe))}; must be exactly s3:ListBucket")
 # Exact resources: a substring test would pass arn:aws:s3:::*${bucket}*.
 SCOPED = {"arn:aws:s3:::${bucket}/${prefix}/*", "${kms_key_arn}", "arn:aws:s3:::${bucket}"}

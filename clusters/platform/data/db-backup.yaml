@@ -9,7 +9,7 @@ metadata:
   name: db-backup
   namespace: data
 data:
-  # Droplet format (tbd infra/ansible roles/backups): <prefix>/YYYY/MM/DD/{<db>,grants,manifest}_<stamp>.
+  # Set format: <prefix>/YYYY/MM/DD/{<db>,grants,manifest}_<stamp>.
   common.sh: |
     set -euo pipefail
     STAMP=$(date -u +%Y%m%d-%H%M%S)
@@ -69,7 +69,7 @@ data:
     [ "$(count "$GRANTS" '^-- PostgreSQL database cluster dump complete')" -eq 1 ] || die "globals have no completion marker"
     publish
   # One PUT per object: multipart needs kms:Decrypt (denied). The uploader's policy requires both SSE
-  # headers. CLI 2.37 sends a CRC64NVME checksum by default; SHA256 matches the droplet manifests.
+  # headers. CLI 2.37 sends a CRC64NVME checksum by default; SHA256 is what the manifests record.
   upload.sh: |
     set -uo pipefail
     rc=0
