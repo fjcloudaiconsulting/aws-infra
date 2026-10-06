@@ -263,9 +263,9 @@ ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `
 outbound fetch (only its assets binding). One Pages project, `fjconsulting-website-dev` on fjconsulting.dev (no node
 hostname in that zone). One account member, the owner (Super Administrator).
 
-Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com not re-read); Workers custom domains are
+Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com too: no routes, no Snippets); Workers custom domains are
 ziftbook.com and www.ziftbook.com (`ziftbook-landing`) and thebetterdecision.com (`tbd-landing`, attached by the owner,
-INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on those three. Both
+INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on the four zones. Both
 landing deploys ran green with the per-Worker tokens (ziftbook `landing.yml` and tbd `apex-deploy.yml`, 2026-10-05), and
 neither repo holds a repo-level `CLOUDFLARE_API_TOKEN` any more. The Cloudflare MCP grant cannot read API tokens (9109), so
 token scopes are the ones `cloudflare-tokens` applied (runs of 2026-10-05, all applied).
@@ -297,13 +297,12 @@ Rules:
   (staging); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
   token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
-  narrow, do not accept. Worker deploy token narrowing is complete (rules above, no consumer needs more than its own Worker); what is
+  narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
   left is this code-level residual, which a rule keyed on `cf.worker.upstream_zone` on the node hostnames might
   close (INFRA-136, untested: needs a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
   on the whole account (Cloudflare has no per-project Pages role); as we understand it (untested) a custom domain on an app zone would also need DNS
   rights there, which they lack.
-- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
-  `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
+- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the bootstrap token (by minting one) and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
 ## Grafana Cloud
 
