@@ -46,11 +46,6 @@ locals {
   # follow-up in apex/README.md).
   github_main_sub = "repo:${var.github_repo}:ref:refs/heads/${var.github_main_branch}"
 
-  # TFC workload identity subject claim. The TFC docs document the run-phase
-  # suffix; we accept plan + apply so PR speculative plans and merge applies
-  # both work. Workspace pattern uses TFC's glob support.
-  tfc_sub_pattern = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_pattern}:run_phase:*"
-
   # Content-Security-Policy for the apex static export. Derived directly from
   # what build-apex.sh's output actually loads (frontend/scripts/build-apex.sh
   # + frontend/app/layout.tsx + frontend/app/page.tsx). It is INTENTIONALLY
@@ -158,10 +153,6 @@ data "tls_certificate" "github_oidc" {
   url = "https://token.actions.githubusercontent.com"
 }
 
-data "tls_certificate" "tfc_oidc" {
-  url = "https://app.terraform.io"
-}
-
 ###############################################################################
 # S3 BUCKET
 # Private (block public access on all four flags), versioned, SSE-S3.
@@ -170,6 +161,9 @@ data "tls_certificate" "tfc_oidc" {
 
 resource "aws_s3_bucket" "apex" {
   bucket = local.bucket_name
+
+  # INFRA-62: so the decommission destroy can delete the versioned bucket without emptying it by hand.
+  force_destroy = true
 
   tags = {
     Name = local.bucket_name
@@ -276,6 +270,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "apex" {
 resource "aws_s3_bucket" "apex_logs" {
   bucket = local.logs_bucket_name
 
+  # INFRA-62: as above (CloudFront keeps delivering logs for a while after the last request).
+  force_destroy = true
+
   tags = {
     Name = local.logs_bucket_name
     role = "apex-cloudfront-logs"
@@ -288,7 +285,6 @@ resource "aws_s3_bucket" "apex_logs" {
   # (same eventual-consistency failure the Route 53 writes hit on PR #270).
   # No cycle: the policy references this bucket by constructed ARN string, not
   # by resource attribute, so there is no policy -> bucket edge to close.
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 # ACLs enabled. CloudFront standard log delivery writes via an ACL grant to
@@ -451,7 +447,6 @@ resource "aws_route53_record" "apex_acm_validation" {
   # resource) sequences this record after both the policy modification
   # AND the IAM eventual-consistency window, so a same-run apply does
   # not 403 against a cached pre-update policy.
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 resource "aws_acm_certificate_validation" "apex" {
@@ -499,7 +494,6 @@ resource "aws_route53_record" "apex_a" {
     evaluate_target_health = false
   }
 
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 resource "aws_route53_record" "apex_aaaa" {
@@ -513,7 +507,6 @@ resource "aws_route53_record" "apex_aaaa" {
     evaluate_target_health = false
   }
 
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 resource "aws_route53_record" "www_a" {
@@ -527,7 +520,6 @@ resource "aws_route53_record" "www_a" {
     evaluate_target_health = false
   }
 
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 resource "aws_route53_record" "www_aaaa" {
@@ -541,7 +533,6 @@ resource "aws_route53_record" "www_aaaa" {
     evaluate_target_health = false
   }
 
-  depends_on = [time_sleep.iam_policy_propagation]
 }
 
 ###############################################################################
@@ -856,18 +847,6 @@ resource "aws_iam_openid_connect_provider" "github" {
   }
 }
 
-# Terraform Cloud workload identity. Single-audience: aws.workload.identity.
-# Thumbprint computed at plan time from app.terraform.io's live cert chain.
-resource "aws_iam_openid_connect_provider" "tfc" {
-  url             = "https://app.terraform.io"
-  client_id_list  = ["aws.workload.identity"]
-  thumbprint_list = [data.tls_certificate.tfc_oidc.certificates[0].sha1_fingerprint]
-
-  tags = {
-    Name = "tfc-workload-identity"
-  }
-}
-
 ###############################################################################
 # IAM ROLE: github_actions_apex_deploy
 # Assumable ONLY from GitHub Actions workflow runs whose OIDC token subject
@@ -960,267 +939,35 @@ resource "aws_iam_role_policy" "github_actions_apex_deploy" {
 }
 
 ###############################################################################
-# IAM ROLE: tfc_apex_provisioner
-# Assumable from TFC workload identity tokens originating in the tbd-apex
-# workspace (or any workspace matching var.tfc_workspace_pattern). Has full
-# management of THIS module's resources: S3 bucket, CloudFront distribution,
-# ACM cert, IAM role chain, and the Route 53 records this module manages.
-# Route 53 writes are narrowly scoped via two IAM condition pairs (see the
-# WriteApexAndWwwAliasRecords and WriteAcmValidationCnames statements below)
-# so the role can ONLY write A/AAAA on the apex+www names and CNAME on the
-# ACM validation pattern, never anything else in the zone.
+# INFRA-62: decommission prep. The provisioner role and its policy are the identity
+# the destroy run uses, so they must outlive it: forget them (and the TFC OIDC
+# provider) from state without touching AWS. The owner deletes them by hand
+# after the destroy.
 ###############################################################################
-
-data "aws_iam_policy_document" "tfc_trust" {
-  statement {
-    sid     = "TFCWorkloadIdentity"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.tfc.arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "app.terraform.io:aud"
-      values   = ["aws.workload.identity"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "app.terraform.io:sub"
-      values   = [local.tfc_sub_pattern]
-    }
+removed {
+  from = aws_iam_role_policy.tfc_apex_provisioner
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "aws_iam_role" "tfc_apex_provisioner" {
-  name                 = "tfc-apex-provisioner"
-  description          = "Assumed by TFC (${var.tfc_organization}/${var.tfc_workspace_pattern}) to provision apex infra."
-  assume_role_policy   = data.aws_iam_policy_document.tfc_trust.json
-  max_session_duration = 3600
-
-  tags = {
-    role = "tfc-apex-provisioner"
+removed {
+  from = aws_iam_role.tfc_apex_provisioner
+  lifecycle {
+    destroy = false
   }
 }
 
-data "aws_iam_policy_document" "tfc_apex_provisioner" {
-  # S3 management on THIS module's buckets only: the static-origin bucket and
-  # the dedicated CloudFront access-logs bucket.
-  statement {
-    sid    = "ManageApexBuckets"
-    effect = "Allow"
-    actions = [
-      "s3:*",
-    ]
-    resources = [
-      aws_s3_bucket.apex.arn,
-      "${aws_s3_bucket.apex.arn}/*",
-      # Referenced by constructed ARN (not aws_s3_bucket.apex_logs.arn) on
-      # purpose: a resource reference would make this policy depend on the
-      # logs bucket, so Terraform would create the bucket BEFORE the policy
-      # that grants s3:CreateBucket is in effect -> AccessDenied on first
-      # apply. With a static ARN the policy has no edge to the bucket, the
-      # bucket instead depends on time_sleep.iam_policy_propagation, and the
-      # ordering becomes: widen policy -> wait for IAM propagation -> create
-      # bucket. The name is fixed (local.logs_bucket_name) so the ARN is
-      # fully known at plan time.
-      "arn:aws:s3:::${local.logs_bucket_name}",
-      "arn:aws:s3:::${local.logs_bucket_name}/*",
-    ]
-  }
-
-  # ListAllMyBuckets is account-wide and needed for some plan operations.
-  statement {
-    sid       = "ListAllBucketsForPlan"
-    effect    = "Allow"
-    actions   = ["s3:ListAllMyBuckets", "s3:GetBucketLocation"]
-    resources = ["*"]
-  }
-
-  # CloudFront management on this distribution. CloudFront IAM is not
-  # ARN-scoped on all actions (some, like CreateDistribution, only accept
-  # "*"); we accept that limitation rather than splitting the policy.
-  statement {
-    sid    = "ManageApexDistribution"
-    effect = "Allow"
-    actions = [
-      "cloudfront:*",
-    ]
-    resources = ["*"]
-  }
-
-  # ACM in us-east-1 for the cert. ACM IAM is region-keyed via resource ARN
-  # so this scopes to certificates in us-east-1 within this account.
-  statement {
-    sid    = "ManageApexCertificate"
-    effect = "Allow"
-    actions = [
-      "acm:*",
-    ]
-    resources = ["arn:aws:acm:us-east-1:${var.aws_account_id}:certificate/*"]
-  }
-
-  # Route 53 read access on the apex zone. The two ChangeResourceRecordSets
-  # writes below (apex/www ALIAS + ACM validation CNAME) are narrowly scoped
-  # by record name AND type via separate statements.
-  statement {
-    sid    = "ReadApexZone"
-    effect = "Allow"
-    actions = [
-      "route53:GetHostedZone",
-      "route53:ListHostedZones",
-      "route53:ListHostedZonesByName",
-      "route53:GetChange",
-      "route53:ListResourceRecordSets",
-      # data.aws_route53_zone calls ListTagsForResource as part of its
-      # read since AWS provider v5.x. Without these, refresh fails with
-      # 403 on every plan/apply that touches the data source. Both
-      # singular and plural variants are distinct IAM permissions; grant
-      # both so future provider changes that switch APIs do not regress.
-      "route53:ListTagsForResource",
-      "route53:ListTagsForResources",
-    ]
-    resources = ["*"]
-  }
-
-  # Route 53 write scope is split into two narrow statements. Each restricts
-  # both record type AND record name, so the role cannot pivot to other
-  # records in the zone even if an attacker reaches the OIDC role.
-  #
-  # AWS condition keys used here:
-  #   route53:ChangeResourceRecordSetsRecordTypes  -> record type allowlist
-  #   route53:ChangeResourceRecordSetsNormalizedRecordNames -> record name allowlist
-  #   route53:ChangeResourceRecordSetsActions      -> CREATE/UPSERT/DELETE
-  # The "Normalized" name comparison is case-insensitive and trims any trailing
-  # dot, so values are written here as the bare FQDNs.
-
-  # Statement 1: apex + www ALIAS records, A and AAAA only. The two ALIAS
-  # records pointing at the apex CloudFront distribution are the cutover.
-  statement {
-    sid    = "WriteApexAndWwwAliasRecords"
-    effect = "Allow"
-    actions = [
-      "route53:ChangeResourceRecordSets",
-    ]
-    resources = ["arn:aws:route53:::hostedzone/${data.aws_route53_zone.apex.zone_id}"]
-
-    condition {
-      test     = "ForAllValues:StringEquals"
-      variable = "route53:ChangeResourceRecordSetsRecordTypes"
-      values   = ["A", "AAAA"]
-    }
-
-    condition {
-      test     = "ForAllValues:StringEquals"
-      variable = "route53:ChangeResourceRecordSetsNormalizedRecordNames"
-      values = [
-        var.domain,
-        "www.${var.domain}",
-      ]
-    }
-  }
-
-  # Statement 2: ACM DNS-validation CNAMEs. ACM emits CNAMEs at exact
-  # names exposed in aws_acm_certificate.apex.domain_validation_options.
-  # AWS reuses these names across cert renewals, so they are stable for
-  # the life of the cert (and re-derive automatically on plan if a SAN
-  # is added or the cert is recreated).
-  #
-  # Earlier revision used StringLike on "_*.<domain>", but IAM string
-  # wildcards are NOT DNS-label-bounded: "_*.thebetterdecision.com"
-  # would also match "_acme-challenge.foo.thebetterdecision.com" and
-  # any other underscore-prefixed name elsewhere in the zone. Pinning
-  # to the exact names ACM is currently asking for removes that gap.
-  #
-  # NormalizedRecordNames comparison is case-insensitive; AWS lowercases
-  # and trims any trailing dot before evaluating. We pre-normalize here
-  # so the rendered policy matches what AWS will compare against.
-  statement {
-    sid    = "WriteAcmValidationCnames"
-    effect = "Allow"
-    actions = [
-      "route53:ChangeResourceRecordSets",
-    ]
-    resources = ["arn:aws:route53:::hostedzone/${data.aws_route53_zone.apex.zone_id}"]
-
-    condition {
-      test     = "ForAllValues:StringEquals"
-      variable = "route53:ChangeResourceRecordSetsRecordTypes"
-      values   = ["CNAME"]
-    }
-
-    condition {
-      test     = "ForAllValues:StringEquals"
-      variable = "route53:ChangeResourceRecordSetsNormalizedRecordNames"
-      values = [
-        for dvo in aws_acm_certificate.apex.domain_validation_options :
-        trimsuffix(lower(dvo.resource_record_name), ".")
-      ]
-    }
-  }
-
-  # IAM management for this role chain (self-management) + the OIDC
-  # providers. Scoped to the apex-related resource names.
-  statement {
-    sid    = "ManageApexIamRoles"
-    effect = "Allow"
-    actions = [
-      "iam:*Role*",
-      "iam:*RolePolic*",
-      "iam:PassRole",
-      "iam:TagRole",
-      "iam:UntagRole",
-    ]
-    resources = [
-      "arn:aws:iam::${var.aws_account_id}:role/github-actions-apex-deploy",
-      "arn:aws:iam::${var.aws_account_id}:role/tfc-apex-provisioner",
-    ]
-  }
-
-  statement {
-    sid    = "ManageOidcProviders"
-    effect = "Allow"
-    actions = [
-      "iam:*OpenIDConnectProvider*",
-    ]
-    resources = [
-      "arn:aws:iam::${var.aws_account_id}:oidc-provider/token.actions.githubusercontent.com",
-      "arn:aws:iam::${var.aws_account_id}:oidc-provider/app.terraform.io",
-    ]
+removed {
+  from = aws_iam_openid_connect_provider.tfc
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "aws_iam_role_policy" "tfc_apex_provisioner" {
-  name   = "tfc-apex-provisioner-inline"
-  role   = aws_iam_role.tfc_apex_provisioner.id
-  policy = data.aws_iam_policy_document.tfc_apex_provisioner.json
-}
-
-# Same-run grace window between an IAM policy update and any Route 53
-# write made by the assumed role. AWS IAM is eventually consistent: the
-# put-role-policy call returns success within milliseconds, but the
-# assumed-role session evaluating subsequent requests can still see the
-# OLD policy for several seconds afterward. Without this grace, a
-# same-run apply that widens the policy AND creates a record can fail
-# the record creation with "no identity-based policy allows", because
-# the role session is still using the pre-update policy.
-#
-# This was the failure mode on the first PR #270 apply (run
-# Fd4y4Y5JyFkKQoLL, 2026-05-14): the IAM update completed at 13:46:20.45
-# and the 4 Route 53 creates all 403'd between 13:46:20.64 and 13:46:20.95.
-#
-# Triggers on a hash of the rendered policy JSON so the sleep only
-# re-fires when the policy actually changes; steady-state applies are
-# no-ops here. Duration is the AWS-recommended starting point for IAM
-# propagation in same-account / same-region patterns.
-resource "time_sleep" "iam_policy_propagation" {
-  triggers = {
-    policy_hash = sha256(aws_iam_role_policy.tfc_apex_provisioner.policy)
+removed {
+  from = time_sleep.iam_policy_propagation
+  lifecycle {
+    destroy = false
   }
-
-  create_duration = "30s"
 }

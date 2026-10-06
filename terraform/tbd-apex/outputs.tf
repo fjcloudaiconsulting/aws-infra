@@ -48,19 +48,9 @@ output "github_actions_role_arn" {
   value       = aws_iam_role.github_actions_apex_deploy.arn
 }
 
-output "tfc_role_arn" {
-  description = "ARN of the IAM role TFC assumes via workload identity. Set this in the FlamaCorp/tbd-apex workspace's TFC_AWS_RUN_ROLE_ARN variable so TFC stops needing static credentials after the bootstrap apply."
-  value       = aws_iam_role.tfc_apex_provisioner.arn
-}
-
 output "github_oidc_provider_arn" {
   description = "ARN of the GitHub Actions OIDC provider. Surface this so a future module (or a second repo) can attach roles to the same provider without re-creating it."
   value       = aws_iam_openid_connect_provider.github.arn
-}
-
-output "tfc_oidc_provider_arn" {
-  description = "ARN of the Terraform Cloud OIDC provider. Same rationale as github_oidc_provider_arn."
-  value       = aws_iam_openid_connect_provider.tfc.arn
 }
 
 output "apex_domain" {

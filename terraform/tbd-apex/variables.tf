@@ -1,13 +1,3 @@
-variable "aws_account_id" {
-  description = "12-digit AWS account ID that owns the apex bucket, CloudFront distribution, ACM cert, and IAM roles. No default; must be set explicitly in the TFC workspace to prevent cross-account accidents."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
-    error_message = "aws_account_id must be a 12-digit AWS account ID."
-  }
-}
-
 variable "aws_region" {
   description = "AWS region for the S3 bucket and the home of the default provider. CloudFront is global; ACM for CloudFront is pinned to us-east-1 in providers.tf regardless of this value."
   type        = string
@@ -30,28 +20,6 @@ variable "github_main_branch" {
   description = "Branch on github_repo whose workflow runs are allowed to assume the deploy role. The OIDC trust policy uses StringEquals on the sub claim, so only this exact branch ref can deploy. PR contexts are rejected at the trust level (not just by workflow-level guards), since PR authors could otherwise edit the workflow to bypass guards."
   type        = string
   default     = "main"
-}
-
-variable "tfc_organization" {
-  description = "Terraform Cloud organization whose workspaces are allowed to assume the apex provisioner role via OIDC workload identity."
-  type        = string
-  default     = "FlamaCorp"
-}
-
-variable "tfc_workspace_pattern" {
-  # ⚠ This value IS the AWS trust boundary for the apex workspace: it lands in
-  # the OIDC `sub` StringLike condition on aws_iam_role.tfc_apex_provisioner,
-  # which is managed BY the workspace it authorizes. Renaming the TFC workspace
-  # without changing this first denies AssumeRoleWithWebIdentity, and the
-  # workspace then cannot apply its own fix. That happened on 2026-08-11 during
-  # the pfv-apex -> tbd-apex rename; recovery was an out-of-band edit to the
-  # role's trust policy in AWS.
-  #
-  # If this ever needs to change again: widen to a pattern spanning both names,
-  # apply, rename, then narrow. Never rename first.
-  description = "TFC workspace name pattern (supports glob via wildcard suffix on the OIDC sub claim) allowed to assume the apex provisioner role. Must track the actual workspace name -- see the lockout note above before editing."
-  type        = string
-  default     = "tbd-apex*"
 }
 
 variable "noncurrent_version_expiration_days" {
