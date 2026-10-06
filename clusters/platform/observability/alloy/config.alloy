@@ -1,7 +1,7 @@
 // Metrics to Grafana Cloud (INFRA-85, design in docs/architecture.md, Telemetry). Every series leaves through one
 // OTLP/HTTP exporter, so the stack's write-only token (metrics:write) is the only credential.
-// Not collected yet: traces (the apps adopt OTLP in INFRA-105 and INFRA-106; the token then needs traces:write) and
-// logs (no stdout tailing: tbd-prod logs carry query strings until INFRA-110, and the data namespace never).
+// Traces (INFRA-106) leave through the same exporter, so the token needs traces:write too. Not collected yet: logs (no
+// stdout tailing: tbd-prod logs carry query strings until INFRA-110, and the data namespace never).
 
 // ---- Export --------------------------------------------------------------------------------------------------------
 
@@ -20,6 +20,7 @@ otelcol.exporter.otlphttp "grafana_cloud" {
 otelcol.processor.batch "default" {
 	output {
 		metrics = [otelcol.exporter.otlphttp.grafana_cloud.input]
+		traces  = [otelcol.exporter.otlphttp.grafana_cloud.input]
 	}
 }
 
@@ -30,13 +31,14 @@ otelcol.receiver.otlp "apps" {
 		endpoint = "0.0.0.0:4318"
 	}
 
-	// Metrics only. Traces and logs sent here are refused until they are wired (see the top of this file).
+	// Metrics and traces. Logs sent here are refused until they are wired (see the top of this file).
 	output {
 		metrics = [otelcol.processor.transform.scrub.input]
+		traces  = [otelcol.processor.transform.scrub.input]
 	}
 }
 
-// Backstop for the INFRA-84 allowlist: these attributes carry tokens, emails and client addresses (and explode
+// Backstop for the INFRA-84 allowlist (spans too, events included): these attributes carry tokens, emails and client addresses (and explode
 // cardinality), so they never leave the node even if an app sets them, on a data point, its scope or its resource
 // (Grafana Cloud turns resource attributes into target_info labels). Old semconv names included.
 // Default error_mode (propagate): a failing statement drops the batch instead of exporting it unscrubbed. Deleting a
@@ -58,8 +60,29 @@ otelcol.processor.transform "scrub" {
 		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
 	}
 
+	trace_statements {
+		context    = "resource"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	trace_statements {
+		context    = "scope"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	trace_statements {
+		context    = "span"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
+	trace_statements {
+		context    = "spanevent"
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+	}
+
 	output {
 		metrics = [otelcol.processor.batch.default.input]
+		traces  = [otelcol.processor.batch.default.input]
 	}
 }
 

@@ -472,12 +472,12 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   `exception.message` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr` from data point,
   scope and resource attributes.
 
-Traces and logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
+Traces (INFRA-106, Ziftbook staging) are forwarded too; logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
 a change there rolls the pod (the ConfigMap name carries a hash).
 
 **Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file
 `clusters/platform/observability/grafana-cloud.secret.yaml`. The token belongs to a Grafana Cloud access policy with the
-`metrics:write` scope only. To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
+`metrics:write` and `traces:write` scopes (`traces:write` since INFRA-106; editing a policy's scopes applies to its existing tokens, so the Secret does not change). To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
 Cloud access policies > the policy > Add token), regenerate the whole file (only the public key is needed), merge,
 restart, then delete the old token. The plaintext only passes through a pipe, never a file:
 
