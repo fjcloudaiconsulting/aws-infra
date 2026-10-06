@@ -74,11 +74,21 @@ class ProdTags(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("zift/api", r.stderr)
 
+    def test_lowest_staging_tag_is_numeric(self):
+        # staging v0.10.0 and v0.9.0: the lowest is v0.9.0, so prod v0.10.0 fails (kills string min).
+        r = run(tbd([("backend", "v0.10.0")], [("backend", "v0.10.0"), ("frontend", "v0.9.0")]))
+        self.assertEqual(r.returncode, 1)
+
     def test_non_semver_prod_tag_fails(self):
-        self.assertEqual(run(tbd([("backend", "latest")], [("backend", "v0.2.0")])).returncode, 1)
+        # One good image beside the bad one, so only the tag check can fail it.
+        r = run(tbd([("backend", "v0.2.0"), ("frontend", "latest")], [("backend", "v0.2.0"), ("frontend", "v0.2.0")]))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a plain", r.stderr)
 
     def test_non_semver_staging_tag_fails(self):
-        self.assertEqual(run(tbd([("backend", "v0.2.0")], [("backend", "sha-abc1234")])).returncode, 1)
+        r = run(tbd([("backend", "v0.2.0")], [("backend", "v0.2.0"), ("frontend", "sha-abc1234")]))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not a plain", r.stderr)
 
     def test_no_prod_dir_is_an_error(self):
         # Never a silent pass if the layout changes under the check.
