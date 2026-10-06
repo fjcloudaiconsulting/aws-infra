@@ -16,7 +16,7 @@ set -uo pipefail
 ns="${1:-}"
 case "$ns" in
   tbd-prod) base=https://app.thebetterdecision.com; health=/health; repo=tbd; app_smoke=scripts/smoke-test.sh ;;
-  ziftbook-staging) base=https://dev.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke="" ;;
+  ziftbook-staging) base=https://dev.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke=scripts/smoke-test.sh ;;
   *) echo "usage: $0 tbd-prod|ziftbook-staging" >&2; exit 2 ;;
 esac
 DIR="${CLUSTERS_DIR:-clusters/platform}"

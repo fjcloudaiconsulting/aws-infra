@@ -132,10 +132,11 @@ class Pass(unittest.TestCase):
             r, log = run(manifest=m)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-    def test_ziftbook_has_no_app_smoke(self):
+    def test_ziftbook_runs_its_app_smoke_at_the_deployed_tag(self):
+        # Kills app_smoke="" for ziftbook-staging (the database-reachable check would never run).
         r, log = run("ziftbook-staging")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertNotIn("contents/", log)
+        self.assertIn("repos/fjcloudaiconsulting/ziftbook/contents/scripts/smoke-test.sh?ref=refs/tags/v0.291.0", log)
         self.assertIn("https://dev.ziftbook.com/api/healthz", log)
 
     def test_pass_closes_only_its_own_namespace_issue(self):
