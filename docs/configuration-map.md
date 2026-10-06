@@ -53,7 +53,7 @@ The rules are [release contract section 8](https://github.com/fjcloudaiconsultin
 (decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
 `main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
 runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet: until it lands, "staging first" for the
-production PR is owner discipline, check `dev.thebetterdecision.com/health` or `dev.ziftbook.com/api/healthz` shows the tag). A release that fails on staging is fixed forward; marking its GitHub
+production PR is owner discipline, check `dev.thebetterdecision.com/health` or `dev.ziftbook.com/api/healthz` shows the version, the tag without `v`). A release that fails on staging is fixed forward; marking its GitHub
 release a prerelease keeps it out of the drift watch below.
 
 | # | Step | Needs |
@@ -176,7 +176,7 @@ Hosted Mend app, Free plan, repos selected at
   fresh dump); `ghcr.io/fjcloudaiconsulting/**` tracks `vX.Y.Z` only, no digest pin, production bumps stay
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
   branch. `clusters/**/tbd-staging/**` the same way (INFRA-91, group `tbd staging images`, branch prefix
-  `tbd-staging-`); `tbd-prod` is one grouped PR (backend, scheduler, migrations, frontend), no automerge.
+  `tbd-staging-`); `tbd-prod` is one grouped PR (backend, migrations, frontend, scheduler if present), no automerge.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
 - App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
 - Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.

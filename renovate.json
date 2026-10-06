@@ -44,7 +44,7 @@
       "automergeType": "branch"
     },
     {
-      "description": "TBD staging follows releases (INFRA-91), same as ziftbook-staging above: one grouped branch of backend, scheduler, migrations and frontend, automerged by branch, own prefix so it never shares a branch with the tbd-prod PR.",
+      "description": "TBD staging follows releases (INFRA-91), same as ziftbook-staging above: one grouped branch of backend, migrations and frontend, automerged by branch, own prefix so it never shares a branch with the tbd-prod PR.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/fjcloudaiconsulting/**"],
       "matchFileNames": ["clusters/**/tbd-staging/**"],
