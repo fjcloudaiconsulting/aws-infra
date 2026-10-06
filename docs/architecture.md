@@ -56,17 +56,13 @@ flowchart LR
   end
   hc --> cf
 
-  subgraph oldacct["Old AWS account (terraform/tbd-apex)"]
-    apex["TBD apex site: S3 + CloudFront<br/>(rollback only since INFRA-61, until INFRA-62)"]
-  end
-
   subgraph control["Control plane"]
     gh["GitHub fjcloudaiconsulting/aws-infra"]
     tfc["HCP Terraform (org FlamaCorp)<br/>AWS via OIDC roles, Cloudflare via API token"]
     ghcr["GHCR images"]
     probe["Freshness probe (GitHub Actions)"]
   end
-  gh --> tfc --> aws_platform & aws_backups & cloudflare & oldacct
+  gh --> tfc --> aws_platform & aws_backups & cloudflare
   gh -->|"main"| flux
   ghcr -->|"ghcr-pull secret"| node
   owner([Owner Mac]) -->|"NetBird, TCP 6443 only"| netbird
@@ -307,10 +303,8 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 - **Terraform:** every `terraform/<stack>/` is an HCP Terraform workspace with VCS flow: plan on
   the PR, apply on merge after approval in the TFC UI. The stacks are `platform` (node, alarms,
   budget, CloudTrail, uptime check), `cloudflare` (DNS, zone settings), `tbd-backups` (backup
-  chain) and `tbd-apex` (TBD apex site in the old account). `platform` and `tbd-backups` assume
-  OIDC roles whose policies root mints once from [`aws/bootstrap/`](../aws/bootstrap/), so those
-  workspaces never manage their own roles. `cloudflare` uses an API token. `tbd-apex` manages its
-  own provisioner role and OIDC providers in the old account (see its README).
+  chain). `platform` and `tbd-backups` assume OIDC roles whose policies root mints once from [`aws/bootstrap/`](../aws/bootstrap/), so those
+  workspaces never manage their own roles. `cloudflare` uses an API token.
 - **Kubernetes:** Flux (source and kustomize controllers) applies `clusters/platform` from `main`.
 - **CI** ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): `terraform fmt` and validate,
   tflint, the tbd-backups fences check, kubeconform, the SOPS check and the Python tests.

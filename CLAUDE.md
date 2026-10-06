@@ -43,8 +43,8 @@ app code, Dockerfiles and CI; this repo owns where and how they run. Work is tra
   `tfc-backups-*` roles, OIDC providers). The TFC role trust is pinned to workspace name `tbd-backups`:
   do not rename it. If a rename is ever unavoidable, or any trust statement must change, add the new
   statement, apply, then remove the old one; never edit in place.
-- The TBD apex site and the `thebetterdecision.com` registration (Route 53 Domains) live in an older, separate
-  AWS account we have no credentials for; the owner acts there. DNS for the domain is served by Cloudflare
+- The `thebetterdecision.com` registration (Route 53 Domains) lives in an older, separate
+  AWS account we have no credentials for; the owner acts there. The TBD apex is the Worker `tbd-landing`. DNS for the domain is served by Cloudflare
   (`terraform/cloudflare`) since 2026-10-01; the old Route 53 zone is kept only until INFRA-58 deletes it.
 - Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, since replacing it destroys the
   databases.
