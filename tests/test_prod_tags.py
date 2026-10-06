@@ -90,6 +90,27 @@ class ProdTags(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("not a plain", r.stderr)
 
+    def test_yml_and_nested_files_are_scanned(self):
+        # Flux and Renovate also take .yml, and subdirs (kills "*.yaml only" and glob instead of rglob).
+        for rel, name in (("p/tbd-prod", "a.yml"), ("p/tbd-prod/sub", "a.yaml")):
+            layout = tbd([("backend", "v0.2.0")], [("backend", "v0.2.0")])
+            layout[rel] = {**layout.get(rel, {}), name: img("tbd", "backend", "v0.9.0")}
+            self.assertEqual(run(layout).returncode, 1, rel + name)
+
+    def test_untagged_digest_and_prerelease_prod_refs_fail(self):
+        # Kills a missing-tag skip and a SEMVER without `$` (v0.2.0-rc.1, v0.2.0@sha256 read as v0.2.0).
+        for ref in ("ghcr.io/fjcloudaiconsulting/tbd/backend\n", "ghcr.io/fjcloudaiconsulting/tbd/backend:v0.2.0-rc.1\n",
+                    "ghcr.io/fjcloudaiconsulting/tbd/backend:v0.2.0@sha256:abc\n"):
+            layout = tbd([("backend", "v0.2.0")], [("backend", "v0.2.0")])
+            layout["p/tbd-prod"]["b.yaml"] = "image: " + ref
+            self.assertEqual(run(layout).returncode, 1, ref)
+
+    def test_other_repos_in_staging_do_not_bound_prod(self):
+        # Kills dropping the repo filter from the lowest-tag computation.
+        layout = tbd([("backend", "v0.3.0")], [("backend", "v0.3.0")])
+        layout["p/tbd-staging"]["b.yaml"] = img("other", "x", "v0.1.0")
+        self.assertEqual(run(layout).returncode, 0)
+
     def test_no_prod_dir_is_an_error(self):
         # Never a silent pass if the layout changes under the check.
         self.assertEqual(run({"p/tbd-staging": {"a.yaml": img("tbd", "backend", "v0.2.0")}}).returncode, 1)
