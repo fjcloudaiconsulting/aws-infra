@@ -9,11 +9,13 @@ Older is allowed (rollback).
 No app is named here, so a new <app>-prod/<app>-staging pair is covered with no change.
 Limits: it reads the checked-out tree, so one PR that bumps staging and prod together passes (review
 catches it), and ordering is not proof staging ran that exact tag; live health is the post-deploy smoke's job.
-Also not seen: refs in comments count as refs; kustomize `images:` / Helm `tag:` fields (none under clusters/ today).
+Not covered (review-visible): prod manifests outside a <app>-prod dir, refs of other registries or YAML-escaped,
+Helm `tag:` fields; a ref inside a comment counts as a real ref.
 Fails closed: prod without a staging dir or image, a tag that is not plain vX.Y.Z, no prod dir at all.
 
 Usage: check-prod-tags.py [clusters-dir]   (default: clusters)
 """
+import os
 import pathlib
 import re
 import sys
@@ -26,7 +28,7 @@ def refs(d, errs):
     """{repo/image: [(tag, file)]} for every yaml under d; non-vX.Y.Z tags are errors."""
     out = {}
     for f in sorted(d.rglob("*")):
-        if f.suffix not in (".yaml", ".yml") or not f.is_file():
+        if f.suffix.lower() not in (".yaml", ".yml") or not f.is_file():
             continue
         for image, tag in REF.findall(f.read_text()):
             if SEMVER.match(tag):
@@ -65,7 +67,7 @@ def main(root):
                     errs.append(f"{f}: {image}:{tag} is newer than {stg.name} ({low}); wait for the staging bump on main, then update the branch")
         print(f"checked {prod}")
     for e in errs:
-        print(e, file=sys.stderr)
+        print(f"::error::{e}" if os.environ.get("GITHUB_ACTIONS") else e, file=sys.stderr)
     return 1 if errs else 0
 
 
