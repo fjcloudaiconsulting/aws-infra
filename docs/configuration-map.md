@@ -17,7 +17,7 @@ in the same PR or right after.
 | Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
 | No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
-| Staging image bump sits on a `renovate/ziftbook-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
+| Staging image bump sits on a `renovate/ziftbook-staging-*` or `renovate/tbd-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
 | No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-staging`, `tbd-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into every file (see [Cluster](#cluster-out-of-band-material)) |
 | After a node replacement, `mysql-0`, `postgres-0`, `valkey-0` or `netbird` stay Pending with `volume node affinity conflict`, or `kubectl get nodes` lists a second node | k3s registered under the new instance's hostname; local-path volumes are pinned to the old node name | `kubectl get nodes`, `kubectl -n data describe pod mysql-0` (Events) | On the node: `node-name: <old name>` in `/etc/rancher/k3s/config.yaml`, `sudo systemctl restart k3s`, delete the new Node object ([runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2) |
@@ -43,14 +43,17 @@ in the same PR or right after.
 ## Release and deploy chain
 
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
-staging (v0.20.2, 2026-10-03). TBD production (`tbd-prod`, since the INFRA-48 cutover) bumps arrive as
-PRs and are never automerged (proven by Renovate dry run only, check it on the first TBD bump).
+staging (v0.20.2, 2026-10-03). TBD uses the same chain (INFRA-91): `tbd-staging` (INFRA-67) bumps by branch,
+`tbd-prod` (since the INFRA-48 cutover) bumps arrive as PRs and are never automerged (proven by Renovate dry
+run only, check both on the first TBD release after INFRA-91). For TBD read `tbd-staging` and
+`renovate/tbd-staging-tbd-staging-images` (the second `tbd-staging` is the group name) in steps 6 to 9;
+the release path to `dev.thebetterdecision.com` is these nine steps.
 
 The rules are [release contract section 8](https://github.com/fjcloudaiconsulting/.github/blob/main/RELEASE_CONTRACT.md#8-deploy-handoff)
 (decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
 `main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
-runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet); TBD gets staging in
-INFRA-67 and this flow in INFRA-91. A release that fails on staging is fixed forward; marking its GitHub
+runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet: until it lands, "staging first" for the
+production PR is owner discipline, check `dev.thebetterdecision.com/health` or `dev.ziftbook.com/api/healthz` shows the tag). A release that fails on staging is fixed forward; marking its GitHub
 release a prerelease keeps it out of the drift watch below.
 
 | # | Step | Needs |
@@ -172,8 +175,8 @@ Hosted Mend app, Free plan, repos selected at
 - aws-infra rules in `renovate.json`: database majors never proposed (data dirs upgrade by hand after a
   fresh dump); `ghcr.io/fjcloudaiconsulting/**` tracks `vX.Y.Z` only, no digest pin, production bumps stay
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
-  branch. `tbd-staging` has no rule of its own until INFRA-91: its bumps arrive as one PR per image, so merge
-  backend and migrations together.
+  branch. `clusters/**/tbd-staging/**` the same way (INFRA-91, group `tbd staging images`, branch prefix
+  `tbd-staging-`); `tbd-prod` is one grouped PR (backend, scheduler, migrations, frontend), no automerge.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
 - App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
 - Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.
