@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     # Staging bumps automerge as branches without a PR (INFRA-36): CI must report checks there.
-    branches: [main, "renovate/ziftbook-staging-**"]
+    branches: [main, "renovate/ziftbook-staging-**", "renovate/tbd-staging-**"]
 
 concurrency:
   group: ci-${{ github.ref }}
