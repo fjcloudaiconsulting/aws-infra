@@ -46,9 +46,8 @@ resource "cloudflare_zone" "tbd" {
 locals {
   tbd_records = {
     # www: proxied only so the redirect rule `tbd_redirects` below can answer it; Cloudflare never fetches this target.
-    # It stays the CloudFront name so the change is in place, and if the rule is ever off CloudFront still sends
-    # its own 301 to the apex. INFRA-62 must retarget it before deleting the distribution.
-    www = { name = "www.thebetterdecision.com", type = "CNAME", content = "d1vhzkck8shsp8.cloudfront.net", ttl = 1, proxied = true }
+    # It points at the apex (the Worker), so even with the rule off www serves the site instead of dangling.
+    www = { name = "www.thebetterdecision.com", type = "CNAME", content = "thebetterdecision.com", ttl = 1, proxied = true }
 
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }
 
@@ -58,11 +57,6 @@ locals {
     app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
     # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Same path as `app`.
     dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
-
-    # ACM DNS validation for the apex CloudFront certificate (tbd-apex workspace, us-east-1).
-    # Must keep resolving or ACM renewal fails.
-    acm_apex = { name = "_d8193f70c4baeb1cabf4316aaa913106.thebetterdecision.com", type = "CNAME", content = "_419d9cb8ee524cbab9f96e9fa86ad7be.jkddzztszm.acm-validations.aws", ttl = 60 }
-    acm_www  = { name = "_f5a90d945c9943f00f2a831d0daeadb8.www.thebetterdecision.com", type = "CNAME", content = "_0dacccdcbeeec26030fcfe050474b493.jkddzztszm.acm-validations.aws", ttl = 60 }
 
     # Mailgun sending domain m.thebetterdecision.com (EU).
     mailgun_mx_a     = { name = "m.thebetterdecision.com", type = "MX", content = "mxa.eu.mailgun.org", priority = 10, ttl = 300 }
