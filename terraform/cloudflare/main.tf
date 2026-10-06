@@ -46,7 +46,7 @@ resource "cloudflare_zone" "tbd" {
 locals {
   tbd_records = {
     # www: proxied only so the redirect rule `tbd_redirects` below can answer it; Cloudflare never fetches this target.
-    # It points at the apex (the Worker), so even with the rule off www serves the site instead of dangling.
+    # It points at the apex, an in-zone name, so it never points at a foreign origin; with the rule off, www is not served (a Workers custom domain binds one hostname)
     www = { name = "www.thebetterdecision.com", type = "CNAME", content = "thebetterdecision.com", ttl = 1, proxied = true }
 
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }

@@ -3,8 +3,8 @@
 Owns the S3 bucket, CMK and IAM identities behind the nightly off-host copy of
 the production MySQL dump.
 
-⚠⚠ **This is a DIFFERENT AWS account from `terraform/tbd-apex/`.** apex runs
-the public landing site from the operator's older account; this workspace
+⚠⚠ **This is a DIFFERENT AWS account from the former `terraform/tbd-apex/`.** The apex ran
+the public landing site from the operator's older account (now a Worker); this workspace
 targets the company account `884686184019`. `main.tf` asserts the caller matches
 `var.aws_account_id`, so a wrong-account apply dies at plan instead of creating
 a bucket in the wrong place. Never copy an account id between the two.
