@@ -263,6 +263,13 @@ ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `
 outbound fetch (only its assets binding). One Pages project, `fjconsulting-website-dev` on fjconsulting.dev (no node
 hostname in that zone). One account member, the owner (Super Administrator).
 
+Re-read 2026-10-06 (API, read-only): still no Workers routes on the three Terraform-managed zones; Workers custom domains are
+ziftbook.com and www.ziftbook.com (`ziftbook-landing`) and thebetterdecision.com (`tbd-landing`, attached by the owner,
+INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on any of them. Both
+landing deploys ran green with the per-Worker tokens (ziftbook `landing.yml` and tbd `apex-deploy.yml`, 2026-10-05), and
+neither repo holds a repo-level `CLOUDFLARE_API_TOKEN` any more. The Cloudflare MCP grant cannot read API tokens (9109), so
+token scopes are the ones `cloudflare-tokens` applied (runs of 2026-10-05, all applied).
+
 Who can put code on a zone (a Pages project with a custom domain on an app zone counts the same as a Worker).
 Scopes are what the dashboard shows (names only), as of 2026-10-05:
 
@@ -290,7 +297,12 @@ Rules:
   (staging); after INFRA-61 `tbd-landing` (apex and www) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, holds its deploy token, or (while the token is a plain repo
   secret) has write access to the repo. Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
-  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98: unrecorded.
+  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
+  narrow, do not accept. Token narrowing is complete (rules above, no consumer needs more than its own Worker); what is
+  left is this code-level residual, which only a rule keyed on `cf.worker.upstream_zone` on the node hostnames would
+  close (backlog, needs a test with a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
+  on the whole account (Cloudflare has no per-project Pages role); a custom domain on an app zone would also need DNS
+  rights there, which they lack.
 - No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
   `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
