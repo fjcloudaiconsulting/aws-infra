@@ -280,6 +280,32 @@ resource "cloudflare_dns_record" "fjdev_mail" {
   proxied  = false
 }
 
+# Ziftbook production's Mailgun sending domain (INFRA-139): m.ziftbook.com, EU region, created in Mailgun 2026-10-06.
+# Same record set as m.thebetterdecision.com and m.fjconsulting.dev above; values from Mailgun's domain record list.
+# The DKIM value is a 1024-bit public key, one string. Verify in Mailgun after the apply.
+locals {
+  ziftbook_mail_records = {
+    mx_a     = { type = "MX", name = "m.ziftbook.com", content = "mxa.eu.mailgun.org", priority = 10 }
+    mx_b     = { type = "MX", name = "m.ziftbook.com", content = "mxb.eu.mailgun.org", priority = 10 }
+    spf      = { type = "TXT", name = "m.ziftbook.com", content = "\"v=spf1 include:mailgun.org ~all\"" }
+    dmarc    = { type = "TXT", name = "_dmarc.m.ziftbook.com", content = "\"v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com; ruf=mailto:ebe10ff8@dmarc.mailgun.org,mailto:e05f9325@inbox.ondmarc.com;\"" }
+    dkim     = { type = "TXT", name = "email._domainkey.m.ziftbook.com", content = "\"k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC1X2888qHqW4D/8t8+ye5xRPQJoFrq02xHeV3XAg5jMUH69ZIYFoFomXtAMYOdO17uXdTb4cXvWI9VpN1DLREJvHgVPrf3QvVC9BRaLWum5hemIsuLZLIoe0WC/nyyHwB92n0r1jDV49fh+ZdDQiFZdTxVTJpagi3bI6jp+lyF7wIDAQAB\"" }
+    tracking = { type = "CNAME", name = "email.m.ziftbook.com", content = "eu.mailgun.org" }
+  }
+}
+
+resource "cloudflare_dns_record" "ziftbook_mail" {
+  for_each = local.ziftbook_mail_records
+
+  zone_id  = data.cloudflare_zone.ziftbook.id
+  name     = each.value.name
+  type     = each.value.type
+  content  = each.value.content
+  priority = try(each.value.priority, null)
+  ttl      = 300
+  proxied  = false
+}
+
 output "tbd_name_servers" {
   description = "Set these at the registrar (Route 53 Domains, old AWS account) to switch DNS to Cloudflare."
   value       = cloudflare_zone.tbd.name_servers
