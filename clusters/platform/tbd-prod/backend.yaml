@@ -1,5 +1,4 @@
-# TBD API in production (INFRA-43). Replicas stay 0 while TBD runs on DigitalOcean; the INFRA-48 cutover window
-# sets them to 1 after the data restore (docs/tbd-cutover.md). Secret tbd: tbd.secret.yaml, written by the owner.
+# TBD API in production (INFRA-43). Secret tbd: tbd.secret.yaml, written by the owner.
 # The migrate init container (the `migrations` image target, INFRA-39) runs `python /app/scripts/migrate.py`
 # (alembic upgrade head) before every start, so a new version never serves on an old schema. A Job named by
 # version cannot work under Flux (immutable pod template, no ordering before Deployments). Only this pod migrates;
@@ -9,7 +8,7 @@
 # the first tbd release that carries both INFRA-42 (tbd#823) and INFRA-83 (tbd#824); bump backend, migrations,
 # scheduler and frontend together.
 # The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
-# PFV_RUNTIME is deliberately unset (DigitalOcean only). CLIENT_IP_HEADER=cf-connecting-ip: Cloudflare overwrites that
+# PFV_RUNTIME is deliberately unset. CLIENT_IP_HEADER=cf-connecting-ip: Cloudflare overwrites that
 # header, and Traefik requires our zone's Authenticated Origin Pulls cert (INFRA-93), so only our zone reaches the
 # origin and get_client_ip reads the visitor from it (INFRA-83). frontend.yaml sets the same value (INFRA-97).
 apiVersion: v1

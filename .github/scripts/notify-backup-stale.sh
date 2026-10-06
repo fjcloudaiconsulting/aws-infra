@@ -29,21 +29,15 @@ Probe run: ${RUN_URL}
 
 ---
 
-**What this means.** The nightly dumps (\`pfv-data-01/\` from the data droplet,
-\`tbd-mysql/\` and \`ziftbook-postgres/\` from the k3s \`db-backup\` CronJob) are
+**What this means.** The nightly dumps (\`tbd-mysql/\` and \`ziftbook-postgres/\` from the k3s \`db-backup\` CronJob) are
 the durability floor, and the copy in S3 is the only part that survives losing
 the machine. A \`stale\` verdict means at least one night has not completed end
 to end. A \`could-not-run\` verdict means the probe could not answer the question
 at all, which is not evidence of health.
 
 **Where to look.**
-1. \`/var/log/mysql-backup.log\` on the droplet.
-2. Whether the ansible play (fjcloudaiconsulting/tbd, \`infra/ansible\`) has been
-   converged since the backup role changed --
-   an unconverged droplet uploads nothing, and this alarm is the intended way to
-   find that out.
-3. Whether the \`FlamaCorp/tbd-backups\` workspace has been applied.
-4. For a k3s prefix: \`kubectl -n data get jobs\` and the failed job's logs.
+1. \`kubectl -n data get jobs\` and the failed job's logs.
+2. Whether the \`FlamaCorp/tbd-backups\` workspace has been applied.
 
 ⚠ Do not silence this by widening the probe's thresholds.
 BODY_EOF

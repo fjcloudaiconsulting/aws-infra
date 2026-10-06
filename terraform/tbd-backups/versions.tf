@@ -12,25 +12,9 @@ terraform {
   # to main create runs awaiting manual Confirm & Apply. Auto-apply is off,
   # matching FlamaCorp/tbd and FlamaCorp/tbd-apex.
   #
-  # ⚠ WHY A THIRD WORKSPACE, AND NOT THE DATA-PLANE ONE (TBD-400).
-  # Folding these AWS resources into FlamaCorp/tbd was argued for -- it would
-  # make the credential delivery free, since bin/run-playbook.sh already reads
-  # that one directory. It was rejected:
-  #
-  #   The AWS provider validates credentials at CONFIGURE time
-  #   (sts:GetCallerIdentity). A configure-time failure fails the whole run, not
-  #   merely the AWS resources, and -target does not rescue it. So a
-  #   two-provider FlamaCorp/tbd would make AWS auth a hard dependency of the
-  #   REPAIR PATH for the droplet, VPC and firewall. You could not apply a
-  #   DigitalOcean fix until an AWS trust policy was repaired out of band.
-  #
-  #   It would also import the TBD-372 rename-lockout hazard into the workspace
-  #   named `tbd`, where a rename would break EVERY DO apply, not just backups.
-  #
-  #   And FlamaCorp/tbd's state already holds do_token plus the three
-  #   random_password values; adding the uploader secret would make ONE state
-  #   file yield the droplet AND write access to the only copy of its data --
-  #   the adversarial twin of the failure this whole ticket exists to fix.
+  # ⚠ WHY A SEPARATE WORKSPACE (TBD-400): the AWS provider validates credentials at configure time, so an AWS auth
+  # problem fails the whole run of any workspace that holds it. The backup chain therefore stays apart from the
+  # workspaces whose repair path must not depend on it. (The DigitalOcean workspace it was separated from was retired, INFRA-49.)
   #
   # ⚠ RENAMING THIS WORKSPACE IS NOT JUST AN EDIT HERE. The name is also the
   # AWS trust boundary: it appears in the `app.terraform.io:sub` condition of

@@ -1,5 +1,5 @@
 # Ingress to tbd-prod is deny-by-default. Traefik reaches the frontend, and the backend for /api, /health and /ready
-# (what DigitalOcean's ingress routed to it); the frontend reaches the backend for server-side fetches. The scheduler
+# (the routes the app has always had); the frontend reaches the backend for server-side fetches. The scheduler
 # takes no traffic. Egress is open except instance metadata (INFRA-43). Node-local traffic bypasses these policies
 # (see data/networkpolicy.yaml); the data policies already admit this namespace for MySQL and Valkey.
 apiVersion: networking.k8s.io/v1
