@@ -46,6 +46,17 @@ Swap the namespace for `tbd-staging`, `ziftbook-staging` or `data` (StatefulSets
 release reaches the cluster only through a PR that changes an image tag under `clusters/`; there is no image
 automation.
 
+## Promote a TBD release (staging, then production)
+
+A TBD release reaches `tbd-staging` by itself (INFRA-91): Renovate pushes `renovate/tbd-staging-tbd-staging-images`,
+CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Production is the separate `tbd images` PR.
+
+1. After the release run's `promote` job is green, wait for the staging bump on `main`
+   (`git log origin/main -3 -- clusters/platform/tbd-staging`). Tick "run again" on the Dependency Dashboard to force it.
+2. Check staging runs the tag: `curl -s https://dev.thebetterdecision.com/health` reports the new version.
+3. Merge the `tbd images` PR for `tbd-prod`; its tags must equal the ones now in `tbd-staging`. Update its branch if it is behind.
+4. A release broken on staging is fixed forward: do not merge the prod PR, release the fix; a newer tag replaces the PR.
+
 ## Post-deploy smoke
 
 Every push to `main` that changes `clusters/platform/tbd-prod/` or `clusters/platform/ziftbook-staging/` runs the

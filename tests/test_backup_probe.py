@@ -168,7 +168,7 @@ class PerPrefix(unittest.TestCase):
 class AlarmWiring(unittest.TestCase):
     def test_the_workflow_probes_every_prefix_with_its_floor(self):
         wf = WORKFLOW.read_text()
-        for floor in ("tbd-mysql=100000", "ziftbook-postgres=300"):
+        for floor in ("tbd-mysql=100000", "tbd-staging-mysql=5000", "ziftbook-postgres=300"):
             self.assertIn(floor, wf)
 
     def test_the_workflow_alarms_on_every_non_fresh_verdict(self):
