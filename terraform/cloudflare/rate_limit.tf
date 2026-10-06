@@ -6,7 +6,8 @@
 # the only request field (no host, no method), counting per client IP and Cloudflare data center (ip.src and
 # cf.colo.id, both required), a 10 s period, a 10 s block and the block action, which answers 429. So the rule has no
 # host condition and covers every proxied host of the zone at once (TBD app., and dev. once INFRA-67 adds it; Ziftbook
-# dev. and any later production host). DNS-only records, like the TBD apex on CloudFront, never reach it.
+# dev. and any later production host; the TBD landing apex too, which serves none of these paths. TBD www never reaches
+# it: its redirect rule runs in an earlier phase). DNS-only records never reach it.
 #
 # One counter per address for all paths of a zone. 20 requests in 10 s is far above a person signing in (a few
 # requests) and above the TBD post-deploy smoke test (one login). GET /api/session on ziftbook.com shares the path of
