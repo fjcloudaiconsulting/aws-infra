@@ -269,7 +269,7 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 | `OTEL_LOGS_EXPORTER` | `none` |
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
-forwards metrics (and, as each app adopts this standard, traces) to the Grafana Cloud OTLP gateway, and scrapes the
+forwards metrics and traces to the Grafana Cloud OTLP gateway, and scrapes the
 node and cAdvisor (`/metrics/cadvisor` only: k3s kubelet `/metrics` carries the whole control plane, about 58k series).
 Tailing pod stdout into Grafana Cloud Logs comes later, under the rules below. One collector, so the Grafana Cloud
 credentials (a write-only access policy token for an EU stack) live in one SOPS Secret. A DaemonSet never runs two

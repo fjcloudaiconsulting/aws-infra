@@ -466,18 +466,18 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   on that disk. Usage is against the full size, including ext4's reserved blocks (about 5%), so writes fail near 95%:
   alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
   Alloy's memory).
-- **Apps:** whatever an app sends as OTLP/HTTP metrics to `http://alloy.observability.svc:4318` (set
+- **Apps:** whatever an app sends as OTLP/HTTP metrics or traces to `http://alloy.observability.svc:4318` (set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
   and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
-  `exception.message` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr` from data point,
-  scope and resource attributes.
+  `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
+  from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
-Traces and logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
+Traces (INFRA-106, Ziftbook staging) are forwarded too; logs are not collected yet. Config: [`clusters/platform/observability/alloy/config.alloy`](../clusters/platform/observability/alloy/config.alloy);
 a change there rolls the pod (the ConfigMap name carries a hash).
 
 **Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file
 `clusters/platform/observability/grafana-cloud.secret.yaml`. The token belongs to a Grafana Cloud access policy with the
-`metrics:write` scope only. To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
+`metrics:write` and `traces:write` scopes (`traces:write` since INFRA-106; editing a policy's scopes applies to its existing tokens, so the Secret does not change). To write or rotate it, create a new token on that policy (Grafana Cloud > Administration >
 Cloud access policies > the policy > Add token), regenerate the whole file (only the public key is needed), merge,
 restart, then delete the old token. The plaintext only passes through a pipe, never a file:
 
