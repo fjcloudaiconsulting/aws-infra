@@ -67,8 +67,8 @@ locals {
   cloudflare_workspace_policies = {
     # Managed zone: settings, records, rate limit (INFRA-123), origin pulls (INFRA-93), www redirect rule (INFRA-61).
     tbd = ["Zone Write", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write", "Dynamic URL Redirects Write"]
-    # Zone read by a data source; its settings, `dev` record, rate limit and origin pulls are managed.
-    ziftbook = ["Zone Read", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write"]
+    # Zone read by a data source; its settings, `dev` record, rate limit, origin pulls and www redirect rule (INFRA-131) are managed.
+    ziftbook = ["Zone Read", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write", "Dynamic URL Redirects Write"]
     # Zone read by a data source; only the shared dev Mailgun records `m.` are managed (INFRA-47).
     fjdev = ["Zone Read", "DNS Write"]
   }

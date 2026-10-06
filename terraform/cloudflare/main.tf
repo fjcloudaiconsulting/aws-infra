@@ -107,6 +107,35 @@ resource "cloudflare_ruleset" "tbd_redirects" {
   }]
 }
 
+# www.ziftbook.com -> apex, 301, path and query kept (INFRA-131), the same pattern as tbd_redirects. www stays the
+# `ziftbook-landing` Worker's custom domain (attached by hand): zone redirect rules run before the Worker, so the rule
+# answers first and the Worker needs neither a www branch nor run_worker_first on every path. The zone is read, not
+# managed, and has no entrypoint ruleset in this phase yet, so this creates it. The workspace token needs Zone >
+# Single Redirect > Edit on this zone (cloudflare-tokens): apply that workspace first.
+resource "cloudflare_ruleset" "ziftbook_redirects" {
+  zone_id = data.cloudflare_zone.ziftbook.id
+  name    = "default"
+  kind    = "zone"
+  phase   = "http_request_dynamic_redirect"
+
+  rules = [{
+    ref         = "www_to_apex"
+    description = "www to the apex, 301, keeps path and query (INFRA-131)"
+    expression  = "(http.host eq \"www.ziftbook.com\")"
+    action      = "redirect"
+    enabled     = true
+    action_parameters = {
+      from_value = {
+        status_code           = 301
+        preserve_query_string = true
+        target_url = {
+          expression = "concat(\"https://ziftbook.com\", http.request.uri.path)"
+        }
+      }
+    }
+  }]
+}
+
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
 # hostnames: ziftbook.com (dev, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, `dev` since
 # INFRA-67, apex and www since INFRA-61).

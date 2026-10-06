@@ -224,7 +224,7 @@ own role.
   Terraform redirect rule `tbd_redirects` can 301 it to the apex. The rest is DNS-only.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
 - `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
-  minimum TLS 1.2, SSL Full strict) and the proxied record `dev.ziftbook.com` are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
+  minimum TLS 1.2, SSL Full strict) and the proxied record `dev.ziftbook.com` are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI; the Terraform rule `ziftbook_redirects` 301s www to the apex before the Worker (INFRA-131).
 - Hostnames (owner ruling 2026-10-03): staging `dev.<domain>`, production `app.<domain>`, other services
   by the same pattern (`docs.`, `blog.`). Ziftbook staging is `dev.ziftbook.com` (INFRA-47).
 - The Origin CA certificate must list `thebetterdecision.com`, `*.thebetterdecision.com`, `ziftbook.com` and
@@ -275,7 +275,7 @@ the attach. Recreate one with the Cloudflare API (`PUT /accounts/<account>/worke
 
 | Hostname | Worker | Since |
 |---|---|---|
-| `ziftbook.com`, `www.ziftbook.com` | `ziftbook-landing` (www and http redirected in its code) | before 2026-10-04 |
+| `ziftbook.com`, `www.ziftbook.com` | `ziftbook-landing` (www 301ed by the `ziftbook_redirects` zone rule before the Worker, INFRA-131; http by Always Use HTTPS and the Worker) | before 2026-10-04 |
 | `thebetterdecision.com` | `tbd-landing` | INFRA-61. Not `www`: the `tbd_redirects` rule in `terraform/cloudflare` 301s it to the apex |
 
 Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com too: no routes, no Snippets); Workers custom domains are
@@ -292,7 +292,7 @@ Scopes are what the dashboard shows (names only), as of 2026-10-05:
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
 | Bootstrap token (INFRA-133) | HCP Terraform workspace `cloudflare-tokens`, env var `CLOUDFLARE_API_TOKEN`; that workspace's PR plans run provider code with it | mints, edits and deletes any account-owned token, so indirectly everything | Account API Tokens Write only. The only hand-made Cloudflare token |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write, Dynamic URL Redirects Write (dashboard: Single Redirect, INFRA-61); ziftbook.com: the same without the redirects and with Zone Read instead of Zone Write; fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. In use since 2026-10-05; the hand-made `cloudflare-tfc` it replaced is deleted |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write, Dynamic URL Redirects Write (dashboard: Single Redirect, INFRA-61); ziftbook.com: the same with Zone Read instead of Zone Write (Dynamic URL Redirects Write since INFRA-131); fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. In use since 2026-10-05; the hand-made `cloudflare-tfc` it replaced is deleted |
 | Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Individual Workers Editor on `ziftbook-landing` only; token `ziftbook-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
 | tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (the apex since INFRA-61, and its workers.dev preview); never touches its custom domain | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
