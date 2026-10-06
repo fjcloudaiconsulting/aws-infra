@@ -49,7 +49,7 @@ PRs and are never automerged (proven by Renovate dry run only, check it on the f
 The rules are [release contract section 8](https://github.com/fjcloudaiconsulting/.github/blob/main/RELEASE_CONTRACT.md#8-deploy-handoff)
 (decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
 `main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
-runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet); TBD gets staging in
+runs in that app's staging. The CI check for the tag rule is step 10 (INFRA-89); TBD got staging in
 INFRA-67 and this flow in INFRA-91. A release that fails on staging is fixed forward; marking its GitHub
 release a prerelease keeps it out of the drift watch below.
 
@@ -64,6 +64,9 @@ release a prerelease keeps it out of the drift watch below.
 | 7 | CI runs on that branch push | `ci.yml` `push` filter `renovate/ziftbook-staging-**` |
 | 8 | Renovate fast-forwards the branch into `main` without a PR | Renovate app in the `main protection` bypass list |
 | 9 | Flux applies the commit; Deployments use `Recreate` | `sops-age`, `ghcr-pull` |
+| 10 | CI step `prod tags not ahead of staging` (`check-prod-tags.py`, in `Kubernetes checks`) fails a PR whose `<app>-prod` image tags are newer than that app's `<app>-staging` tags on the tree | Required check `Kubernetes checks` in the `main protection` ruleset (no ruleset change); covers any `<app>-prod` dir with no code change |
+
+Step 10 is advice for the owner, not a lock: admins bypass the ruleset (merging a red check is possible) and Renovate's fast-forward bypasses it too, so the same step also runs on every push to `main` and goes red after the fact. It compares tags in git, not what staging actually runs (the post-deploy smoke and the staging `/health` do that), and a PR that bumps staging and prod together passes it (review). A red check means "wait for the staging bump on `main`, then update the branch".
 
 Drift watch: workflow `release-drift-probe.yml` (daily) opens or updates one `[release-drift]` issue when an app's latest GitHub release has been absent from `clusters/` for 2+ days (production bump PR unmerged, or Renovate never opened it), and closes it when clear. No credentials; it reads the app repos' releases because GHCR is private. It depends on `tbd` and `ziftbook` staying public repos (GITHUB_TOKEN reads); the run goes red if either goes private. Only repos in `WATCH_REPOS` (default `ziftbook tbd`, tbd since the INFRA-48 cutover) are checked.
 
