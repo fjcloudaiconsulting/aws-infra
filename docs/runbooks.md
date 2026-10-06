@@ -65,7 +65,7 @@ reaches the apps through Cloudflare like a user. Per namespace:
 
 1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
-   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied), which goes through the frontend to the backend. The Deployments use `Recreate`
+   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
 2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
