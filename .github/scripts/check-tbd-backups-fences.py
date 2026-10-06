@@ -32,6 +32,9 @@ def actions(doc):
 # main.tf does, from the real prefix list, so the exact-resource check below sees every ARN.
 prefixes = json.loads(re.search(r"k3s_backup_prefixes\s*=\s*(\[[^\]]*\])", (STACK / "main.tf").read_text()).group(1))
 check(prefixes, "could not find local.k3s_backup_prefixes in main.tf")
+check(all(re.fullmatch(r"[a-z0-9-]+", p) for p in prefixes), f"odd backup prefix in {prefixes}")
+check('"arn:aws:s3:::${var.bucket_name}/${p}/*"' in (STACK / "main.tf").read_text(),
+      "main.tf no longer builds the uploader Resource list as exactly arn:aws:s3:::<bucket>/<prefix>/*")
 uploader = json.loads((STACK / "policies/backup-uploader.json").read_text().replace(
     "${resources}", json.dumps([f"arn:aws:s3:::${{bucket}}/{p}/*" for p in prefixes])))
 # The probe template injects its prefix list as raw JSON; stand in an empty list so it parses.
