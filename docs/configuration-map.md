@@ -40,7 +40,6 @@ in the same PR or right after.
 | A Grafana alert is Firing (Alerting > Alert rules) but no email arrives | Contact point `owner-email` failing (its row in Alerting > Contact points shows the last error), or the mail is in spam (sender `noreply@grafana.net`) | [Grafana Cloud](#grafana-cloud) | Fix `grafana/contact-point.json` and re-apply it ([runbook](runbooks.md#memory-alerts)) |
 | `Kubernetes checks` red at step `prod tags not ahead of staging`: `<app>-prod` image is newer than `<app>-staging` | Prod bumped (or staging not yet bumped) ahead of staging; one app's red also blocks the other app's staging automerge | Step 10 of [Release and deploy chain](#release-and-deploy-chain) | Merge or make the staging bump on `main` first, then update the prod branch. Never merge the prod bump first |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
-| tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. tbd#840 (INFRA-44, after INFRA-49) removes the DO jobs. Never restore the token except in a rollback |
 
 ## Release and deploy chain
 
@@ -115,7 +114,7 @@ installation, and the grant applies to **every repository in the installation**.
 |---|---|---|
 | `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
 | `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook, tbd (added 2026-10-04, INFRA-109) | Repos are added on GitHub, not in Mend |
-| `terraform-cloud`, `digitalocean`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
+| `terraform-cloud`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
 ### Per-repo settings
 
@@ -156,9 +155,6 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `release.yml` | pipeline | stays |
 | tbd | repo | secret `GIST_TOKEN` | `test.yml` (coverage badges, `main` only) | pipeline | stays |
 | tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
-| tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | delete with INFRA-62, after the `tbd-apex` destroy and the tbd PR that removes the S3 deploy job |
-| tbd | repo | secret `DIGITALOCEAN_ACCESS_TOKEN` | `deploy.yml`, `deploy-drift-probe.yml`, `release.yml` `deploy` | DigitalOcean only (holds a dummy since INFRA-48) | delete after INFRA-49, once tbd#840 (INFRA-44) removes its readers |
-| tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
 | aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
 | ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
 | tbd | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `apex-deploy.yml` `deploy-worker` | pipeline; token `tbd-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
@@ -166,7 +162,7 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | fjconsulting-website | repo | secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `deploy-dev.yml` | pipeline; token `fjconsulting-website-github-actions` (its HCP workspace uses `fjconsulting-website-terraform-cloud`), both adopted by `cloudflare-tokens` (INFRA-133 import), scopes changed only there | stays |
 
 `GHCR_READ_TOKEN` is a Mend org secret, not a GitHub one (see [Mend Renovate](#mend-renovate)). No app
-runtime value is left in GitHub once the three DigitalOcean-path secrets are deleted. A new repo in the org gets its rows here.
+runtime value is left in GitHub. A new repo in the org gets its rows here.
 
 ## Mend Renovate
 
@@ -336,18 +332,6 @@ Made by hand by the owner (INFRA-85); the cluster side is `clusters/platform/obs
 | Token `alloy-platform-node` on that policy | Key `token` of Secret `observability/grafana-cloud` (`clusters/platform/observability/grafana-cloud.secret.yaml`, a whole new file each time) | No expiry; rotate on suspicion. Write-only: it cannot read or delete data |
 | Folder `Platform` (uid `platform`), contact point `owner-email`, rule group `node-memory`, dashboard `Node memory` (uid `node-memory`) | The stack (INFRA-108), applied through the Grafana API from [`grafana/`](../grafana/) | The git files are the source; rules and contact point are API-provisioned, so the UI cannot edit them; dashboard UI edits are lost on the next apply. Apply procedure and alert table: [runbook](runbooks.md#memory-alerts). No service account or token is kept |
 
-## DigitalOcean (rollback target until INFRA-49)
-
-State left by the INFRA-48 cutover window, all by hand. Undo it only to roll back
-([tbd-cutover.md, R1](tbd-cutover.md#rollback)); INFRA-49 decommissions all of it, not before 2026-10-11.
-
-| Item | State | Why |
-|---|---|---|
-| App Platform app `pfv` | Archived (Settings > Archive mode); its default domain still answers for `app.thebetterdecision.com` with the offline page | No component runs, so neither the old API nor its scheduler can act on the old data |
-| tbd repo secret `DIGITALOCEAN_ACCESS_TOKEN` | Overwritten with a dummy value; the real token deleted in DO > API > Tokens | The release `deploy` job pushes `.do/app.yaml`, which would restore the archived app. A rollback mints a new token scoped to app read and update |
-| Droplet `pfv-data-01` MySQL | `super_read_only = ON`, set at runtime as root (`mysql --no-defaults`; a mysqld restart clears it) | The data stays exactly as dumped; the droplet's 02:00 dump to `pfv-data-01/` continues |
-| Droplet Redis key `scheduler:tick:lock` | Set for 8 days | A DigitalOcean scheduler that comes back skips every tick |
-
 ## Cluster out-of-band material
 
 | Item | Where | Notes |
@@ -359,8 +343,8 @@ State left by the INFRA-48 cutover window, all by hand. Undo it only to roll bac
 | NetBird | Policy `owner-to-k3s-api` (owner devices to TCP 6443), setup key `platform-node` (7-day expiry, stored as Secret `netbird-setup-key`), kubeconfig `~/.kube/platform` | `owner-admin` token expires about 2026-12-31. Runbook: [`netbird/README.md`](../clusters/platform/netbird/README.md) |
 | Postgres roles for Ziftbook | Job `ziftbook-bootstrap` in `data`, from a pinned commit of the Ziftbook repo (sha256 checked) | The `ziftbook` database and roles are staging only. A rotated password also goes into `clusters/platform/ziftbook-staging/ziftbook.secret.yaml` |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
-| TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values come from the DigitalOcean app (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed: procedure in [tbd-cutover.md](tbd-cutover.md#1-write-the-tbd-secret-owner-before-the-rehearsal-about-30-minutes), which also checks it by fingerprint against DigitalOcean. A rotated MySQL app or Valkey password must be written here too |
-| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114), and tbd Actions secrets of the same names until INFRA-99 deletes them after INFRA-49 ([Actions secrets](#actions-secrets-and-variables)) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
+| TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values were carried over from the old hosting at the INFRA-48 cutover (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed. A rotated MySQL app or Valkey password must be written here too |
+| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, `tbd-staging`) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
 | k3s node name (after an upsize) | `node-name:` in `/etc/rancher/k3s/config.yaml` on the node, added by hand in [the upsize runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2; `node-init.sh.tftpl` does not write it | Keeps the old name (`ip-172-26-3-190`) on a new instance, since every local-path volume is pinned to it. Configuration management (INFRA-64) must keep it |
 | k3s `GOGC=50` | `GOGC=50` in `/etc/systemd/system/k3s.service.env` on the node, set by hand 2026-10-04 (INFRA-80); `node-init.sh.tftpl` does not write it | Lowers the k3s process from about 846Mi to about 625Mi RSS for a little CPU. It survives k3s restarts and the snapshot upsize (same disk). A k3s upgrade by re-running the install script rewrites that file and drops it, and a node rebuilt from the launch script never has it: set it again after either. Check: `kubectl get --raw /metrics \| grep '^go_gc_gogc_percent'` shows 50. Configuration management (INFRA-64) must keep it |

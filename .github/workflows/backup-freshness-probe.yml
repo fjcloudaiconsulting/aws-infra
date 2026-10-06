@@ -4,7 +4,7 @@
 # ⚠ WHY THIS LIVES IN CI AND NOT ON THE DROPLET. An alert emitted by the machine
 # being backed up cannot fire when that machine is gone, or when its cron never
 # ran -- which is precisely the disaster the backup exists for. The failure mode
-# is silence, and only an off-host observer can read silence. The droplet's only
+# is silence, and only an off-host observer can read silence. The machine's only
 # obligations are to fail loudly into its log and never to upload a bad artifact.
 #
 # ⚠ READ-ONLY BY CONSTRUCTION. The assumed role holds s3:ListBucket and nothing
@@ -80,13 +80,12 @@ jobs:
           # and must not be mistaken for a healthy empty bucket.
           # One listing per prefix (the role may list only these), merged into
           # one document. prefix=minimum dump bytes:
-          # - pfv-data-01: the droplet, until it is retired (INFRA-49).
           # - tbd-mysql, ziftbook-postgres: the k3s CronJob. tbd-mysql holds TBD's
-          #   data since the INFRA-48 cutover (~750 KB, the droplet's floor);
+          #   data since the INFRA-48 cutover (~750 KB);
           #   ziftbook-postgres dumps ~600 bytes empty, raise it once staging holds data.
           # - tbd-staging-mysql: the same CronJob (INFRA-67). First real dump 12152 bytes
           #   (schema only, 53 tables), floor ~40% of that.
-          floors="pfv-data-01=100000 tbd-mysql=100000 tbd-staging-mysql=5000 ziftbook-postgres=300"
+          floors="tbd-mysql=100000 tbd-staging-mysql=5000 ziftbook-postgres=300"
           for spec in $floors; do
             if ! aws s3api list-objects-v2 \
                   --bucket tbd-mysql-backups-884686184019 \

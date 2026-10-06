@@ -52,8 +52,7 @@ locals {
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }
 
     # TBD on the k3s node (INFRA-48): proxied, so clients see Cloudflare and Cloudflare reaches the node through
-    # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update; the
-    # rollback (revert) is one too, back to DNS-only `pfv-xccvs.ondigitalocean.app` with ttl 60.
+    # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update.
     app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
     # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Same path as `app`.
     dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }

@@ -1,7 +1,6 @@
-# TBD web (Next.js standalone) in production (INFRA-43). Replicas stay 0 while TBD runs on DigitalOcean; the
-# INFRA-48 cutover window sets them to 1 and adds the app.thebetterdecision.com IngressRoute (docs/tbd-cutover.md).
-# Config is runtime-only since INFRA-40 (lib/runtime-config.ts reads TBD_* per request); the values below mirror
-# the DigitalOcean frontend component. Image tag v0.0.0 is a placeholder (see backend.yaml); production bumps
+# TBD web (Next.js standalone) in production (INFRA-43). Serves app.thebetterdecision.com since the INFRA-48 cutover.
+# Config is runtime-only since INFRA-40 (lib/runtime-config.ts reads TBD_* per request); the values below are the
+# frontend's runtime config. Image tag v0.0.0 is a placeholder (see backend.yaml); production bumps
 # arrive as Renovate PRs and never automerge (renovate.json).
 apiVersion: v1
 kind: Service

@@ -13,7 +13,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROBE = ROOT / ".github/scripts/check-backup-freshness.sh"
 WORKFLOW = ROOT / ".github/workflows/backup-freshness-probe.yml"
-PREFIX = "pfv-data-01/2026/08/27"
+PREFIX = "tbd-mysql/2026/08/27"
 NOW = 1000000000
 
 
@@ -37,7 +37,7 @@ def listing(age_hours, **kw):
 
 def probe(payload, *floors):
     return subprocess.run(
-        ["bash", str(PROBE), *(floors or ["pfv-data-01=100000"])], input=payload, capture_output=True, text=True,
+        ["bash", str(PROBE), *(floors or ["tbd-mysql=100000"])], input=payload, capture_output=True, text=True,
         env={**os.environ, "NOW_EPOCH": str(NOW)},
     )
 
@@ -88,12 +88,12 @@ class Verdicts(unittest.TestCase):
 
     def test_judges_the_newest_night(self):
         # Kills: picking the oldest manifest.
-        old = night(50, prefix="pfv-data-01/2026/08/25")
+        old = night(50, prefix="tbd-mysql/2026/08/25")
         self.assertEqual(probe(json.dumps({"Contents": old + night(2)})).returncode, 0)
 
     def test_artifacts_must_sit_beside_the_newest_manifest(self):
         # Kills: looking for the dump anywhere in the listing, not in the manifest's prefix.
-        old = night(26, prefix="pfv-data-01/2026/08/26")
+        old = night(26, prefix="tbd-mysql/2026/08/26")
         r = probe(json.dumps({"Contents": old + night(2, dump=False)}))
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("no dump", r.stdout)
@@ -114,25 +114,22 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
-MYSQL = "tbd-mysql/2026/08/27"
 PG = "ziftbook-postgres/2026/08/27"
-FLOORS = ("pfv-data-01=100000", "tbd-mysql=300", "ziftbook-postgres=300")
+FLOORS = ("tbd-mysql=100000", "ziftbook-postgres=300")
 
 
-def all_three(*, pfv=2, mysql=2, pg=2):
-    return json.dumps({"Contents": night(pfv)
-                       + night(mysql, prefix=MYSQL, dump_size=600)
+def both(*, mysql=2, pg=2):
+    return json.dumps({"Contents": night(mysql)
                        + night(pg, prefix=PG, dump_size=600, db="ziftbook")})
 
 
 class PerPrefix(unittest.TestCase):
     def test_each_prefix_is_judged_on_its_own_floor(self):
-        # Kills: one global floor (the high one fails the k3s dumps, the low one waves through a tiny droplet dump).
-        self.assertEqual(probe(all_three(), *FLOORS).returncode, 0, probe(all_three(), *FLOORS).stdout)
-        tiny_pfv = json.dumps({"Contents": night(2, dump_size=600)
-                               + night(2, prefix=MYSQL, dump_size=600)
-                               + night(2, prefix=PG, dump_size=600, db="ziftbook")})
-        self.assertEqual(probe(tiny_pfv, *FLOORS).returncode, 1)
+        # Kills: one global floor (the high one fails the small Postgres dump, the low one waves through a tiny MySQL dump).
+        self.assertEqual(probe(both(), *FLOORS).returncode, 0, probe(both(), *FLOORS).stdout)
+        tiny_mysql = json.dumps({"Contents": night(2, dump_size=600)
+                                 + night(2, prefix=PG, dump_size=600, db="ziftbook")})
+        self.assertEqual(probe(tiny_mysql, *FLOORS).returncode, 1)
 
     def test_postgres_naming_is_understood(self):
         # ziftbook_<ts>.sql.gz plus pg_dumpall globals as grants_<ts>.sql.gz.
@@ -141,15 +138,15 @@ class PerPrefix(unittest.TestCase):
 
     def test_one_stale_prefix_fails_the_run_and_is_named(self):
         # Kills: first-verdict-wins, and judging only the newest manifest in the whole bucket.
-        r = probe(all_three(pg=26), *FLOORS)
+        r = probe(both(pg=26), *FLOORS)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("ziftbook-postgres", r.stdout.splitlines()[0])
-        self.assertNotIn("pfv-data-01", r.stdout.splitlines()[0])
+        self.assertNotIn("tbd-mysql", r.stdout.splitlines()[0])
 
     def test_a_prefix_with_no_objects_is_stale(self):
         r = probe(listing(2), *FLOORS)
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("tbd-mysql", r.stdout.splitlines()[0])
+        self.assertIn("ziftbook-postgres", r.stdout.splitlines()[0])
 
     def test_a_sibling_prefix_does_not_stand_in(self):
         # Kills: matching on the bare name, so a fresh tbd-mysql-x/ hides an empty tbd-mysql/.
@@ -159,8 +156,8 @@ class PerPrefix(unittest.TestCase):
 
     def test_the_worst_verdict_wins(self):
         # could-not-run (future-dated) outranks stale, whatever the order.
-        self.assertEqual(probe(all_three(mysql=26, pg=-3), *FLOORS).returncode, 2)
-        self.assertEqual(probe(all_three(mysql=-3, pg=26), *FLOORS).returncode, 2)
+        self.assertEqual(probe(both(mysql=26, pg=-3), *FLOORS).returncode, 2)
+        self.assertEqual(probe(both(mysql=-3, pg=26), *FLOORS).returncode, 2)
 
     def test_could_not_run_without_a_floor(self):
         for bad in ("tbd-mysql", "tbd-mysql=", "tbd-mysql=abc"):
@@ -171,7 +168,7 @@ class PerPrefix(unittest.TestCase):
 class AlarmWiring(unittest.TestCase):
     def test_the_workflow_probes_every_prefix_with_its_floor(self):
         wf = WORKFLOW.read_text()
-        for floor in ("pfv-data-01=100000", "tbd-mysql=100000", "tbd-staging-mysql=5000", "ziftbook-postgres=300"):
+        for floor in ("tbd-mysql=100000", "tbd-staging-mysql=5000", "ziftbook-postgres=300"):
             self.assertIn(floor, wf)
 
     def test_the_workflow_alarms_on_every_non_fresh_verdict(self):

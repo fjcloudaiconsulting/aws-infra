@@ -11,20 +11,8 @@ a bucket in the wrong place. Never copy an account id between the two.
 
 ## Why a separate workspace
 
-Folding these resources into `FlamaCorp/tbd` (the DigitalOcean data plane) would
-have made credential delivery free, since the tbd repo's `infra/ansible/bin/run-playbook.sh` already reads
-that directory. It was rejected:
-
-* The AWS provider validates credentials at **configure** time. A configure-time
-  failure fails the whole run, not just the AWS resources, so an AWS auth
-  problem would block **every DigitalOcean apply** — including the one needed to
-  repair the droplet.
-* It would import the TBD-372 rename-lockout hazard into the workspace named
-  `tbd`, where a rename breaks every DO apply rather than just backups.
-* `FlamaCorp/tbd`'s state already holds `do_token` and the data-plane passwords.
-  Adding the uploader key would make one state file yield the droplet **and**
-  write access to the only copy of its data — the adversarial twin of the
-  failure this ticket exists to fix.
+The workspace name is the AWS trust boundary (see the rename procedure below), so it is kept apart from the
+workspaces whose runs depend on it. The former `FlamaCorp/tbd` (DigitalOcean) workspace was retired with INFRA-49.
 
 ## Genesis (once, by hand, with root)
 
@@ -145,13 +133,13 @@ workspace. Three defences:
 To rename the workspace: **widen** the trust pattern to span both names, apply,
 rename, then narrow. Never rename first.
 
-## What the droplet can and cannot do
+## What the uploader can and cannot do
 
-`pfv-backup-uploader` holds `s3:PutObject` on one prefix plus
+`k3s-backup-uploader` holds `s3:PutObject` on one prefix plus
 `kms:GenerateDataKey`/`Encrypt`/`DescribeKey` on one key. It has **no**
 `GetObject`, no `ListBucket`, no `DeleteObject`, and an explicit **`Deny` on
 `kms:Decrypt`** in the key policy. An explicit key-policy Deny is not
-overridable by an IAM policy or a bucket policy, so the droplet writes
+overridable by an IAM policy or a bucket policy, so the uploader writes
 ciphertext it cannot read. A stolen key is a nuisance, not a breach.
 
 ⚠ One honest bound on that claim: `bucket_key_enabled = true` means S3 caches a
@@ -168,12 +156,13 @@ permissions would let an unmerged PR read production backups. Both roles also
 carry an explicit Deny on `s3:GetObject` and `kms:Decrypt`: Terraform manages
 the bucket, and never needs a backup's contents.
 
-Object Lock is GOVERNANCE mode: a compromised droplet cannot overwrite history,
+Object Lock is GOVERNANCE mode: a compromised uploader cannot overwrite history,
 but break-glass can still clean up a mistake.
 
 ## The k3s uploader (INFRA-30)
 
-`k3s-backup-uploader` is the k3s node's twin of `pfv-backup-uploader`: one user
+`k3s-backup-uploader` is the one writer (the DigitalOcean droplet's `pfv-backup-uploader` was removed with
+INFRA-49; its `pfv-data-01/` objects stay until Object Lock and the lifecycle rule expire them): one user
 for the MySQL and Postgres dump CronJobs, with the same put + encrypt grant
 copied once per prefix (`tbd-mysql/`, `ziftbook-postgres/`, `tbd-staging-mysql/`), and
 named in the same key-policy and bucket-policy Denies. The probe role lists every
