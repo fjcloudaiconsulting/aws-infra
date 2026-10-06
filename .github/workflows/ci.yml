@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     # Staging bumps automerge as branches without a PR (INFRA-36): CI must report checks there.
-    branches: [main, "renovate/ziftbook-staging-**"]
+    branches: [main, "renovate/ziftbook-staging-**", "renovate/tbd-staging-**"]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -74,6 +74,9 @@ jobs:
           persist-credentials: false
       - name: every Secret is SOPS-encrypted
         run: python3 .github/scripts/check-sops-secrets.py clusters
+      - name: prod tags not ahead of staging
+        # INFRA-89: every <app>-prod image tag must be <= the same app's <app>-staging tags.
+        run: python3 .github/scripts/check-prod-tags.py clusters
       - name: kubeconform
         run: |
           set -euo pipefail

@@ -17,7 +17,7 @@ in the same PR or right after.
 | Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
 | No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
-| Staging image bump sits on a `renovate/ziftbook-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
+| Staging image bump sits on a `renovate/ziftbook-staging-*` or `renovate/tbd-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
 | No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-staging`, `tbd-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into every file (see [Cluster](#cluster-out-of-band-material)) |
 | After a node replacement, `mysql-0`, `postgres-0`, `valkey-0` or `netbird` stay Pending with `volume node affinity conflict`, or `kubectl get nodes` lists a second node | k3s registered under the new instance's hostname; local-path volumes are pinned to the old node name | `kubectl get nodes`, `kubectl -n data describe pod mysql-0` (Events) | On the node: `node-name: <old name>` in `/etc/rancher/k3s/config.yaml`, `sudo systemctl restart k3s`, delete the new Node object ([runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2) |
@@ -38,19 +38,23 @@ in the same PR or right after.
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
 | No new metrics in Grafana Cloud | Alloy pod in `CreateContainerConfigError` (Secret `observability/grafana-cloud` missing), or the exporter logs `401` (token revoked, or wrong Instance ID) | `kubectl -n observability get pods`, `kubectl -n observability logs ds/alloy` | Write the Secret per the [runbook](runbooks.md#metrics-to-grafana-cloud-alloy), then `kubectl -n observability rollout restart ds/alloy` |
 | A Grafana alert is Firing (Alerting > Alert rules) but no email arrives | Contact point `owner-email` failing (its row in Alerting > Contact points shows the last error), or the mail is in spam (sender `noreply@grafana.net`) | [Grafana Cloud](#grafana-cloud) | Fix `grafana/contact-point.json` and re-apply it ([runbook](runbooks.md#memory-alerts)) |
+| `Kubernetes checks` red at step `prod tags not ahead of staging`: `<app>-prod` image is newer than `<app>-staging` | Prod bumped (or staging not yet bumped) ahead of staging; one app's red also blocks the other app's staging automerge | Step 10 of [Release and deploy chain](#release-and-deploy-chain) | Merge or make the staging bump on `main` first, then update the prod branch. Never merge the prod bump first |
 | Alarm emails never arrive | SNS email subscriptions deliver only after the recipient confirms | AWS SNS topics `platform-alerts`, `platform-alerts-use1` | Click the confirmation link in the subscription email |
 | tbd release run red at `deploy`, an undeployed-release issue opens, tbd `deploy-drift-probe` red | Expected since the INFRA-48 cutover: tbd's `DIGITALOCEAN_ACCESS_TOKEN` secret was overwritten so no release un-archives the DigitalOcean app | [DigitalOcean](#digitalocean-rollback-target-until-infra-49) | Nothing; the k3s deploy is the Renovate bump PR. tbd#840 (INFRA-44, after INFRA-49) removes the DO jobs. Never restore the token except in a rollback |
 
 ## Release and deploy chain
 
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
-staging (v0.20.2, 2026-10-03). TBD production (`tbd-prod`, since the INFRA-48 cutover) bumps arrive as
-PRs and are never automerged (proven by Renovate dry run only, check it on the first TBD bump).
+staging (v0.20.2, 2026-10-03). TBD uses the same chain (INFRA-91): `tbd-staging` (INFRA-67) bumps by branch,
+`tbd-prod` (since the INFRA-48 cutover) bumps arrive as PRs and are never automerged (proven by Renovate dry
+run only, check both on the first TBD release after INFRA-91). For TBD read `tbd-staging` and
+`renovate/tbd-staging-tbd-staging-images` (the second `tbd-staging` is the group name) in steps 6 to 9;
+the release path to `dev.thebetterdecision.com` is these nine steps.
 
 The rules are [release contract section 8](https://github.com/fjcloudaiconsulting/.github/blob/main/RELEASE_CONTRACT.md#8-deploy-handoff)
 (decision INFRA-87). A release is not a deploy. Staging follows `vX.Y.Z` and is fast-forwarded into
 `main` without a PR (steps 6 to 9). Production is bumped by a PR the owner merges only after the same tag
-runs in that app's staging. The CI check for the tag rule is INFRA-89 (not built yet); TBD gets staging in
+runs in that app's staging. The CI check for the tag rule is step 10 (INFRA-89); TBD got staging in
 INFRA-67 and this flow in INFRA-91. A release that fails on staging is fixed forward; marking its GitHub
 release a prerelease keeps it out of the drift watch below.
 
@@ -65,6 +69,9 @@ release a prerelease keeps it out of the drift watch below.
 | 7 | CI runs on that branch push | `ci.yml` `push` filter `renovate/ziftbook-staging-**` |
 | 8 | Renovate fast-forwards the branch into `main` without a PR | Renovate app in the `main protection` bypass list |
 | 9 | Flux applies the commit; Deployments use `Recreate` | `sops-age`, `ghcr-pull` |
+| 10 | CI step `prod tags not ahead of staging` (`check-prod-tags.py`, in `Kubernetes checks`) fails a PR whose `<app>-prod` image tags are newer than that app's `<app>-staging` tags on the tree | Required check `Kubernetes checks` in the `main protection` ruleset (no ruleset change); covers any `<app>-prod` dir with no code change |
+
+Step 10 is advice for the owner, not a lock: admins bypass the ruleset (merging a red check is possible) and Renovate's fast-forward bypasses it too, so the same step also runs on every push to `main` and goes red after the fact. It compares tags in git, not what staging actually runs (the post-deploy smoke and the staging `/health` do that), and a PR that bumps staging and prod together passes it (review). A red check means "wait for the staging bump on `main`, then update the branch".
 
 Drift watch: workflow `release-drift-probe.yml` (daily) opens or updates one `[release-drift]` issue when an app's latest GitHub release has been absent from `clusters/` for 2+ days (production bump PR unmerged, or Renovate never opened it), and closes it when clear. No credentials; it reads the app repos' releases because GHCR is private. It depends on `tbd` and `ziftbook` staying public repos (GITHUB_TOKEN reads); the run goes red if either goes private. Only repos in `WATCH_REPOS` (default `ziftbook tbd`, tbd since the INFRA-48 cutover) are checked.
 
@@ -173,8 +180,8 @@ Hosted Mend app, Free plan, repos selected at
 - aws-infra rules in `renovate.json`: database majors never proposed (data dirs upgrade by hand after a
   fresh dump); `ghcr.io/fjcloudaiconsulting/**` tracks `vX.Y.Z` only, no digest pin, production bumps stay
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
-  branch. `tbd-staging` has no rule of its own until INFRA-91: its bumps arrive as one PR per image, so merge
-  backend and migrations together.
+  branch. `clusters/**/tbd-staging/**` the same way (INFRA-91, group `tbd staging images`, branch prefix
+  `tbd-staging-`); `tbd-prod` is one grouped PR (backend, migrations, frontend, scheduler if present), no automerge.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
 - App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
 - Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.
@@ -275,6 +282,13 @@ the attach. Recreate one with the Cloudflare API (`PUT /accounts/<account>/worke
 | `ziftbook.com`, `www.ziftbook.com` | `ziftbook-landing` (www and http redirected in its code) | before 2026-10-04 |
 | `thebetterdecision.com` | `tbd-landing` | INFRA-61. Not `www`: the `tbd_redirects` rule in `terraform/cloudflare` 301s it to the apex |
 
+Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com too: no routes, no Snippets); Workers custom domains are
+ziftbook.com and www.ziftbook.com (`ziftbook-landing`) and thebetterdecision.com (`tbd-landing`, attached by the owner,
+INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on the four zones. Both
+landing deploys ran green with the per-Worker tokens (ziftbook `landing.yml` and tbd `apex-deploy.yml`, 2026-10-05), and
+neither repo holds a repo-level `CLOUDFLARE_API_TOKEN` any more. The Cloudflare MCP grant cannot read API tokens (9109), so
+token scopes are the ones `cloudflare-tokens` applied (runs of 2026-10-05, all applied).
+
 Who can put code on a zone (a Pages project with a custom domain on an app zone counts the same as a Worker).
 Scopes are what the dashboard shows (names only), as of 2026-10-05:
 
@@ -299,14 +313,16 @@ Rules:
   custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook stopped declaring them in ziftbook#181 (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
-  (staging); since INFRA-61 `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
-  that code: whoever merges to the app repo's `main`, holds its deploy token, or (while the token is a plain repo
-  secret) has write access to the repo. Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
+  (staging); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
+  that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
   token could already serve any page on the apex, which is the bigger risk. A same-zone subrequest also carries the
-  zone's Authenticated Origin Pulls client certificate, so Traefik's mTLS does not stop it. Owner decision on INFRA-98:
-  unrecorded; merging INFRA-61 (aws-infra#105) accepts this residual for production.
-- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
-  `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
+  zone's Authenticated Origin Pulls client certificate, so Traefik's mTLS does not stop it. Owner decision on INFRA-98, 2026-10-06:
+  narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
+  left is this code-level residual, which a rule keyed on `cf.worker.upstream_zone` on the node hostnames might
+  close (INFRA-136, untested: needs a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
+  on the whole account (Cloudflare has no per-project Pages role); as we understand it (untested) a custom domain on an app zone would also need DNS
+  rights there, which they lack.
+- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the bootstrap token (by minting one) and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
 ## Grafana Cloud
 
