@@ -46,11 +46,6 @@ locals {
   # follow-up in apex/README.md).
   github_main_sub = "repo:${var.github_repo}:ref:refs/heads/${var.github_main_branch}"
 
-  # TFC workload identity subject claim. The TFC docs document the run-phase
-  # suffix; we accept plan + apply so PR speculative plans and merge applies
-  # both work. Workspace pattern uses TFC's glob support.
-  tfc_sub_pattern = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_pattern}:run_phase:*"
-
   # Content-Security-Policy for the apex static export. Derived directly from
   # what build-apex.sh's output actually loads (frontend/scripts/build-apex.sh
   # + frontend/app/layout.tsx + frontend/app/page.tsx). It is INTENTIONALLY
