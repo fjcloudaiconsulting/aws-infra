@@ -9,12 +9,14 @@ locals {
   # have applied cleanly and locked the workspace out the TBD-372 way.
   tfc_sub_fragment = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_name}:run_phase:"
 
-  # Key prefixes the k3s CronJobs write under (INFRA-30; tbd-staging-mysql INFRA-67). One policy lists every
-  # <prefix>/* (INFRA-116), rendered from policies/backup-uploader.json, so the F3 fence still covers every grant.
+  # Key prefixes the k3s CronJobs write under (INFRA-30; tbd-staging-mysql INFRA-67; ziftbook-prod-postgres INFRA-82,
+  # the Ziftbook production database, named <app>-<env>-<engine> because ziftbook-postgres is staging's and an Object
+  # Lock prefix cannot be renamed). One policy lists every <prefix>/* (INFRA-116), rendered from
+  # policies/backup-uploader.json, so the F3 fence still covers every grant.
   # IAM caps a user's inline policies at 2048 characters in total (minified, names not counted). Measured
-  # 2026-10-06: the old per-prefix copies used 1903; the folded policy is 763 for these three and 834 with a
-  # fourth 22-character prefix (about 71 per prefix).
-  k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres", "tbd-staging-mysql"]
+  # 2026-10-06: the old per-prefix copies used 1903; the folded policy is 763 for three prefixes and 834 with this
+  # fourth one (about 71 per prefix).
+  k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres", "tbd-staging-mysql", "ziftbook-prod-postgres"]
 }
 
 # ---------------------------------------------------------------------------

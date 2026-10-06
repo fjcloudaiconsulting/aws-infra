@@ -1,4 +1,5 @@
-# Nightly dumps of TBD MySQL (production and, since INFRA-67, staging) and Ziftbook Postgres to the Object Lock
+# Nightly dumps of TBD MySQL (production and, since INFRA-67, staging) and Ziftbook Postgres (staging and, since INFRA-82,
+# production) to the Object Lock
 # bucket (terraform/tbd-backups).
 # Each dump init container exits 0 and writes <set>.ok (its upload list) only when its dump verifies;
 # upload sends each verified set dump, grants, manifest (manifest last, so the probe sees only complete
@@ -54,7 +55,8 @@ data:
     [ "$(count "$GRANTS" '^CREATE USER IF NOT EXISTS `'"$APP_USER"'`@')" -ge 1 ] || die "grants lack $APP_USER"
     publish
   pg-dump.sh: |
-    SET=ziftbook-postgres DB=ziftbook VERSION_KEY=postgres_version
+    # One set per database; the container's env names it (default: Ziftbook staging).
+    SET=${SET:-ziftbook-postgres} DB=${DB:-ziftbook} VERSION_KEY=postgres_version
     MARKER='^-- PostgreSQL database dump complete' TABLE_RE='^CREATE (UNLOGGED )?TABLE '
     . /scripts/common.sh
     q() { psql -d "$DB" -XAtc "$1"; }
@@ -73,7 +75,7 @@ data:
   upload.sh: |
     set -uo pipefail
     rc=0
-    for set in tbd-mysql ziftbook-postgres tbd-staging-mysql; do
+    for set in tbd-mysql ziftbook-postgres tbd-staging-mysql ziftbook-prod-postgres; do
       keys=()
       [ -f "/backup/$set.ok" ] && mapfile -t keys <"/backup/$set.ok"
       # Exactly dump, grants, manifest, manifest last; anything else counts as missing.
@@ -191,6 +193,45 @@ spec:
                 # 1 after the first Ziftbook staging migration; 0 until then, as the database is empty.
                 - name: MIN_TABLES
                   value: "0"
+                - name: PGHOST
+                  value: postgres
+                - name: PGUSER
+                  value: postgres
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres
+                      key: admin-password
+              securityContext:
+                runAsUser: 999
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                - name: scripts
+                  mountPath: /scripts
+            # Ziftbook production (INFRA-82): same script, its own set, after staging's and under a timeout so a hung
+            # dump cannot run out the Job's deadline before the uploads. Never fails the pod.
+            - name: pg-dump-prod
+              image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+              command: [bash, -c, 'timeout 600 bash /scripts/pg-dump.sh || echo "!! postgres production dump failed" >&2; exit 0']
+              env:
+                - name: SET
+                  value: ziftbook-prod-postgres
+                - name: DB
+                  value: ziftbook_prod
+                # Production migrates on every backend start, so an empty database means something broke (merge this
+                # after the production pods have started once, or the first night fails the set).
+                - name: MIN_TABLES
+                  value: "1"
                 - name: PGHOST
                   value: postgres
                 - name: PGUSER

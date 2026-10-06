@@ -8,7 +8,8 @@ carries the table count and the SHA256 of the dump and grants files.
 |---|---|---|
 | `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
 | `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` |
-| `ziftbook-postgres/` | Postgres `ziftbook` | `data/db-backup` |
+| `ziftbook-postgres/` | Postgres `ziftbook` (Ziftbook staging) | `data/db-backup` |
+| `ziftbook-prod-postgres/` | Postgres `ziftbook_prod` (Ziftbook production, INFRA-82) | `data/db-backup` |
 
 Only root (or the break-glass user) can read the dumps: the uploaders are put-only and the probe is
 list-only (`terraform/tbd-backups`). Run everything from a Mac with AWS profile `tbd` and the
@@ -27,7 +28,7 @@ There are two targets:
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
 export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
 B=tbd-mysql-backups-884686184019
-PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres
+PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, ziftbook-prod-postgres
 M=$(aws s3api list-objects-v2 --bucket "$B" --prefix "$PREFIX/" \
   --query 'reverse(sort_by(Contents[?contains(Key, `/manifest_`)], &LastModified))[0].Key' --output text)
 aws s3 cp "s3://$B/$M" manifest.json && jq . manifest.json   # date, tables, both keys and SHA256s
@@ -92,7 +93,7 @@ The images are the ones `mysql.yaml`, `postgres.yaml` and `db-backup.yaml` pin. 
 ## 3. Copy and check the files
 
 ```bash
-POD=mysql   # postgres for ziftbook-postgres
+POD=mysql   # postgres for ziftbook-postgres and ziftbook-prod-postgres
 # SQL on stdin, run as the database superuser over the pod's socket.
 my() { kubectl -n "$NS" exec -i "$POD" -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB "$@"' sh "$@"; }
 pg() { kubectl -n "$NS" exec -i "$POD" -- psql -U postgres -XAtq -v ON_ERROR_STOP=1 "$@"; }
