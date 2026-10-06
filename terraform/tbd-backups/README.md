@@ -135,7 +135,7 @@ rename, then narrow. Never rename first.
 
 ## What the uploader can and cannot do
 
-`k3s-backup-uploader` holds `s3:PutObject` on one prefix plus
+`k3s-backup-uploader` holds `s3:PutObject` on the listed backup prefixes (one folded policy, INFRA-116) plus
 `kms:GenerateDataKey`/`Encrypt`/`DescribeKey` on one key. It has **no**
 `GetObject`, no `ListBucket`, no `DeleteObject`, and an explicit **`Deny` on
 `kms:Decrypt`** in the key policy. An explicit key-policy Deny is not
@@ -163,11 +163,11 @@ but break-glass can still clean up a mistake.
 
 `k3s-backup-uploader` is the one writer (the DigitalOcean droplet's `pfv-backup-uploader` was removed with
 INFRA-49; its `pfv-data-01/` objects stay until Object Lock and the lifecycle rule expire them): one user
-for the MySQL and Postgres dump CronJobs, with the same put + encrypt grant
-copied once per prefix (`tbd-mysql/`, `ziftbook-postgres/`, `tbd-staging-mysql/`), and
+for the MySQL and Postgres dump CronJobs, with one put + encrypt policy
+listing every prefix (`tbd-mysql/`, `ziftbook-postgres/`, `tbd-staging-mysql/`), and
 named in the same key-policy and bucket-policy Denies. The probe role lists every
-prefix. The copies share IAM's 2048-character inline limit per user: three fit, a
-fourth needs them folded into one policy first.
+prefix. IAM's inline limit is 2048 characters per user: the policy is 763 for three
+prefixes and grows about 71 per prefix. Its name (`...-put-only-tbd-mysql`) is historical.
 
 Terraform creates the user but **not** its access key, so the secret never
 enters TFC state; the provisioner policy explicitly denies `iam:CreateAccessKey`

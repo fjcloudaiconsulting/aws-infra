@@ -9,10 +9,11 @@ locals {
   # have applied cleanly and locked the workspace out the TBD-372 way.
   tfc_sub_fragment = "organization:${var.tfc_organization}:project:*:workspace:${var.tfc_workspace_name}:run_phase:"
 
-  # Key prefixes the k3s CronJobs write under (INFRA-30; tbd-staging-mysql INFRA-67). Each gets its own copy of
-  # policies/backup-uploader.json, so the F3 fence still covers every grant.
-  # ponytail: IAM caps a user's inline policies at 2048 characters in total; these three use 1903 (minified,
-  # measured 2026-10-04). A fourth prefix does not fit: fold the copies into one policy with a list of prefixes first.
+  # Key prefixes the k3s CronJobs write under (INFRA-30; tbd-staging-mysql INFRA-67). One policy lists every
+  # <prefix>/* (INFRA-116), rendered from policies/backup-uploader.json, so the F3 fence still covers every grant.
+  # IAM caps a user's inline policies at 2048 characters in total (minified, names not counted). Measured
+  # 2026-10-06: the old per-prefix copies used 1903; the folded policy is 763 for these three and 834 with a
+  # fourth 22-character prefix (about 71 per prefix).
   k3s_backup_prefixes = ["tbd-mysql", "ziftbook-postgres", "tbd-staging-mysql"]
 }
 
@@ -410,7 +411,7 @@ resource "aws_s3_bucket_policy" "backups" {
 
 # ---------------------------------------------------------------------------
 # The k3s node's put-only identity (INFRA-30): one user for the MySQL and
-# Postgres dump CronJobs, put + encrypt only, one policy copy per prefix.
+# Postgres dump CronJobs, put + encrypt only, one policy listing every prefix.
 #
 # ⚠ No aws_iam_access_key here on purpose. The owner mints the key with the CLI
 # and pipes it straight into a SOPS-encrypted Secret (see README), so the secret
@@ -423,16 +424,22 @@ resource "aws_iam_user" "k3s_uploader" {
   depends_on = [aws_iam_role_policy.tfc_backups_provisioner]
 }
 
+# ⚠ The name is the old tbd-mysql copy's on purpose (see the moved block): the apply updates that policy in place
+# and deletes the other two. A new name would create a folded policy beside the three old ones: 1903 + 763 > 2048.
+# In place the worst case (update before the two deletes) is 763 + 637 + 637 = 2037, which fits. Renaming later
+# is a destroy + create of this one policy.
 resource "aws_iam_user_policy" "k3s_uploader" {
-  for_each = toset(local.k3s_backup_prefixes)
-
-  name = "k3s-backup-uploader-put-only-${each.key}"
+  name = "k3s-backup-uploader-put-only-tbd-mysql"
   user = aws_iam_user.k3s_uploader.name
   policy = templatefile("${path.module}/policies/backup-uploader.json", {
-    bucket      = var.bucket_name
-    prefix      = each.key
+    resources   = jsonencode([for p in local.k3s_backup_prefixes : "arn:aws:s3:::${var.bucket_name}/${p}/*"])
     kms_key_arn = aws_kms_key.backups.arn
   })
+}
+
+moved {
+  from = aws_iam_user_policy.k3s_uploader["tbd-mysql"]
+  to   = aws_iam_user_policy.k3s_uploader
 }
 
 # ---------------------------------------------------------------------------

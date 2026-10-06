@@ -28,7 +28,15 @@ def actions(doc):
 # F3. The uploader is put-only and the probe list-only, both directions. Effect and Resource are
 # as load-bearing as Action: a mutant that flipped Effect to Deny and widened Resource to
 # arn:aws:s3:::*/* kept the action set identical.
-uploader = json.loads((STACK / "policies/backup-uploader.json").read_text())
+# The uploader template takes its Resource list as raw JSON (like the probe's prefixes); render it the way
+# main.tf does, from the real prefix list, so the exact-resource check below sees every ARN.
+prefixes = json.loads(re.search(r"k3s_backup_prefixes\s*=\s*(\[[^\]]*\])", (STACK / "main.tf").read_text()).group(1))
+check(prefixes, "could not find local.k3s_backup_prefixes in main.tf")
+check(all(re.fullmatch(r"[a-z0-9-]+", p) for p in prefixes), f"odd backup prefix in {prefixes}")
+check('"arn:aws:s3:::${var.bucket_name}/${p}/*"' in (STACK / "main.tf").read_text(),
+      "main.tf no longer builds the uploader Resource list as exactly arn:aws:s3:::<bucket>/<prefix>/*")
+uploader = json.loads((STACK / "policies/backup-uploader.json").read_text().replace(
+    "${resources}", json.dumps([f"arn:aws:s3:::${{bucket}}/{p}/*" for p in prefixes])))
 # The probe template injects its prefix list as raw JSON; stand in an empty list so it parses.
 probe = json.loads((STACK / "policies/backup-probe.json").read_text().replace("${prefixes}", "[]"))
 check(actions(uploader) == {"s3:PutObject", "kms:GenerateDataKey", "kms:Encrypt", "kms:DescribeKey"},
@@ -36,7 +44,7 @@ check(actions(uploader) == {"s3:PutObject", "kms:GenerateDataKey", "kms:Encrypt"
       "(read access would let a compromised uploader harvest every historical dump)")
 check(actions(probe) == {"s3:ListBucket"}, f"probe policy actions are {sorted(actions(probe))}; must be exactly s3:ListBucket")
 # Exact resources: a substring test would pass arn:aws:s3:::*${bucket}*.
-SCOPED = {"arn:aws:s3:::${bucket}/${prefix}/*", "${kms_key_arn}", "arn:aws:s3:::${bucket}"}
+SCOPED = {*(f"arn:aws:s3:::${{bucket}}/{p}/*" for p in prefixes), "${kms_key_arn}", "arn:aws:s3:::${bucket}"}
 for name, doc in (("uploader", uploader), ("probe", probe)):
     for stmt in doc["Statement"]:
         check(stmt["Effect"] == "Allow", f"{name} policy has a {stmt['Effect']} statement; these are grant policies")
