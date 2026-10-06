@@ -266,6 +266,13 @@ ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `
 outbound fetch (only its assets binding). One Pages project, `fjconsulting-website-dev` on fjconsulting.dev (no node
 hostname in that zone). One account member, the owner (Super Administrator).
 
+Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com too: no routes, no Snippets); Workers custom domains are
+ziftbook.com and www.ziftbook.com (`ziftbook-landing`) and thebetterdecision.com (`tbd-landing`, attached by the owner,
+INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on the four zones. Both
+landing deploys ran green with the per-Worker tokens (ziftbook `landing.yml` and tbd `apex-deploy.yml`, 2026-10-05), and
+neither repo holds a repo-level `CLOUDFLARE_API_TOKEN` any more. The Cloudflare MCP grant cannot read API tokens (9109), so
+token scopes are the ones `cloudflare-tokens` applied (runs of 2026-10-05, all applied).
+
 Who can put code on a zone (a Pages project with a custom domain on an app zone counts the same as a Worker).
 Scopes are what the dashboard shows (names only), as of 2026-10-05:
 
@@ -275,7 +282,7 @@ Scopes are what the dashboard shows (names only), as of 2026-10-05:
 | Bootstrap token (INFRA-133) | HCP Terraform workspace `cloudflare-tokens`, env var `CLOUDFLARE_API_TOKEN`; that workspace's PR plans run provider code with it | mints, edits and deletes any account-owned token, so indirectly everything | Account API Tokens Write only. The only hand-made Cloudflare token |
 | `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write, Dynamic URL Redirects Write (dashboard: Single Redirect, INFRA-61); ziftbook.com: the same without the redirects and with Zone Read instead of Zone Write; fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. Until the INFRA-133 cutover the hand-made account token `cloudflare-tfc` (not imported; deleted by hand after the cutover) (all zones: Zone, Zone Settings, DNS Write; the two app zones: SSL and Certificates, Zone WAF Write; account: Notifications Write) is still the one in use |
 | Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Individual Workers Editor on `ziftbook-landing` only; token `ziftbook-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
-| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (workers.dev preview until INFRA-61) | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (the apex custom domain, INFRA-61) | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
 
 Rules:
@@ -290,12 +297,15 @@ Rules:
   custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook stopped declaring them in ziftbook#181 (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
-  (staging); after INFRA-61 `tbd-landing` (apex and www) -> `app.thebetterdecision.com` (production). Who can change
-  that code: whoever merges to the app repo's `main`, holds its deploy token, or (while the token is a plain repo
-  secret) has write access to the repo. Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
-  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98: unrecorded.
-- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the
-  `cloudflare` token and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
+  (staging); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
+  that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
+  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
+  narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
+  left is this code-level residual, which a rule keyed on `cf.worker.upstream_zone` on the node hostnames might
+  close (INFRA-136, untested: needs a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
+  on the whole account (Cloudflare has no per-project Pages role); as we understand it (untested) a custom domain on an app zone would also need DNS
+  rights there, which they lack.
+- No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the bootstrap token (by minting one) and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
 
 ## Grafana Cloud
 
