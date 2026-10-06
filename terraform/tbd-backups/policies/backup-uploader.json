@@ -5,7 +5,7 @@
       "Sid": "PutBackupObjectsOnly",
       "Effect": "Allow",
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::${bucket}/${prefix}/*",
+      "Resource": ${resources},
       "Condition": {
         "Bool": { "aws:SecureTransport": "true" },
         "StringEquals": {

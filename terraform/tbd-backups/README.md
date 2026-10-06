@@ -135,7 +135,7 @@ rename, then narrow. Never rename first.
 
 ## What the uploader can and cannot do
 
-`k3s-backup-uploader` holds `s3:PutObject` on one prefix plus
+`k3s-backup-uploader` holds `s3:PutObject` on the listed backup prefixes (one folded policy, INFRA-116) plus
 `kms:GenerateDataKey`/`Encrypt`/`DescribeKey` on one key. It has **no**
 `GetObject`, no `ListBucket`, no `DeleteObject`, and an explicit **`Deny` on
 `kms:Decrypt`** in the key policy. An explicit key-policy Deny is not
