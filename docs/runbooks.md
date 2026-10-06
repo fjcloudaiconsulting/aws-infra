@@ -72,7 +72,8 @@ reaches the apps through Cloudflare like a user. Per namespace:
 3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
    health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
    (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
-   reached. Ziftbook has no live smoke script yet (INFRA-120).
+   reached. Ziftbook runs its own `scripts/smoke-test.sh` the same way: two read-only GETs, `/api/healthz` and
+   `/api/health/dependencies` (503 when Postgres is unreachable), no login.
 
 Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
 pass closes it. The failure says which step failed:
@@ -81,7 +82,7 @@ pass closes it. The failure says which step failed:
 |---|---|---|
 | `never converged (live X, expected Y)` | The new backend never served: Flux did not apply, the image did not pull, the migration or the pod crashed. `live none` means the app was down | [Follow Flux and rollouts](#follow-flux-and-rollouts): `flux get kustomizations`, `kubectl -n <namespace> get pods,events` |
 | `frontend GET / returned N` | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
-| `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` and the backend logs |
+| `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` (Ziftbook: `/api/health/dependencies`) and the backend logs |
 | `could not fetch ...` | The GitHub API did not return the app's smoke script at that tag | The tag exists in the app repo, then re-run |
 | `bad backend tag` | The manifest has no plain `vX.Y.Z` backend tag | The manifest |
 
