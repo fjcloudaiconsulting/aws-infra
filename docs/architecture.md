@@ -268,6 +268,13 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 | `OTEL_PROPAGATORS` | `tracecontext` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` |
 | `OTEL_LOGS_EXPORTER` | `none` |
+| `OTEL_METRICS_EXPORTER` | `otlp` |
+| `OTEL_TRACES_EXPORTER` | `otlp` in staging; `none` in production by default (owner ruling 2026-10-06, traces cost more compute than metrics) |
+
+Traces are a per-environment switch, not an app setting: the app ships the capability and exports only when
+`OTEL_TRACES_EXPORTER=otlp`, and the namespace's `otel` ConfigMap holds the value. To investigate a production issue,
+set it to `otlp` in `clusters/platform/<app>-prod/otel.yaml` (optionally `OTEL_TRACES_SAMPLER=parentbased_traceidratio`
+with `OTEL_TRACES_SAMPLER_ARG`), merge, restart the backend and worker; set it back to `none` afterwards.
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
 forwards metrics and traces to the Grafana Cloud OTLP gateway, and scrapes the
