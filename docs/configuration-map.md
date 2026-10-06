@@ -46,7 +46,7 @@ in the same PR or right after.
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
 staging (v0.20.2, 2026-10-03). TBD uses the same chain (INFRA-91): `tbd-staging` (INFRA-67) bumps by branch,
 `tbd-prod` (since the INFRA-48 cutover) bumps arrive as PRs and are never automerged (proven by Renovate dry
-run only, check both on the first TBD release after INFRA-91). For TBD read `tbd-staging` and
+run only, check both on the first TBD release after INFRA-91). Ziftbook production (`ziftbook-prod`, INFRA-82/INFRA-90) works the same: the renovate.json rule for `clusters/**/ziftbook-prod/**` gives one grouped PR on branch prefix `ziftbook-prod-` with `automerge: false`; steps 6 to 9 differ: Renovate pushes `renovate/ziftbook-prod-ziftbook-prod-images` (no `ci.yml` push filter; CI runs on the PR) and step 8 is a PR the owner merges once step 10 is green and `dev.ziftbook.com/api/healthz` shows the version. The post-deploy smoke then checks `app.ziftbook.com`. For TBD read `tbd-staging` and
 `renovate/tbd-staging-tbd-staging-images` (the second `tbd-staging` is the group name) in steps 6 to 9;
 the release path to `dev.thebetterdecision.com` is these nine steps.
 
@@ -121,10 +121,10 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
-- **Environments `tbd-prod` and `ziftbook-staging`** (aws-infra, INFRA-114): the post-deploy smoke jobs run in them.
+- **Environments `tbd-prod`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
   `tbd-prod`: deployment branches "Selected branches and tags", `main` only, no tag rule, no required reviewers;
   secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` (the [TBD smoke account](#cluster-out-of-band-material)). A missing
-  secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `ziftbook-staging` holds nothing (a job
+  secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `ziftbook-staging` and `ziftbook-prod` hold nothing (a job
   that names a missing environment creates it, without restrictions).
 - **Environment `landing`** (tbd and ziftbook, INFRA-60/INFRA-98): deployment branches `main` only; secret
   `CLOUDFLARE_API_TOKEN`, a per-Worker token for that app's landing Worker. Scopes and rules:

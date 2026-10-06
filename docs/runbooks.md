@@ -59,21 +59,21 @@ CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Produc
 
 ## Post-deploy smoke
 
-Every push to `main` that changes `clusters/platform/tbd-prod/` or `clusters/platform/ziftbook-staging/` runs the
+Every push to `main` that changes `clusters/platform/tbd-prod/`, `clusters/platform/ziftbook-staging/` or `clusters/platform/ziftbook-prod/` runs the
 **Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
 reaches the apps through Cloudflare like a user. Per namespace:
 
 1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
-   `dev.ziftbook.com/api/healthz`, which goes through the frontend to the backend. The Deployments use `Recreate`
+   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
 2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
 3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
    health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
    (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
-   reached. Ziftbook runs its own `scripts/smoke-test.sh` the same way: two read-only GETs, `/api/healthz` and
-   `/api/health/dependencies` (503 when Postgres is unreachable), no login.
+   reached. Ziftbook runs its own `scripts/smoke-test.sh` the same way, for `ziftbook-staging` and `ziftbook-prod`: two
+   read-only GETs, `/api/healthz` and `/api/health/dependencies` (503 when Postgres is unreachable), no login.
 
 Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
 pass closes it. The failure says which step failed:

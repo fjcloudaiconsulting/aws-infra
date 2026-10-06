@@ -52,10 +52,11 @@ def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200"
     """Default: the first poll still sees the old version, the second the new one (a real rollout)."""
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
-        for sub in ("clusters/tbd-prod", "clusters/ziftbook-staging", "bin", "state"):
+        for sub in ("clusters/tbd-prod", "clusters/ziftbook-staging", "clusters/ziftbook-prod", "bin", "state"):
             (d / sub).mkdir(parents=True)
         (d / "clusters/tbd-prod/backend.yaml").write_text(TBD.format("v0.291.0"))
         (d / "clusters/ziftbook-staging/backend.yaml").write_text(ZIF.format("v0.291.0"))
+        (d / "clusters/ziftbook-prod/backend.yaml").write_text(ZIF.format("v0.291.0"))
         if manifest is not None:
             (d / "clusters" / ns / "backend.yaml").write_text(manifest)
         for name, body in (("curl", CURL), ("gh", GH), ("sleep", SLEEP)):
@@ -138,6 +139,14 @@ class Pass(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("repos/fjcloudaiconsulting/ziftbook/contents/scripts/smoke-test.sh?ref=refs/tags/v0.291.0", log)
         self.assertIn("https://dev.ziftbook.com/api/healthz", log)
+
+    def test_ziftbook_prod_uses_app_host(self):
+        r, log = run("ziftbook-prod")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("https://app.ziftbook.com/api/healthz", log)
+        self.assertNotIn("dev.ziftbook.com", log)
+        # Kills app_smoke="" for ziftbook-prod: production runs the app's database-reachable check too.
+        self.assertIn("repos/fjcloudaiconsulting/ziftbook/contents/scripts/smoke-test.sh?ref=refs/tags/v0.291.0", log)
 
     def test_pass_closes_only_its_own_namespace_issue(self):
         # Other issues listed first: the ziftbook-staging one and a title that starts with ours (kills taking the

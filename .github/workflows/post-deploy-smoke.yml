@@ -10,12 +10,13 @@ on:
     paths:
       - clusters/platform/tbd-prod/**
       - clusters/platform/ziftbook-staging/**
+      - clusters/platform/ziftbook-prod/**
   workflow_dispatch:
     inputs:
       namespace:
         description: Namespace to smoke now
         type: choice
-        options: [tbd-prod, ziftbook-staging]
+        options: [tbd-prod, ziftbook-staging, ziftbook-prod]
 
 permissions:
   contents: read
@@ -38,7 +39,7 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           set -uo pipefail
-          all="tbd-prod ziftbook-staging"
+          all="tbd-prod ziftbook-staging ziftbook-prod"
           if [[ "$EVENT" == workflow_dispatch ]]; then
             list="$INPUT_NS"
           else
