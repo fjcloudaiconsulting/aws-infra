@@ -32,6 +32,7 @@ in the same PR or right after.
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
 | Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by a CA in `kube-system/origin-pull-ca-<gen>`, or a listed Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
+| `thebetterdecision.com` does not resolve, or `www.thebetterdecision.com` 301s to an apex that does not answer | The apex custom domain was detached from `tbd-landing` (its DNS record goes with it), or the Worker was deleted | Workers & Pages > `tbd-landing` > Settings > Domains & Routes; [Worker and Snippet access](#worker-and-snippet-access-infra-98) | Re-attach `thebetterdecision.com` to `tbd-landing` (API or dashboard, same section). A deleted Worker: re-run tbd's `Deploy Apex Landing` workflow first |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
 | `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
@@ -151,7 +152,7 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `release.yml` | pipeline | stays |
 | tbd | repo | secret `GIST_TOKEN` | `test.yml` (coverage badges, `main` only) | pipeline | stays |
 | tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
-| tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | stay while the apex is served from S3 and CloudFront (INFRA-60 moves it to a Worker) |
+| tbd | repo | variables `AWS_APEX_BUCKET`, `AWS_APEX_DEPLOY_ROLE_ARN`, `AWS_APEX_DISTRIBUTION_ID`, `AWS_APEX_REGION` | `apex-deploy.yml` | pipeline (apex deploy target, older AWS account) | stay while S3 and CloudFront are the apex's rollback target (the Worker serves it since INFRA-61); delete with INFRA-62 |
 | tbd | repo | secret `DIGITALOCEAN_ACCESS_TOKEN` | `deploy.yml`, `deploy-drift-probe.yml`, `release.yml` `deploy` | DigitalOcean only (holds a dummy since INFRA-48) | delete after INFRA-49, once tbd#840 (INFRA-44) removes its readers |
 | tbd | repo | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `deploy.yml`, `release.yml` `smoke-tests` (the DigitalOcean post-deploy smoke) | DigitalOcean path; the values already live in `tbd-prod/tbd-smoke` | delete with `DIGITALOCEAN_ACCESS_TOKEN` |
 | aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
@@ -219,7 +220,9 @@ own role.
 ## Cloudflare
 
 - `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year. Proxied to the
-  node: `ping` and `app` (TBD production since INFRA-48, a CNAME to `ping`); the rest is DNS-only.
+  node: `ping` and `app` (TBD production since INFRA-48, a CNAME to `ping`). The apex is the Worker `tbd-landing`
+  (custom domain attached by hand, INFRA-61, [below](#worker-and-snippet-access-infra-98)); `www` is proxied only so the
+  Terraform redirect rule `tbd_redirects` can 301 it to the apex. The rest is DNS-only.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
 - `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
   minimum TLS 1.2, SSL Full strict) and the proxied record `dev.ziftbook.com` are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI.
@@ -266,6 +269,16 @@ ziftbook.com and www.ziftbook.com, both `ziftbook-landing`. One Worker script, `
 outbound fetch (only its assets binding). One Pages project, `fjconsulting-website-dev` on fjconsulting.dev (no node
 hostname in that zone). One account member, the owner (Super Administrator).
 
+Workers custom domains, all attached by hand (not in Terraform or `wrangler.jsonc`, so no plan shows their drift). Each
+one owns a read-only proxied DNS record that Cloudflare creates and deletes with it; a CNAME on the same name blocks
+the attach. Recreate one with the Cloudflare API (`PUT /accounts/<account>/workers/domains`, body
+`{"hostname": "<host>", "service": "<worker>"}`) or the Worker's Settings > Domains & Routes > Add > Custom domain.
+
+| Hostname | Worker | Since |
+|---|---|---|
+| `ziftbook.com`, `www.ziftbook.com` | `ziftbook-landing` (www and http redirected in its code) | before 2026-10-04 |
+| `thebetterdecision.com` | `tbd-landing` | INFRA-61. Not `www`: the `tbd_redirects` rule in `terraform/cloudflare` 301s it to the apex |
+
 Re-read 2026-10-06 (API, read-only): still no Workers routes on thebetterdecision.com, ziftbook.com and fjconsulting.dev (yetanothergrower.com too: no routes, no Snippets); Workers custom domains are
 ziftbook.com and www.ziftbook.com (`ziftbook-landing`) and thebetterdecision.com (`tbd-landing`, attached by the owner,
 INFRA-61); scripts `tbd-landing` and `ziftbook-landing` only; the Snippets endpoints return nothing on the four zones. Both
@@ -280,9 +293,9 @@ Scopes are what the dashboard shows (names only), as of 2026-10-05:
 |---|---|---|---|
 | Owner | dashboard, `wrangler login` | everything | Super Administrator |
 | Bootstrap token (INFRA-133) | HCP Terraform workspace `cloudflare-tokens`, env var `CLOUDFLARE_API_TOKEN`; that workspace's PR plans run provider code with it | mints, edits and deletes any account-owned token, so indirectly everything | Account API Tokens Write only. The only hand-made Cloudflare token |
-| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write, Dynamic URL Redirects Write (dashboard: Single Redirect, INFRA-61); ziftbook.com: the same without the redirects and with Zone Read instead of Zone Write; fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. Until the INFRA-133 cutover the hand-made account token `cloudflare-tfc` (not imported; deleted by hand after the cutover) (all zones: Zone, Zone Settings, DNS Write; the two app zones: SSL and Certificates, Zone WAF Write; account: Notifications Write) is still the one in use |
+| `cloudflare` workspace token | HCP Terraform, env var `CLOUDFLARE_API_TOKEN`; every PR plan runs provider code with it | whatever its policies allow; Terraform manages no Worker, route, Snippet or Pages project | `tf: cloudflare workspace`, made by `cloudflare-tokens` (INFRA-133; policies in `terraform/cloudflare-tokens/main.tf`): thebetterdecision.com: Zone Write, Zone Settings Write, DNS Write, SSL and Certificates Write, Zone WAF Write, Dynamic URL Redirects Write (dashboard: Single Redirect, INFRA-61); ziftbook.com: the same without the redirects and with Zone Read instead of Zone Write; fjconsulting.dev: Zone Read, DNS Write; account: Notifications Write. No other zone, no Workers Scripts or Workers Routes, so it cannot add a Worker route. In use since 2026-10-05; the hand-made `cloudflare-tfc` it replaced is deleted |
 | Ziftbook `CLOUDFLARE_API_TOKEN` | ziftbook `landing` environment secret, `main` only (2026-10-05; the old repo-level secret is deleted) | deploys `ziftbook-landing`; no longer touches its custom domains (ziftbook#181) | Individual Workers Editor on `ziftbook-landing` only; token `ziftbook-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
-| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (the apex custom domain, INFRA-61) | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
+| tbd `CLOUDFLARE_API_TOKEN` (INFRA-60) | tbd `landing` environment secret, `main` only (2026-10-05) | deploys `tbd-landing` (the apex since INFRA-61, and its workers.dev preview); never touches its custom domain | Individual Workers Editor on `tbd-landing` only; token `tbd-landing deploy`, adopted by `cloudflare-tokens` (INFRA-133 import) |
 | Cloudflare MCP OAuth grant (Claude sessions) | My Profile > Access Management > Connected Applications | full access, granted by the owner 2026-10-05 (it can deploy Workers and change zones); still 9109 on the API token lists | full |
 
 Rules:
@@ -299,7 +312,8 @@ Rules:
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
   (staging); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
-  token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
+  token could already serve any page on the apex, which is the bigger risk. A same-zone subrequest also carries the
+  zone's Authenticated Origin Pulls client certificate, so Traefik's mTLS does not stop it. Owner decision on INFRA-98, 2026-10-06:
   narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
   left is this code-level residual, which a rule keyed on `cf.worker.upstream_zone` on the node hostnames might
   close (INFRA-136, untested: needs a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
