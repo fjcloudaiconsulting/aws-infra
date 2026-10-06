@@ -1,5 +1,6 @@
-// Metrics to Grafana Cloud (INFRA-85, design in docs/architecture.md, Telemetry). Every series leaves through one
-// OTLP/HTTP exporter, so the stack's write-only token (metrics:write) is the only credential.
+// Metrics and traces to Grafana Cloud (INFRA-85, INFRA-106, design in docs/architecture.md, Telemetry). Everything
+// leaves through one OTLP/HTTP exporter, so the stack's write-only token (metrics:write, traces:write) is the only
+// credential.
 // Traces (INFRA-106) leave through the same exporter, so the token needs traces:write too. Not collected yet: logs (no
 // stdout tailing: tbd-prod logs carry query strings until INFRA-110, and the data namespace never).
 
@@ -38,46 +39,47 @@ otelcol.receiver.otlp "apps" {
 	}
 }
 
-// Backstop for the INFRA-84 allowlist (spans too, events included): these attributes carry tokens, emails and client addresses (and explode
-// cardinality), so they never leave the node even if an app sets them, on a data point, its scope or its resource
-// (Grafana Cloud turns resource attributes into target_info labels). Old semconv names included.
+// Backstop for the INFRA-84 allowlist, by attribute key only (span names, status messages and links are not touched):
+// these attributes carry tokens, emails and client addresses (and explode cardinality), so they never leave the node
+// even if an app sets them, on a data point, a span or span event, its scope or its resource (Grafana Cloud turns
+// resource attributes into target_info labels). Old semconv names included.
 // Default error_mode (propagate): a failing statement drops the batch instead of exporting it unscrubbed. Deleting a
 // key can merge two data points that differed only by it (Mimir then rejects the duplicate); only an app that breaks
 // INFRA-84 hits that.
 otelcol.processor.transform "scrub" {
 	metric_statements {
 		context    = "resource"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	metric_statements {
 		context    = "scope"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	metric_statements {
 		context    = "datapoint"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	trace_statements {
 		context    = "resource"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	trace_statements {
 		context    = "scope"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	trace_statements {
 		context    = "span"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	trace_statements {
 		context    = "spanevent"
-		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.]message)$")`]
+		statements = [`delete_matching_keys(attributes, "^(url[.].*|http[.]request[.]header[.].*|http[.](url|target|client_ip)|client[.]address|net[.]sock[.]peer[.]addr|exception[.](message|stacktrace))$")`]
 	}
 
 	output {

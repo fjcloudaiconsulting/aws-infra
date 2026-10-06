@@ -1,8 +1,7 @@
 # Telemetry standard (docs/architecture.md, Telemetry; INFRA-106) for the backend, worker and migrations, read with
 # envFrom. Each process names itself (ziftbook-api, ziftbook-worker, ziftbook-migrations) and adds service.version
-# from its image. Alloy (INFRA-85, INFRA-106) forwards metrics and traces, every trace (staging traffic is tiny; the standard SDK
-# knobs OTEL_TRACES_SAMPLER/_ARG lower it); logs never
-# leave over OTLP (stdout JSON only). The frontend does not read this: it keeps its own OTEL_*_EXPORTER=none.
+# from its image. Alloy (INFRA-85, INFRA-106) forwards metrics and traces, every trace (staging traffic is tiny; the
+# standard SDK knobs OTEL_TRACES_SAMPLER/_ARG lower it); logs never leave over OTLP (stdout JSON only). The frontend does not read this: it keeps its own OTEL_*_EXPORTER=none.
 # Read at container start: after an edit, restart the backend and worker deployments.
 apiVersion: v1
 kind: ConfigMap
