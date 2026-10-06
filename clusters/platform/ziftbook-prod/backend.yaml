@@ -1,0 +1,108 @@
+# Ziftbook API in production (INFRA-82). Only the frontend talks to it (networkpolicy.yaml); no IngressRoute (ingress.yaml routes the frontend only).
+# The migrate init container runs `alembic upgrade head` before every start (no-op at head, advisory-locked), so
+# a new version never serves on an old schema. The worker runs the same init container.
+# Images track vX.Y.Z only; Renovate bumps all three in one PR that is never automerged: merging it is the deploy (renovate.json).
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: ziftbook-prod
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: ziftbook-prod
+spec:
+  replicas: 1
+  # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001 # app in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.21.0
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
+          env:
+            - name: ZIF_MIGRATE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: migrate-database-url
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: backend
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.21.0
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
+          env:
+            # The migrate role's credentials stay in the init container.
+            - name: ZIF_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: database-url
+            # X-Forwarded-For is believed only from pods: the frontend sets it from cf-connecting-ip, and
+            # networkpolicy.yaml admits only the frontend. Cluster CIDR, not the node's podCIDR, which changes
+            # if the node re-registers. Node-local traffic (source 10.42.0.1) is owner-only (NetBird).
+            - name: ZIF_TRUSTED_PROXIES
+              value: 10.42.0.0/16
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 8000
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

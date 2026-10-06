@@ -2,8 +2,8 @@
 # pinned commit of the public repo and checked against its sha256. To pick up a new version or a
 # rotated password, bump the commit and sha256 (or delete the Job): Flux recreates it.
 # A rotated ziftbook password must also go into ziftbook-staging/ziftbook.secret.yaml (the app's
-# connection URLs), or staging loses the database. The ziftbook database and its roles are staging
-# only; Ziftbook prod gets its own database, roles and secret.
+# connection URLs), or staging loses the database, and nothing else: production logs in as its own roles
+# (postgres-bootstrap-prod.yaml). The ziftbook database is staging's; production is ziftbook_prod.
 # admin-password is read only at initdb: rotate it with ALTER ROLE postgres PASSWORD first.
 # A Failed Job does not make the Flux Kustomization unready: check `kubectl -n data get job` after a change.
 apiVersion: batch/v1

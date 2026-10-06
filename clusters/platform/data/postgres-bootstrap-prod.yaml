@@ -1,0 +1,140 @@
+# Ziftbook production database (INFRA-82): the same bootstrap as ziftbook-bootstrap (postgres-bootstrap.yaml, same
+# pinned bootstrap.sql), run against its own database `ziftbook_prod`, created here first (CREATE DATABASE has no IF NOT
+# EXISTS, so the check is a query). The Ziftbook migrations hardcode the role names ziftbook_app and ziftbook_migrate,
+# and roles are cluster-wide, so bootstrap.sql reuses staging's two roles (the same postgres Secret keys: its ALTER ROLE
+# changes nothing). Production's applications do not log in as them. Two login roles of its own, ziftbook_prod_app and
+# ziftbook_prod_migrate (passwords: Secret postgres-ziftbook-prod), are members of those roles without inheriting, and
+# default to SET ROLE to them at login, so every statement runs as ziftbook_app or ziftbook_migrate (ownership, default
+# privileges and RLS as the migrations expect) while the connect check is made against the login role. Then CONNECT on
+# ziftbook_prod is taken from PUBLIC and the shared roles and given to the two login roles only, and PUBLIC loses CONNECT
+# on staging's `ziftbook`: staging's credentials cannot open production, and production's cannot open staging.
+# Ordering: Flux applies everything in one batch. The production backend and worker retry their migrate init container
+# until this Job has created the database and roles, so no ordering between them is needed. Rotation and failure notes:
+# see postgres-bootstrap.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ziftbook-prod-bootstrap
+  namespace: data
+  annotations:
+    # The pod template is immutable: on a change, Flux deletes and recreates the Job instead of failing.
+    kustomize.toolkit.fluxcd.io/force: enabled
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  # No ttlSecondsAfterFinished: Flux would recreate a deleted Job and rerun it every interval.
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 999 # postgres in its image; curl's image names its user, which runAsNonRoot cannot check
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fetch
+          image: curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777
+          env:
+            - name: URL
+              value: https://raw.githubusercontent.com/fjcloudaiconsulting/ziftbook/21974f3a39eae3a194aaa0e1ac1a2cfa7a5f37b5/backend/migrations/bootstrap.sql
+            - name: SHA256
+              value: d5a918ef1e4329dc6fdc0bc50cababd81d27d61a5db2c225258e05a24db68d15
+          command: [sh, -c, 'curl -fsSLo /work/bootstrap.sql "$URL" && echo "$SHA256  /work/bootstrap.sql" | sha256sum -c -']
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      containers:
+        - name: psql
+          image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+          # The server may still be starting (first boot runs initdb).
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -q; do sleep 2; done
+              psql -v ON_ERROR_STOP=1 -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = 'ziftbook_prod'" | grep -q 1 ||
+                psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ziftbook_prod'
+              psql -v ON_ERROR_STOP=1 -f /work/bootstrap.sql
+              exec psql -v ON_ERROR_STOP=1 <<'SQL'
+              \getenv prod_migrate_password ZIF_PROD_MIGRATE_PASSWORD
+              \getenv prod_app_password ZIF_PROD_APP_PASSWORD
+
+              SELECT 'CREATE ROLE ziftbook_prod_migrate LOGIN'
+              WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ziftbook_prod_migrate') \gexec
+
+              SELECT 'CREATE ROLE ziftbook_prod_app LOGIN'
+              WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ziftbook_prod_app') \gexec
+
+              ALTER ROLE ziftbook_prod_migrate PASSWORD :'prod_migrate_password';
+              ALTER ROLE ziftbook_prod_app PASSWORD :'prod_app_password';
+
+              GRANT ziftbook_migrate TO ziftbook_prod_migrate WITH INHERIT FALSE, SET TRUE;
+              GRANT ziftbook_app TO ziftbook_prod_app WITH INHERIT FALSE, SET TRUE;
+              ALTER ROLE ziftbook_prod_migrate SET role = ziftbook_migrate;
+              ALTER ROLE ziftbook_prod_app SET role = ziftbook_app;
+
+              REVOKE CONNECT ON DATABASE :"DBNAME" FROM PUBLIC, ziftbook_app, ziftbook_migrate;
+              GRANT CONNECT ON DATABASE :"DBNAME" TO ziftbook_prod_app, ziftbook_prod_migrate;
+
+              -- Production's login roles reach nothing of staging's: PUBLIC could connect to every database.
+              REVOKE CONNECT ON DATABASE ziftbook FROM PUBLIC;
+
+              SQL
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGUSER
+              value: postgres
+            - name: PGDATABASE
+              value: ziftbook_prod
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: admin-password
+            - name: ZIF_MIGRATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: ziftbook-migrate-password
+            - name: ZIF_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: ziftbook-app-password
+            - name: ZIF_PROD_MIGRATE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ziftbook-prod
+                  key: migrate-password
+            - name: ZIF_PROD_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ziftbook-prod
+                  key: app-password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: work
+          emptyDir: {}
