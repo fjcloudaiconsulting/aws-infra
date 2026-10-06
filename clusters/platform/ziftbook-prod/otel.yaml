@@ -1,0 +1,19 @@
+# Telemetry standard (docs/architecture.md, Telemetry; INFRA-106) for the backend, worker and migrations, read with
+# envFrom. Each process names itself (ziftbook-api, ziftbook-worker, ziftbook-migrations) and adds service.version
+# from its image. Alloy (INFRA-85) forwards metrics only, so traces stay off until it forwards traces too; logs never
+# leave over OTLP (stdout JSON only). The frontend does not read this: it keeps its own OTEL_*_EXPORTER=none.
+# Read at container start: after an edit, restart the backend and worker deployments.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel
+  namespace: ziftbook-prod
+data:
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=ziftbook,deployment.environment.name=production
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.observability.svc:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_PROPAGATORS: tracecontext
+  OTEL_METRIC_EXPORT_INTERVAL: "60000"
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_TRACES_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none

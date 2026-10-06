@@ -1,0 +1,101 @@
+# Ziftbook background worker in production (INFRA-82): the backend image, polling Postgres for jobs.
+# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes out through the Mailgun
+# HTTP API (INFRA-47 wiring, ZIF-151 code); the key is in its own Secret ziftbook-mailgun (api-key), so it can be
+# written with the public SOPS key alone and rotated without touching the ziftbook Secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ziftbook-prod
+spec:
+  replicas: 1
+  # One worker at a time, and no surge over the quota.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.21.0
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
+          env:
+            - name: ZIF_MIGRATE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: migrate-database-url
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: worker
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.21.0
+          command: [python, -m, app.worker]
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
+          env:
+            - name: ZIF_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook
+                  key: database-url
+            - name: ZIF_APP_URL # only used in email links
+              value: https://app.ziftbook.com
+            # Mailgun HTTP API like TBD: EU region, production sending domain m.ziftbook.com (own sending key; domain and key are made by hand, runbooks.md "Mail"). ZIF-151 consumes these names;
+            # until it ships no mail is delivered (v0.20.2 still tries SMTP and the job retries). Only the worker sends mail. optional: the worker keeps
+            # running before the owner adds the key.
+            - name: ZIF_MAILGUN_DOMAIN
+              value: m.ziftbook.com
+            - name: ZIF_MAILGUN_REGION
+              value: eu
+            - name: ZIF_MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-mailgun
+                  key: api-key
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

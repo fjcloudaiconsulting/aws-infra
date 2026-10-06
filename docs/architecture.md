@@ -38,7 +38,7 @@ flowchart LR
     end
     alarms["Lightsail alarms, budget, CloudTrail"]
   end
-  cf -->|"proxied hosts: ping, app and dev (TBD), dev.ziftbook.com"| fw --> traefik
+  cf -->|"proxied hosts: ping, app and dev (TBD), dev and app (ziftbook.com)"| fw --> traefik
   traefik --> tbdapp & tbdstg & zifapp
   tbdapp --> mysql & valkey
   tbdstg --> mysql
@@ -107,6 +107,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `tbd-prod` | TBD | 640Mi / 1Gi | Pod Security restricted; TBD production since the INFRA-48 cutover (scheduler: exactly one pod) |
 | `tbd-staging` | TBD staging (`dev.thebetterdecision.com`), with its own Valkey | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67) |
 | `ziftbook-staging` | Ziftbook staging | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
+| `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82) | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 | `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
@@ -122,11 +123,11 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 | Store | For | Key settings |
 |---|---|---|
 | MySQL 8.4 | TBD (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
-| Postgres 18 | Ziftbook (`ziftbook`; roles created by Ziftbook's pinned `bootstrap.sql`, run as a Job) | shared_buffers 64MB, no parallel workers |
+| Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
 | Valkey 8 | TBD only: sessions, auth nonces, rate limits, locks (the exception in [Jobs, locks, sessions and rate limits](#jobs-locks-sessions-and-rate-limits)) | 64mb, noeviction, AOF on (not migrated at cutover) |
 
 A NetworkPolicy denies ingress to `data` by default: MySQL accepts `tbd-prod` and `tbd-staging`, Valkey `tbd-prod` only, Postgres
-accepts `ziftbook-staging`, and the backup and bootstrap pods reach their databases inside `data`.
+accepts `ziftbook-staging` and `ziftbook-prod`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
 Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).

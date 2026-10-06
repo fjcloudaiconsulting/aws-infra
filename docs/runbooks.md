@@ -121,6 +121,30 @@ Commit, push, merge. Flux applies it within a few minutes. A pod reads env at st
 `kubectl -n <namespace> rollout restart deploy/<name>`. To edit a multi-key Secret instead, load the offline key
 first (`export SOPS_AGE_KEY_FILE=<path to the key file>`), then `sops edit <file>`.
 
+## Ziftbook production secrets
+
+`ziftbook-prod/ziftbook` and the namespace's `ghcr-pull` are staging's values with the namespace and the database name
+changed (the roles and their passwords are shared, [Postgres roles](configuration-map.md#cluster-out-of-band-material)),
+so they are derived from the staging files, never typed. Needs the offline key. From the repo root; nothing is printed
+except the two counts, which must be `2` and `1`:
+
+```sh
+export SOPS_AGE_KEY_FILE=<path to the key file>
+F=clusters/platform/ziftbook-prod/ziftbook.secret.yaml
+sops -d clusters/platform/ziftbook-staging/ziftbook.secret.yaml \
+  | sed -E 's#/ziftbook$#/ziftbook_prod#; s#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
+sops -d "$F" | grep -c '/ziftbook_prod$'
+G=clusters/platform/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
+sops -d clusters/platform/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
+  | sed -E 's#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
+  | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G"
+sops -d "$G" | grep -c 'namespace: ziftbook-prod$'
+```
+
+Commit both files. Until they are merged the production pods wait (`CreateContainerConfigError`, `ImagePullBackOff`)
+and start by themselves once Flux applies them. A rotated Ziftbook role password must be redone here too.
+
 ## MySQL database per app environment
 
 Each app environment gets its own database and user in the shared MySQL (`data/mysql-0`), with grants on that
@@ -227,7 +251,7 @@ and no in-cluster mail server.
 | Environment | Sending domain | DNS |
 |---|---|---|
 | Every dev/staging environment of every app | `m.fjconsulting.dev`, shared | `fjdev_mail` in `terraform/cloudflare` |
-| Production | `m.<appdomain>`, one per app (TBD: `m.thebetterdecision.com`) | the app zone's records in `terraform/cloudflare` |
+| Production | `m.<appdomain>`, one per app (TBD: `m.thebetterdecision.com`; Ziftbook: `m.ziftbook.com`, wired in `ziftbook-prod/worker.yaml`, not yet created in Mailgun) | the app zone's records in `terraform/cloudflare` |
 
 Each environment has its **own sending key**: send-only, scoped to the domain, and revoked on its own if it leaks.
 A domain's record set is MX `mxa`/`mxb.eu.mailgun.org`, SPF `include:mailgun.org`, DKIM TXT, DMARC with Mailgun

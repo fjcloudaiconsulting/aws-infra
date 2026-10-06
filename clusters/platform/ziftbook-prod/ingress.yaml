@@ -1,0 +1,15 @@
+# app.ziftbook.com (INFRA-82): Cloudflare (proxied, Full strict) to Traefik to the frontend, which proxies /api/* to the
+# backend. Traefik's default certificate must cover this hostname: see the Origin CA row in docs/configuration-map.md.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: frontend
+  namespace: ziftbook-prod
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`app.ziftbook.com`)
+      kind: Rule
+      services:
+        - name: frontend
+          port: 3000

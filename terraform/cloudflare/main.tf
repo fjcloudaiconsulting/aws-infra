@@ -137,7 +137,7 @@ resource "cloudflare_ruleset" "ziftbook_redirects" {
 }
 
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com (dev, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, `dev` since
+# hostnames: ziftbook.com (dev, app, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, `dev` since
 # INFRA-67, apex and www since INFRA-61).
 # ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
@@ -214,6 +214,18 @@ resource "cloudflare_dns_record" "tbd_ping" {
 resource "cloudflare_dns_record" "ziftbook_dev" {
   zone_id = data.cloudflare_zone.ziftbook.id
   name    = "dev.ziftbook.com"
+  type    = "A"
+  content = "52.57.109.122"
+  ttl     = 1 # automatic, required for proxied records
+  proxied = true
+}
+
+# Ziftbook production (INFRA-82): app.ziftbook.com, same node, the zone's strict mode and the same wildcard Origin CA
+# cert and origin pull as dev. above. Merge the ziftbook-prod manifests (clusters/platform/ziftbook-prod) first: until
+# its pods are up the host answers 502.
+resource "cloudflare_dns_record" "ziftbook_app" {
+  zone_id = data.cloudflare_zone.ziftbook.id
+  name    = "app.ziftbook.com"
   type    = "A"
   content = "52.57.109.122"
   ttl     = 1 # automatic, required for proxied records

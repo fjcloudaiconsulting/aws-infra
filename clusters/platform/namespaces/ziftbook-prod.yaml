@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ziftbook-prod
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+  namespace: ziftbook-prod
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: memory
+  namespace: ziftbook-prod
+spec:
+  hard:
+    # backend, worker, frontend: 3 x 128Mi requests, 3 x 256Mi limits (INFRA-46). Every Deployment uses Recreate,
+    # so a rollout never needs room for a second pod.
+    requests.memory: 512Mi
+    limits.memory: 1Gi
+---
+# Every pod here pulls private GHCR images with ghcr-pull (ziftbook-prod-ghcr-pull.secret.yaml), so
+# workloads need no imagePullSecrets of their own. Until the secret exists the kubelet logs a
+# warning and pulls anonymously; public images still work.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: ziftbook-prod
+  annotations:
+    # Removing this file must not make Flux delete the namespace's default account.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+imagePullSecrets:
+  - name: ghcr-pull

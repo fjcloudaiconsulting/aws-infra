@@ -44,6 +44,15 @@
       "automergeType": "branch"
     },
     {
+      "description": "Ziftbook production (INFRA-82): backend, worker, migrations and frontend move together in one PR, so a merge never runs a schema/code skew. No automerge: the PR is the deploy gate. Own branch prefix so it never shares a branch (and its automerge) with the staging bump.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/fjcloudaiconsulting/**"],
+      "matchFileNames": ["clusters/**/ziftbook-prod/**"],
+      "additionalBranchPrefix": "ziftbook-prod-",
+      "groupName": "ziftbook prod images",
+      "automerge": false
+    },
+    {
       "description": "TBD staging follows releases (INFRA-91), same as ziftbook-staging above: one grouped branch of backend, migrations and frontend, automerged by branch, own prefix so it never shares a branch with the tbd-prod PR.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/fjcloudaiconsulting/**"],
