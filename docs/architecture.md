@@ -192,7 +192,7 @@ reach every replica), and then gets one per environment, never shared.
 ## Backups and restore
 
 - Nightly at 02:00 UTC, CronJob `db-backup` dumps MySQL then Postgres and uploads each set (dump,
-  grants, manifest last) to the Object Lock bucket under `tbd-mysql/`, `tbd-staging-mysql/` and `ziftbook-postgres/`.
+  grants, manifest last) to the Object Lock bucket under `tbd-mysql/`, `tbd-staging-mysql/`, `ziftbook-postgres/` (Ziftbook staging) and `ziftbook-prod-postgres/`.
   It uses a put-only IAM user (`k3s-backup-uploader`), SSE-KMS and a SHA256 checksum. Objects are
   locked for 7 days (GOVERNANCE).
 - A GitHub Actions probe at 04:17 UTC checks each backup prefix, each with its own size floor, and
