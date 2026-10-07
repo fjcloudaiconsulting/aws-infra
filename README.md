@@ -14,6 +14,8 @@ secrets) and what breaks when one is wrong: [`docs/configuration-map.md`](docs/c
 How to do the recurring changes (write or rotate a Secret, add a hostname or zone, add a dev environment's mail):
 [`docs/runbooks.md`](docs/runbooks.md).
 
+How a release reaches staging and then production, with diagrams: [`docs/release-flow.md`](docs/release-flow.md).
+
 ## Layout
 
 | Path | What | Applied by |

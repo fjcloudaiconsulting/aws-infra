@@ -43,6 +43,8 @@ in the same PR or right after.
 
 ## Release and deploy chain
 
+The flow explained, with diagrams: [release-flow.md](release-flow.md). This section lists the settings.
+
 Every arrow depends on a setting listed in this page. The chain is proven end to end for Ziftbook
 staging (v0.20.2, 2026-10-03). TBD uses the same chain (INFRA-91): `tbd-staging` (INFRA-67) bumps by branch,
 `tbd-prod` (since the INFRA-48 cutover) bumps arrive as PRs and are never automerged (proven by Renovate dry
