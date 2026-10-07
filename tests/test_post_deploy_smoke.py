@@ -55,7 +55,7 @@ def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200"
         for sub in ("clusters/tbd-prod", "clusters/tbd-staging", "clusters/ziftbook-staging", "clusters/ziftbook-prod", "bin", "state"):
             (d / sub).mkdir(parents=True)
         (d / "clusters/tbd-prod/backend.yaml").write_text(TBD.format("v0.291.0"))
-        (d / "clusters/tbd-staging/backend.yaml").write_text(TBD.format("v0.291.0"))
+        (d / "clusters/tbd-staging/backend.yaml").write_text(TBD.format("v0.292.0"))
         (d / "clusters/ziftbook-staging/backend.yaml").write_text(ZIF.format("v0.291.0"))
         (d / "clusters/ziftbook-prod/backend.yaml").write_text(ZIF.format("v0.291.0"))
         if manifest is not None:
@@ -137,7 +137,8 @@ class Pass(unittest.TestCase):
     def test_tbd_staging_is_health_and_frontend_only(self):
         # Staging has no smoke account: its own host, no app smoke fetched or run (kills a copied tbd-prod entry,
         # which would fetch smoke-test.sh and fail on the missing login).
-        r, log = run("tbd-staging")
+        # Its own manifest (v0.292.0, prod is v0.291.0): kills reading the tbd-prod tag for staging.
+        r, log = run("tbd-staging", versions="0.292.0")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("https://dev.thebetterdecision.com/health", log)
         self.assertNotIn("app.thebetterdecision.com", log)

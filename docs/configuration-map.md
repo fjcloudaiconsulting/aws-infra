@@ -123,7 +123,7 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
-- **Environments `tbd-prod`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
+- **Environments `tbd-prod`, `tbd-staging`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
   `tbd-prod`: deployment branches "Selected branches and tags", `main` only, no tag rule, no required reviewers;
   secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` (the [TBD smoke account](#cluster-out-of-band-material)). A missing
   secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `tbd-staging` (INFRA-135), `ziftbook-staging` and `ziftbook-prod` hold nothing (a job
