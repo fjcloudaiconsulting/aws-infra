@@ -1,0 +1,68 @@
+# Request-log retention (INFRA-130): deletes container log content older than 6 days from the node, hourly, so the
+# privacy policy's "up to 7 days" holds. Covers every pod on the node (TBD, Ziftbook, databases, Traefik). Script and
+# rules: log-retention.sh. Single node: a CronJob runs on one node, make it a DaemonSet loop if a second node is added.
+# Root, because the log files are root-owned; no capabilities needed (owner access). Only /var/log/pods is mounted.
+# kubelet's own size rotation (10Mi x 5 files) stays as it is.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: log-retention
+  namespace: observability
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3000
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: log-retention
+        spec:
+          restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: log-retention
+              image: alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+              command: ["sh", "/script/log-retention.sh"]
+              env:
+                - name: HEARTBEAT_URL
+                  value: http://alloy.observability.svc:4318/v1/metrics
+                - name: TMPDIR
+                  value: /work
+              securityContext:
+                runAsUser: 0
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+                - name: pods
+                  mountPath: /var/log/pods
+          volumes:
+            - name: script
+              configMap:
+                name: log-retention
+            - name: work
+              emptyDir: {}
+            - name: pods
+              hostPath:
+                path: /var/log/pods
+                type: Directory

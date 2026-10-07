@@ -1,0 +1,69 @@
+{
+  "title": "log-retention",
+  "interval": 300,
+  "rules": [
+    {
+      "uid": "log-retention-stale",
+      "title": "LogRetentionStale",
+      "folderUID": "platform",
+      "ruleGroup": "log-retention",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "time() - max(log_retention_last_success_timestamp_seconds)",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    10800
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "0s",
+      "noDataState": "Alerting",
+      "execErrState": "Alerting",
+      "labels": {
+        "severity": "critical",
+        "component": "node"
+      },
+      "annotations": {
+        "summary": "The node log-retention job has not reported success for 3 hours (or never has). Container logs reach the privacy policy's 7-day limit about 21 hours after the last success. See the Request log retention runbook.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#request-log-retention"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "12h"
+      }
+    }
+  ]
+}

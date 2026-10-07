@@ -613,6 +613,26 @@ Upsize when any of these holds:
 The next bundle is `large_3_0` (8 GB, 2 vCPU, 160 GB, $44 a month against $24); Lightsail has nothing between 4 and
 8 GB. Bundle and spend are the owner's call, recorded on INFRA-80.
 
+### Request log retention
+
+The privacy policy says request logs are kept "up to 7 days" (INFRA-130). They exist only as container stdout under
+`/var/log/pods` on the node (Traefik access logging is off; Alloy ships metrics and traces, not logs). kubelet rotates
+by size only (10Mi x 5 files, defaults), so a quiet container would keep lines for weeks. CronJob `observability/log-retention`
+(`clusters/platform/observability/log-retention/`) runs hourly: for every file under `/var/log/pods` it reads the first
+line's timestamp, the oldest, and empties a live `*.log` or deletes a kubelet-rotated `*.log.<ts>[.gz]` once that line is
+older than 6 days (worst case 6 days 1 hour). It covers every pod on the node (Ziftbook and the databases too). It never
+unlinks a live log: `kubectl logs -f` on a truncated container goes quiet until reconnected, and a container keeps only
+its last 0 to 6 days of history. After a clean pass it posts the gauge `log_retention_last_success_timestamp_seconds`
+to Alloy; Grafana rule `LogRetentionStale` (group `log-retention`, applied like the memory rules below, `api PUT
+/api/v1/provisioning/folder/platform/rule-groups/log-retention grafana/log-retention.rules.json`) mails the owner when it is
+over 3 hours old or absent (it fires until the first run after the first apply).
+
+Check, read-only: `kubectl -n observability get cronjob log-retention`, `kubectl -n observability logs
+job/<latest>` (one line per file emptied or deleted), and for any pod `kubectl logs --timestamps <pod> -c <c> | head -1`
+must be under 7 days old. Not covered: Cloudflare's own edge logs, Mailgun's, and Lightsail's daily auto-snapshots of the
+node disk (7 kept, so log content can survive in them up to about 13 days; owner ruling on INFRA-130). If Alloy ever
+tails pod logs to Grafana Cloud (INFRA-110), its retention there needs the same bound.
+
 ### Memory alerts
 
 Grafana Cloud evaluates rule group `node-memory` (folder Platform) every minute and emails the owner through contact
