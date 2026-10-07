@@ -68,7 +68,7 @@ reaches the apps through Cloudflare like a user. Per namespace:
    `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
-2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that.
+2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that. `tbd-staging` sits behind [Cloudflare Access](#cloudflare-access-on-tbd-staging) and checks `GET /robots.txt` (the frontend serves it, Access bypasses it) without following redirects, since a followed login redirect is a 200 page.
 3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
    health reads, one login as the [smoke account](#tbd-smoke-account) and one authenticated read. No user data changes
    (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
@@ -82,7 +82,7 @@ pass closes it. The failure says which step failed:
 | Verdict | Meaning | Look at |
 |---|---|---|
 | `never converged (live X, expected Y)` | The new backend never served: Flux did not apply, the image did not pull, the migration or the pod crashed. `live none` means the app was down | [Follow Flux and rollouts](#follow-flux-and-rollouts): `flux get kustomizations`, `kubectl -n <namespace> get pods,events` |
-| `frontend GET / returned N` | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
+| `frontend GET / returned N` (`/robots.txt` for `tbd-staging`) | The backend serves, the frontend does not | `kubectl -n <namespace> get pods -l app=frontend`, its logs |
 | `app smoke failed` | The app's own checks failed. The run log shows which one. Also shown when the `tbd-prod` environment secrets are missing (the script exits 2 before logging in) | The run log, then `/health/dependencies` (Ziftbook: `/api/health/dependencies`) and the backend logs |
 | `could not fetch ...` | The GitHub API did not return the app's smoke script at that tag | The tag exists in the app repo, then re-run |
 | `bad backend tag` | The manifest has no plain `vX.Y.Z` backend tag | The manifest |
@@ -335,6 +335,26 @@ SMOKE_PASSWORD --env tbd-prod -R
 fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48).
+
+## Cloudflare Access on TBD staging
+
+`dev.thebetterdecision.com` needs a login (INFRA-117): Cloudflare Access, email one-time PIN, allow-list = the owner
+(`local.access_allow_emails` in `terraform/cloudflare/access.tf`), 24 h session. Only `GET /health` and `GET /robots.txt`
+are open, for the [post-deploy smoke](#post-deploy-smoke). Staging is therefore not indexable. Every other path, `/api`
+included, needs the session cookie; the frontend and API share the host, so the browser carries it. Google SSO is off
+on staging, so there is no external callback to break. Staging mail links open only in a browser that has logged in.
+
+**Prerequisites (owner, once):** Zero Trust on the account (Free plan, team name) and the One-time PIN login method
+on. Terraform cannot do these: until then `cloudflare` plans fail with `access.api.error.not_enabled`.
+
+**Apply order:** merge, apply `cloudflare-tokens` (adds the account-scoped "Access: Apps and Policies Write" to the
+`cloudflare` workspace token), then apply `cloudflare`. The smoke's `/robots.txt` check answers 200 before and after,
+so the order never breaks it.
+
+**Add an allowed address:** append it to `access_allow_emails`, PR, apply. **Check:** `curl -sI https://dev.thebetterdecision.com/`
+answers 302 to `*.cloudflareaccess.com`; `/health` and `/robots.txt` answer 200; `/api/` answers 302.
+**Lockout:** applications edited in the dashboard are drift that the next apply reverts; to open staging again, remove
+`cloudflare_zero_trust_access_application.tbd_staging` in a PR.
 
 ## Cloudflare API tokens
 

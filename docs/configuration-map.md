@@ -13,6 +13,7 @@ in the same PR or right after.
 
 | Symptom | Likely cause | Look at | Fix |
 |---|---|---|---|
+| `cloudflare` plan fails with `access.api.error.not_enabled`, or `dev.thebetterdecision.com` shows a Cloudflare Access error | Zero Trust not enabled on the account, or the One-time PIN login method is off | Zero Trust > Settings > Authentication | Owner: enable Zero Trust (Free), turn on One-time PIN, re-run the plan ([runbook](runbooks.md#cloudflare-access-on-tbd-staging)) |
 | Release job fails with `Resource not accessible by integration` on create-a-release | The release App token lacks `workflows`. GitHub treats a new tag as creating workflow files when a later `main` commit changed one | [Release chain](#release-and-deploy-chain) step 4, [GitHub Apps](#github-apps) | Org owner: App permissions > Workflows: Read and write, then accept on the org installation. Re-run the failed job |
 | Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
@@ -252,6 +253,7 @@ own role.
   path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
   zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
   2026-10-04 on both app zones).
+- Cloudflare Access on `dev.thebetterdecision.com` (INFRA-117, `terraform/cloudflare/access.tf`): email one-time PIN, allow-list the owner, bypass only `/health` and `/robots.txt` for the post-deploy smoke. Out of git, once: Zero Trust enabled on the account (Free plan, team name) and the One-time PIN login method on. Scope: the `cloudflare` workspace token holds account "Access: Apps and Policies Write" (`cloudflare-tokens`). Procedures: [runbooks.md](runbooks.md#cloudflare-access-on-tbd-staging).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 - API tokens (INFRA-133): every account-owned token is managed by `terraform/cloudflare-tokens` (workspace
   `cloudflare-tokens`), except the bootstrap token that workspace runs with. Change a scope there, never in the

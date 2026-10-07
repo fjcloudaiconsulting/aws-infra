@@ -105,7 +105,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | Namespace | Holds | Memory quota (requests / limits) | Notes |
 |---|---|---|---|
 | `tbd-prod` | TBD | 640Mi / 1Gi | Pod Security restricted; TBD production since the INFRA-48 cutover (scheduler: exactly one pod) |
-| `tbd-staging` | TBD staging (`dev.thebetterdecision.com`), with its own Valkey | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67) |
+| `tbd-staging` | TBD staging (`dev.thebetterdecision.com`), with its own Valkey | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
 | `ziftbook-staging` | Ziftbook staging | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82) | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
 | `data` | MySQL, Postgres, Valkey, backups | 1Gi / 1536Mi | Excluded from Flux pruning |
