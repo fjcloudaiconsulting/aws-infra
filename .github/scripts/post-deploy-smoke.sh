@@ -16,9 +16,11 @@ set -uo pipefail
 ns="${1:-}"
 case "$ns" in
   tbd-prod) base=https://app.thebetterdecision.com; health=/health; repo=tbd; app_smoke=scripts/smoke-test.sh ;;
+  # No smoke account on staging: health and frontend only (app_smoke empty).
+  tbd-staging) base=https://dev.thebetterdecision.com; health=/health; repo=tbd; app_smoke= ;;
   ziftbook-staging) base=https://dev.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke=scripts/smoke-test.sh ;;
   ziftbook-prod) base=https://app.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke=scripts/smoke-test.sh ;;
-  *) echo "usage: $0 tbd-prod|ziftbook-staging|ziftbook-prod" >&2; exit 2 ;;
+  *) echo "usage: $0 tbd-prod|tbd-staging|ziftbook-staging|ziftbook-prod" >&2; exit 2 ;;
 esac
 DIR="${CLUSTERS_DIR:-clusters/platform}"
 RUN_URL="${RUN_URL:-local run}"

@@ -74,6 +74,7 @@ reaches the apps through Cloudflare like a user. Per namespace:
    (the login adds a session and an audit row). It is never retried, so the login rate limit (10 a minute) is never
    reached. Ziftbook runs its own `scripts/smoke-test.sh` the same way, for `ziftbook-staging` and `ziftbook-prod`: two
    read-only GETs, `/api/healthz` and `/api/health/dependencies` (503 when Postgres is unreachable), no login.
+   `tbd-staging` has no smoke account, so it stops after step 2: the version wait and the frontend check, no app smoke.
 
 Any failure opens the issue `[post-deploy-smoke] <namespace>`, or comments on it if it is already open. The next full
 pass closes it. The failure says which step failed:
