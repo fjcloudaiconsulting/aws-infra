@@ -39,7 +39,6 @@
       "Effect": "Allow",
       "Action": "iam:*",
       "Resource": [
-        "arn:aws:iam::884686184019:user/pfv-backup-uploader",
         "arn:aws:iam::884686184019:user/k3s-backup-uploader",
         "arn:aws:iam::884686184019:role/github-actions-backup-probe",
         "arn:aws:iam::884686184019:role/tfc-backups-provisioner",
