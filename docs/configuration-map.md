@@ -253,7 +253,7 @@ own role.
   path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
   zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
   2026-10-04 on both app zones).
-- Cloudflare Access on `dev.thebetterdecision.com` (INFRA-117, `terraform/cloudflare/access.tf`): email one-time PIN, allow-list the owner, bypass only `/health` and `/robots.txt` for the post-deploy smoke. Out of git, once: Zero Trust enabled on the account (Free plan, team name) and the One-time PIN login method on. Scope: the `cloudflare` workspace token holds account "Access: Apps and Policies Write" (`cloudflare-tokens`). Procedures: [runbooks.md](runbooks.md#cloudflare-access-on-tbd-staging).
+- Cloudflare Access on `dev.thebetterdecision.com` (INFRA-117, `terraform/cloudflare/access.tf`): email one-time PIN, allow-list the owner, bypass only `/health` and `/robots.txt` for the post-deploy smoke. Out of git, once: Zero Trust enabled on the account (Free plan, team name) and the One-time PIN login method on. Scope: the `cloudflare` workspace token holds account "Access: Apps and Policies Write" (`cloudflare-tokens`), which covers every Access app in the account (Cloudflare has no narrower group). Procedures: [runbooks.md](runbooks.md#cloudflare-access-on-tbd-staging).
 - Origin CA expiry is chosen when the cert is issued: read it under SSL/TLS > Origin Server.
 - API tokens (INFRA-133): every account-owned token is managed by `terraform/cloudflare-tokens` (workspace
   `cloudflare-tokens`), except the bootstrap token that workspace runs with. Change a scope there, never in the

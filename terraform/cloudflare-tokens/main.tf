@@ -79,9 +79,9 @@ locals {
   }
 }
 
+# Unfiltered: the API's `name` filter wants a URL-encoded value, so the exact match happens in access_write_ids.
 data "cloudflare_account_api_token_permission_groups_list" "access_write" {
   account_id = local.account_id
-  name       = "Access: Apps and Policies Write"
 }
 
 # Token of the `cloudflare` workspace. It replaces the hand-made token `cloudflare-tfc` (left out of the imports and
