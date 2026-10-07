@@ -13,13 +13,13 @@
         {
           "refId": "A",
           "relativeTimeRange": {
-            "from": 900,
+            "from": 14400,
             "to": 0
           },
           "datasourceUid": "grafanacloud-prom",
           "model": {
             "refId": "A",
-            "expr": "time() - max(log_retention_last_success_timestamp_seconds)",
+            "expr": "time() - max(max_over_time(log_retention_last_success_timestamp_seconds[4h]))",
             "instant": true,
             "range": false
           }

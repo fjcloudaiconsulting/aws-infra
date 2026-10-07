@@ -78,6 +78,20 @@ class LogRetention(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("no heartbeat", r.stderr)
 
+    def test_cutoff_derived_from_now_is_six_days(self):
+        if subprocess.run(["date", "-u", "-d", "@0"], capture_output=True).returncode != 0:
+            self.skipTest("host date lacks -d @N (BSD date); the script targets GNU/busybox date")
+        now = 1790000000  # fixed epoch
+        iso = lambda s: __import__("time").strftime("%Y-%m-%dT%H:%M:%S", __import__("time").gmtime(now - s))
+        old, kept = self.d / "old.log", self.d / "kept.log"
+        old.write_text(f"{iso(6 * 86400 + 60)}.1Z stdout F x\n")
+        kept.write_text(f"{iso(6 * 86400 - 60)}.1Z stdout F x\n")
+        e = {**os.environ, "LOG_ROOT": str(self.root), "TMPDIR": self.tmp.name, "NOW": str(now)}
+        e.pop("CUTOFF", None)
+        self.assertEqual(subprocess.run(["sh", str(SCRIPT)], env=e, capture_output=True, text=True).returncode, 0)
+        self.assertEqual(old.stat().st_size, 0)
+        self.assertGreater(kept.stat().st_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

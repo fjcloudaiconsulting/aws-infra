@@ -24,6 +24,7 @@ spec:
             app: log-retention
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           securityContext:
             seccompProfile:
               type: RuntimeDefault

@@ -9,6 +9,7 @@
 set -u
 LOG_ROOT=${LOG_ROOT:-/var/log/pods}
 NOW=${NOW:-$(date -u +%s)}
+# Timestamps are compared as UTC; the node runs UTC (a non-UTC node's CRI offset would skew expiry).
 CUTOFF=${CUTOFF:-$(date -u -d "@$((NOW - 6 * 86400))" +%Y-%m-%dT%H:%M:%S)}
 fail=0
 
@@ -31,6 +32,7 @@ while IFS= read -r f; do
     *) first=$(head -n 1 "$f" | head -c 19) ;;
   esac
   expired "$first" || continue
+  [ -f "$f" ] || continue # rotated away since find: truncate would recreate it
   case $f in
     *.log) truncate -s 0 "$f" || fail=1; echo "truncated $f" ;;
     *) rm -f "$f" || fail=1; echo "deleted $f" ;;
