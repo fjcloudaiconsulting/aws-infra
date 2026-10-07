@@ -145,6 +145,23 @@ class Pass(unittest.TestCase):
         self.assertNotIn("contents/scripts", log)
         self.assertNotIn("app smoke", r.stdout)
 
+    def test_tbd_staging_frontend_check_hits_the_bypassed_path_without_following_redirects(self):
+        # Behind Cloudflare Access only /health and /robots.txt are open (INFRA-117). A GET / with -L would follow
+        # the login redirect to a 200 page and pass falsely (kills reusing the prod frontend check).
+        r, log = run("tbd-staging", versions="0.292.0")
+        front = [l for l in log.splitlines() if "http_code" in l]
+        self.assertEqual(len(front), 3, log)
+        for l in front:
+            self.assertTrue(l.endswith("https://dev.thebetterdecision.com/robots.txt"), l)
+            self.assertNotIn(" -L ", l)
+        self.assertIn("frontend GET /robots.txt 200 x3", r.stdout)
+
+    def test_other_environments_still_follow_redirects_on_the_root(self):
+        # Prod's / redirects (307): kills dropping -L or the root path for everyone.
+        r, log = run()
+        front = [l for l in log.splitlines() if "http_code" in l]
+        self.assertTrue(front and all(" -L " in l and l.endswith("https://app.thebetterdecision.com/") for l in front), log)
+
     def test_ziftbook_runs_its_app_smoke_at_the_deployed_tag(self):
         # Kills app_smoke="" for ziftbook-staging (the database-reachable check would never run).
         r, log = run("ziftbook-staging")
