@@ -126,7 +126,7 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environments `tbd-prod`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
   `tbd-prod`: deployment branches "Selected branches and tags", `main` only, no tag rule, no required reviewers;
   secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` (the [TBD smoke account](#cluster-out-of-band-material)). A missing
-  secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `ziftbook-staging` and `ziftbook-prod` hold nothing (a job
+  secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `tbd-staging` (INFRA-135), `ziftbook-staging` and `ziftbook-prod` hold nothing (a job
   that names a missing environment creates it, without restrictions).
 - **Environment `landing`** (tbd and ziftbook, INFRA-60/INFRA-98): deployment branches `main` only; secret
   `CLOUDFLARE_API_TOKEN`, a per-Worker token for that app's landing Worker. Scopes and rules:

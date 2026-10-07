@@ -49,7 +49,7 @@ flowchart TD
         M --> O["Flux applies production<br/>app.&lt;domain&gt;"]
     end
 
-    N -- "ziftbook-staging only (tbd-staging: INFRA-135)" --> P["Post-deploy smoke: waits for the new version,<br/>then frontend + app smoke from outside"]
+    N -- "staging" --> P["Post-deploy smoke: waits for the new version,<br/>then frontend + app smoke from outside"]
     O --> P
     P -- fail --> Q["Issue [post-deploy-smoke] &lt;namespace&gt;"]
 ```
@@ -120,7 +120,7 @@ runtime dependencies count as `fix`). A merge of `chore`, `docs`, `ci` and simil
 | Drift probe | A release that never reached production (an unmerged prod PR, a Renovate miss) | `release-drift-probe.yml`, daily `[release-drift]` issue |
 
 What the staging-first check does **not** do: it compares tags in git, not what staging actually runs. Staging's own
-health endpoint and the post-deploy smoke cover that (the smoke runs for `tbd-prod`, `ziftbook-staging` and
+health endpoint and the post-deploy smoke cover that (the smoke runs for `tbd-prod`, `tbd-staging` (version and frontend only), `ziftbook-staging` and
 `ziftbook-prod`). Admins can merge a red PR through the ruleset bypass, so treat red as
 "not yet", never as noise.
 
