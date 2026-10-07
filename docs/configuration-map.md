@@ -316,8 +316,10 @@ Rules:
   token could already serve any page on the apex, which is the bigger risk. A same-zone subrequest also carries the
   zone's Authenticated Origin Pulls client certificate, so Traefik's mTLS does not stop it. Owner decision on INFRA-98, 2026-10-06:
   narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
-  left is this code-level residual, which a rule keyed on `cf.worker.upstream_zone` on the node hostnames might
-  close (INFRA-136, untested: needs a throwaway Worker first). The Pages tokens `fjconsulting-website-*` hold Pages Write
+  left is this code-level residual, which the rule `block_worker_subrequests` (`terraform/cloudflare/waf_custom.tf`, phase
+  `http_request_firewall_custom`, `cf.worker.upstream_zone ne ""` on the node hostnames, INFRA-136) is meant to close. Untested until
+  applied: a throwaway Worker on `ping.thebetterdecision.com/__infra136/*` must get 403 (200 without the rule), then be deleted; if it still gets 200,
+  remove the rule and accept the residual. The Pages tokens `fjconsulting-website-*` hold Pages Write
   on the whole account (Cloudflare has no per-project Pages role); as we understand it (untested) a custom domain on an app zone would also need DNS
   rights there, which they lack.
 - No scheduled probe for new routes or Snippets: once the deploy tokens are per-Worker, only the owner, the bootstrap token (by minting one) and a write-scoped MCP grant can add one, and a probe cannot see the code-level residual above.
