@@ -14,14 +14,18 @@
 set -uo pipefail
 
 ns="${1:-}"
+unset front follow
 case "$ns" in
   tbd-prod) base=https://app.thebetterdecision.com; health=/health; repo=tbd; app_smoke=scripts/smoke-test.sh ;;
-  # No smoke account on staging: health and frontend only (app_smoke empty).
-  tbd-staging) base=https://dev.thebetterdecision.com; health=/health; repo=tbd; app_smoke= ;;
+  # No smoke account on staging: health and frontend only (app_smoke empty). Staging sits behind Cloudflare Access
+  # (INFRA-117), which bypasses only /health and /robots.txt (the frontend serves it): the frontend check hits
+  # /robots.txt and must not follow redirects, or a login redirect (200 page) would pass it falsely.
+  tbd-staging) base=https://dev.thebetterdecision.com; health=/health; repo=tbd; app_smoke=; front=/robots.txt; follow= ;;
   ziftbook-staging) base=https://dev.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke=scripts/smoke-test.sh ;;
   ziftbook-prod) base=https://app.ziftbook.com; health=/api/healthz; repo=ziftbook; app_smoke=scripts/smoke-test.sh ;;
   *) echo "usage: $0 tbd-prod|tbd-staging|ziftbook-staging|ziftbook-prod" >&2; exit 2 ;;
 esac
+front="${front:-/}"; follow="${follow--L}"
 DIR="${CLUSTERS_DIR:-clusters/platform}"
 RUN_URL="${RUN_URL:-local run}"
 title="[post-deploy-smoke] $ns"
@@ -53,13 +57,13 @@ check() {
   # 2. The frontend has no version and rolls out on its own: three consecutive 200s, 10 s apart.
   deadline=$(( SECONDS + ${FRONTEND_SECONDS:-300} ))
   while (( ok < 3 )); do
-    code="$(curl -sS -L -o /dev/null -w '%{http_code}' --max-time 15 "$base/" 2>/dev/null)"
+    code="$(curl -sS $follow -o /dev/null -w '%{http_code}' --max-time 15 "$base$front" 2>/dev/null)"
     if [[ "$code" == 200 ]]; then ok=$((ok + 1)); else ok=0; fi
     (( ok == 3 )) && break
-    (( ok > 0 || SECONDS < deadline )) || { verdict="frontend GET / returned ${code:-nothing}"; return; }
+    (( ok > 0 || SECONDS < deadline )) || { verdict="frontend GET $front returned ${code:-nothing}"; return; }
     sleep "${FRONTEND_GAP_SECONDS:-10}"
   done
-  echo "frontend GET / 200 x3"
+  echo "frontend GET $front 200 x3"
 
   # 3. The app's own smoke, from the app repo at the deployed tag so it matches the release it tests. Saved to a file,
   # never piped into a shell, GH_TOKEN not exported to it (same uid, so not a hard boundary: the trust is the app

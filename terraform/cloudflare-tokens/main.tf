@@ -60,6 +60,11 @@ locals {
     "Zone Write"                  = "e6d2666161e84845a636613608cee8d5"
   }
 
+  # Looked up by name, not hardcoded: the id of "Access: Apps and Policies Write" is not one this repo has seen
+  # (INFRA-117). A rename (no match) or an ambiguous match makes `one()` fail the plan, never the apply.
+  access_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
+  if g.name == "Access: Apps and Policies Write" && contains(g.scopes, "com.cloudflare.api.account")]
+
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
   # object with two keys at one level can come back in another order and fail the apply. Keep one key per level:
   # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
@@ -72,6 +77,11 @@ locals {
     # Zone read by a data source; only the shared dev Mailgun records `m.` are managed (INFRA-47).
     fjdev = ["Zone Read", "DNS Write"]
   }
+}
+
+# Unfiltered: the API's `name` filter wants a URL-encoded value, so the exact match happens in access_write_ids.
+data "cloudflare_account_api_token_permission_groups_list" "access_write" {
+  account_id = local.account_id
 }
 
 # Token of the `cloudflare` workspace. It replaces the hand-made token `cloudflare-tfc` (left out of the imports and
@@ -93,6 +103,12 @@ resource "cloudflare_account_token" "cloudflare_workspace" {
       effect            = "allow"
       resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
       permission_groups = [{ id = local.pg["Notifications Write"] }]
+      }, {
+      # Cloudflare Access application and policies gating dev.thebetterdecision.com (INFRA-117). Account scope: reusable
+      # policies are account objects. Needs Zero Trust enabled on the account first (owner step, docs/runbooks.md).
+      effect            = "allow"
+      resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
+      permission_groups = [{ id = one(local.access_write_ids) }]
     }],
   )
 
