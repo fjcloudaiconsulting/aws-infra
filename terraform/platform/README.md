@@ -45,13 +45,14 @@ A new resource type or data source for this stack means widening both role docum
 plan allow-list and the apply allow-list), then re-running the `put-role-policy` lines below.
 Trust edits follow the add, apply, remove order in the repo README.
 
-## Genesis (once, root)
+## Genesis (once, account admin)
 
-Root through `aws login` or CloudShell (the account has no root access keys), from a checkout of the
-PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
+The Identity Center admin (profile `fjc`) or root in CloudShell (the account has no root access keys), from a
+checkout of the PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
 
 ```bash
 cd aws/bootstrap
+export AWS_PROFILE=fjc   # in CloudShell as root, skip this line
 aws iam create-role --role-name tfc-platform-plan \
   --assume-role-policy-document file://tfc-platform-plan-trust.json
 aws iam put-role-policy --role-name tfc-platform-plan \
@@ -79,11 +80,12 @@ Never set `TFC_AWS_RUN_ROLE_ARN`: it would give unapproved PR plans the apply ro
 
 ## Uptime check (INFRA-26)
 
-Before merging, re-mint both role policies as root (same shell as Genesis), from this PR's branch
+Before merging, re-mint both role policies as the account admin (same shell as Genesis), from this PR's branch
 rebased on current `main`: other PRs edit the same documents, and a stale branch would drop their entries:
 
 ```bash
 cd aws/bootstrap
+export AWS_PROFILE=fjc   # in CloudShell as root, skip this line
 aws iam put-role-policy --role-name tfc-platform-plan \
   --policy-name tfc-platform-plan --policy-document file://tfc-platform-plan.json
 aws iam put-role-policy --role-name tfc-platform-apply \
@@ -98,18 +100,18 @@ curl -s -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping
 
 Without it the alarm fires on the first apply. After the apply, click the "AWS Notification -
 Subscription Confirmation" link for `platform-alerts-use1` (a second email, separate from
-`platform-alerts`), then check (profile `tbd`, a few minutes after the apply):
+`platform-alerts`), then check (profile `fjc`, a few minutes after the apply):
 
 ```bash
-aws sns list-subscriptions-by-topic --profile tbd --region us-east-1 \
+aws sns list-subscriptions-by-topic --profile fjc --region us-east-1 \
   --topic-arn arn:aws:sns:us-east-1:884686184019:platform-alerts-use1 \
   --query 'Subscriptions[].SubscriptionArn' --output text
 # an ARN ending in a UUID, not PendingConfirmation
-aws route53 get-health-check-status --profile tbd --health-check-id "$(aws route53 list-health-checks \
-  --profile tbd --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" \
+aws route53 get-health-check-status --profile fjc --health-check-id "$(aws route53 list-health-checks \
+  --profile fjc --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" \
   --output text)" --query 'HealthCheckObservations[].StatusReport.Status' --output text
 # every line starts with "Success: HTTP Status Code 200"
-aws cloudwatch describe-alarms --profile tbd --region us-east-1 \
+aws cloudwatch describe-alarms --profile fjc --region us-east-1 \
   --alarm-names platform-ping-unhealthy --query 'MetricAlarms[].StateValue' --output text
 # OK
 ```

@@ -180,7 +180,8 @@ and `iam:CreateLoginProfile` on it, so no future HCL can put one there.
 Owner steps, in order, from the repo root:
 
 ```bash
-# 1. BEFORE merge, as root: re-mint the three role policies this PR changes.
+export AWS_PROFILE=fjc
+# 1. BEFORE merge, as the account admin: re-mint the three role policies this PR changes.
 aws iam put-role-policy --role-name tfc-backups-provisioner \
   --policy-name tfc-backups-provisioner-inline \
   --policy-document file://aws/bootstrap/tfc-backups-provisioner.json
@@ -191,7 +192,7 @@ aws iam put-role-policy --role-name tfc-platform-apply \
 
 #    Check: expect CreateUser/PutUserPolicy/TagUser "allowed",
 #    CreateAccessKey/CreateLoginProfile "explicitDeny".
-aws iam simulate-principal-policy --profile tbd \
+aws iam simulate-principal-policy --profile fjc \
   --policy-source-arn arn:aws:iam::884686184019:role/tfc-backups-provisioner \
   --resource-arns arn:aws:iam::884686184019:user/k3s-backup-uploader \
   --action-names iam:CreateUser iam:PutUserPolicy iam:TagUser iam:CreateAccessKey iam:CreateLoginProfile \
@@ -203,7 +204,7 @@ aws iam simulate-principal-policy --profile tbd \
 #    and never written in plaintext.
 set -o pipefail
 mkdir -p clusters/platform/data
-aws iam create-access-key --profile tbd --user-name k3s-backup-uploader --output json \
+aws iam create-access-key --profile fjc --user-name k3s-backup-uploader --output json \
   | python3 -c 'import json,sys; k=json.load(sys.stdin)["AccessKey"]; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"backup-s3","namespace":"data"},"type":"Opaque","stringData":{"AWS_ACCESS_KEY_ID":k["AccessKeyId"],"AWS_SECRET_ACCESS_KEY":k["SecretAccessKey"]}}))' \
   | sops encrypt --filename-override clusters/platform/data/backup-s3.secret.yaml \
       --input-type yaml --output-type yaml /dev/stdin \
@@ -212,8 +213,8 @@ grep -c 'ENC\[AES256' clusters/platform/data/backup-s3.secret.yaml   # 3: two va
 ```
 
 If the pipeline fails after `create-access-key`, the key exists but nobody holds
-it: find it with `aws iam list-access-keys --profile tbd --user-name
-k3s-backup-uploader`, remove it with `aws iam delete-access-key --profile tbd
+it: find it with `aws iam list-access-keys --profile fjc --user-name
+k3s-backup-uploader`, remove it with `aws iam delete-access-key --profile fjc
 --user-name k3s-backup-uploader --access-key-id <id>`, and rerun step 3.
 
 To rotate: create the second key the same way, let Flux roll it out, then

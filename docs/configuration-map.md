@@ -34,7 +34,7 @@ in the same PR or right after.
 | Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
 | `thebetterdecision.com` does not resolve, or `www.thebetterdecision.com` 301s to an apex that does not answer | The apex custom domain was detached from `tbd-landing` (its DNS record goes with it), or the Worker was deleted | Workers & Pages > `tbd-landing` > Settings > Domains & Routes; [Worker and Snippet access](#worker-and-snippet-access-infra-98) | Re-attach `thebetterdecision.com` to `tbd-landing` (API or dashboard, same section). A deleted Worker: re-run tbd's `Deploy Apex Landing` workflow first |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
-| `aws` says "session has expired", aws-mcp tools missing | Root login session expired | n/a | Owner runs `aws login --profile tbd` |
+| `aws` says the token has expired, aws-mcp tools missing | SSO session expired (8 h) | n/a | Owner runs `aws sso login --profile fjc` |
 | Ziftbook Renovate PR fails `pnpm install` with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` | A package version is younger than pnpm's 1 day policy | INFRA-77 | Re-run CI a day later |
 | No new metrics in Grafana Cloud | Alloy pod in `CreateContainerConfigError` (Secret `observability/grafana-cloud` missing), or the exporter logs `401` (token revoked, or wrong Instance ID) | `kubectl -n observability get pods`, `kubectl -n observability logs ds/alloy` | Write the Secret per the [runbook](runbooks.md#metrics-to-grafana-cloud-alloy), then `kubectl -n observability rollout restart ds/alloy` |
 | `LogRetentionStale` mail, or request logs older than 7 days on the node | CronJob `observability/log-retention` failing (image pull, hostPath, script error) or Alloy down (heartbeat refused) | `kubectl -n observability get cronjob,jobs`, `kubectl -n observability logs job/<latest>` | [Runbook](runbooks.md#request-log-retention); `kubectl -n observability create job --from=cronjob/log-retention lr-manual` to rerun |
@@ -206,8 +206,10 @@ own role.
 
 ## AWS (account 884686184019)
 
-- Local access is the root login session, profile `tbd` (`aws login --profile tbd`). It expires; the
-  aws-mcp server stops working with it. Root MFA must stay on.
+- Local access is IAM Identity Center (organization instance, eu-central-1, INFRA-10): user `flamarion`, permission set
+  `AdministratorAccess` (8 h sessions, MFA on every sign-in), profile `fjc` (`aws sso login --profile fjc`), which the
+  aws-mcp server also uses (`AWS_MCP_PROXY_PROFILES=fjc`). Root has MFA, no access keys, and is kept for root-only tasks
+  in the console.
 - Created by hand once (root): OIDC provider `app.terraform.io` and the `tfc-*` roles. Everything else in
   the backup chain is managed by the `tbd-backups` stack: bucket `tbd-mysql-backups-884686184019` (Object
   Lock), KMS key, the uploader users and keys, OIDC provider `token.actions.githubusercontent.com`, role
@@ -375,4 +377,4 @@ commit body only.
 | Cloudflare account-owned tokens (all managed by `cloudflare-tokens`) | per token; `expires_on` in `terraform/cloudflare-tokens` | [runbook](runbooks.md#cloudflare-api-tokens). A token Terraform made gets a replace run, its consumer is rewritten in the same apply; an imported one needs its consumer wired in Terraform first |
 | Cloudflare bootstrap token, HCP Terraform team token `cloudflare-tokens` | no expiry, rotate on suspicion | [runbook](runbooks.md#cloudflare-api-tokens) |
 | AWS credits | 2027-08-27 | README, AWS credits |
-| Root `aws login` session | hours | `aws login --profile tbd` |
+| SSO session, profile `fjc` | 8 h | `aws sso login --profile fjc` |
