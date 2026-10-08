@@ -180,7 +180,8 @@ and `iam:CreateLoginProfile` on it, so no future HCL can put one there.
 Owner steps, in order, from the repo root:
 
 ```bash
-# 1. BEFORE merge, as root: re-mint the three role policies this PR changes.
+export AWS_PROFILE=fjc
+# 1. BEFORE merge, as the account admin: re-mint the three role policies this PR changes.
 aws iam put-role-policy --role-name tfc-backups-provisioner \
   --policy-name tfc-backups-provisioner-inline \
   --policy-document file://aws/bootstrap/tfc-backups-provisioner.json

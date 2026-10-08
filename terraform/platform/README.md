@@ -45,13 +45,14 @@ A new resource type or data source for this stack means widening both role docum
 plan allow-list and the apply allow-list), then re-running the `put-role-policy` lines below.
 Trust edits follow the add, apply, remove order in the repo README.
 
-## Genesis (once, root)
+## Genesis (once, account admin)
 
-The Identity Center admin (profile `fjc`) or root in CloudShell (the account has no root access keys), from a checkout of the
-PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
+The Identity Center admin (profile `fjc`) or root in CloudShell (the account has no root access keys), from a
+checkout of the PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
 
 ```bash
 cd aws/bootstrap
+export AWS_PROFILE=fjc   # in CloudShell as root, skip this line
 aws iam create-role --role-name tfc-platform-plan \
   --assume-role-policy-document file://tfc-platform-plan-trust.json
 aws iam put-role-policy --role-name tfc-platform-plan \
@@ -79,11 +80,12 @@ Never set `TFC_AWS_RUN_ROLE_ARN`: it would give unapproved PR plans the apply ro
 
 ## Uptime check (INFRA-26)
 
-Before merging, re-mint both role policies as root (same shell as Genesis), from this PR's branch
+Before merging, re-mint both role policies as the account admin (same shell as Genesis), from this PR's branch
 rebased on current `main`: other PRs edit the same documents, and a stale branch would drop their entries:
 
 ```bash
 cd aws/bootstrap
+export AWS_PROFILE=fjc   # in CloudShell as root, skip this line
 aws iam put-role-policy --role-name tfc-platform-plan \
   --policy-name tfc-platform-plan --policy-document file://tfc-platform-plan.json
 aws iam put-role-policy --role-name tfc-platform-apply \
