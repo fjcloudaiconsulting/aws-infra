@@ -697,7 +697,7 @@ Before the window: prepare the Terraform change in step 6 on a branch (a PR left
 **1. Stop writes, take fresh dumps, record row counts.**
 
 ```bash
-export KUBECONFIG=~/.kube/platform AWS_PROFILE=tbd
+export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc
 cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node

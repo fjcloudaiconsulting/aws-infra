@@ -47,7 +47,7 @@ Trust edits follow the add, apply, remove order in the repo README.
 
 ## Genesis (once, root)
 
-Root through `aws login` or CloudShell (the account has no root access keys), from a checkout of the
+The Identity Center admin (profile `fjc`) or root in CloudShell (the account has no root access keys), from a checkout of the
 PR branch (`main` once merged), or with the four `aws/bootstrap/tfc-platform-*.json` files uploaded.
 
 ```bash
@@ -98,18 +98,18 @@ curl -s -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping
 
 Without it the alarm fires on the first apply. After the apply, click the "AWS Notification -
 Subscription Confirmation" link for `platform-alerts-use1` (a second email, separate from
-`platform-alerts`), then check (profile `tbd`, a few minutes after the apply):
+`platform-alerts`), then check (profile `fjc`, a few minutes after the apply):
 
 ```bash
-aws sns list-subscriptions-by-topic --profile tbd --region us-east-1 \
+aws sns list-subscriptions-by-topic --profile fjc --region us-east-1 \
   --topic-arn arn:aws:sns:us-east-1:884686184019:platform-alerts-use1 \
   --query 'Subscriptions[].SubscriptionArn' --output text
 # an ARN ending in a UUID, not PendingConfirmation
-aws route53 get-health-check-status --profile tbd --health-check-id "$(aws route53 list-health-checks \
-  --profile tbd --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" \
+aws route53 get-health-check-status --profile fjc --health-check-id "$(aws route53 list-health-checks \
+  --profile fjc --query "HealthChecks[?HealthCheckConfig.FullyQualifiedDomainName=='app.thebetterdecision.com'].Id" \
   --output text)" --query 'HealthCheckObservations[].StatusReport.Status' --output text
 # every line starts with "Success: HTTP Status Code 200"
-aws cloudwatch describe-alarms --profile tbd --region us-east-1 \
+aws cloudwatch describe-alarms --profile fjc --region us-east-1 \
   --alarm-names platform-ping-unhealthy --query 'MetricAlarms[].StateValue' --output text
 # OK
 ```
