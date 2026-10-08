@@ -207,7 +207,7 @@ own role.
 ## AWS (account 884686184019)
 
 - Local access is IAM Identity Center (organization instance, eu-central-1, INFRA-10): user `flamarion`, permission set
-  `AdministratorAccess` (8 h sessions, MFA on every sign-in), profile `fjc` (`aws sso login --profile fjc`), which the
+  `AdministratorAccess` (8 h sessions, MFA on every sign-in), profile `fjc` (`aws sso login --profile fjc`, portal https://fjconsulting.awsapps.com/start), which the
   aws-mcp server also uses (`AWS_MCP_PROXY_PROFILES=fjc`). Root has MFA, no access keys, and is kept for root-only tasks
   in the console.
 - Created by hand once (root): OIDC provider `app.terraform.io` and the `tfc-*` roles. Everything else in
