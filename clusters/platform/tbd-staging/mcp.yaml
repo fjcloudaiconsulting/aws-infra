@@ -7,7 +7,8 @@
 # valkey NetworkPolicy admits the backend only. The FEATURE_* and BILLING_UI_ENABLED floors match backend.yaml, so
 # tools see the same gates as the app. APP_URL must equal the backend's (OAuth issuer and resource metadata URL).
 # Memory: request 96Mi, limit 256Mi (the scheduler, a comparable non-HTTP import of the app, works at ~120Mi).
-# DB pool 2+3 (plus the rate limiter's own 2+5): it shares MySQL user tbd_staging (MAX_USER_CONNECTIONS 20) with the backend.
+# DB pool 1+1, the minimum (the rate limiter's own engine adds a fixed 2+5): MCP opens at most 9 connections as MySQL
+# user tbd_staging, whose MAX_USER_CONNECTIONS is 20; with the backend's 15+7 the worst case is 31.
 # Image tag moves with backend.yaml (one Renovate group, renovate.json). tbd must publish and promote the mcp image on
 # every release: check-prod-tags.py bounds the tbd-prod tags by the LOWEST tbd-staging tag, so an mcp tag left behind
 # would block the tbd-prod bump.
@@ -49,7 +50,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mcp
-          image: ghcr.io/fjcloudaiconsulting/tbd/mcp:v0.293.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/mcp:v0.294.0
           ports:
             - containerPort: 8001
           env:
@@ -70,9 +71,9 @@ spec:
             - name: FEATURE_CUSTOM_DASHBOARD
               value: "true"
             - name: DB_POOL_SIZE
-              value: "2"
+              value: "1"
             - name: DB_MAX_OVERFLOW
-              value: "3"
+              value: "1"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
