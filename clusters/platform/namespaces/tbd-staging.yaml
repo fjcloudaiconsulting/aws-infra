@@ -28,10 +28,10 @@ metadata:
   namespace: tbd-staging
 spec:
   hard:
-    # backend 128/384, frontend 96/256, valkey 32/64 (INFRA-67): 256Mi requests, 704Mi limits. Recreate everywhere, and
-    # the migrate init container (96/256) fits inside the backend's own figures.
-    requests.memory: 320Mi
-    limits.memory: 768Mi
+    # backend 128/384, frontend 96/256, valkey 32/64 (INFRA-67), mcp 96/256 (INFRA-147): 352Mi requests, 960Mi limits.
+    # Recreate everywhere, and the migrate init container (96/256) fits inside the backend's own figures.
+    requests.memory: 352Mi
+    limits.memory: 960Mi
 ---
 # Rejects any pod in this namespace that does not use the staging class, Job and CronJob
 # pods included (they fail with a FailedCreate event only).
