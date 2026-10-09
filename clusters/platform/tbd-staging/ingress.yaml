@@ -8,7 +8,8 @@ metadata:
 spec:
   entryPoints: [websecure]
   routes:
-    - match: Host(`dev.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`))
+    - match: Host(`dev.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`) ||
+        PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource`))
       kind: Rule
       services:
         - name: backend

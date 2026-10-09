@@ -9,6 +9,14 @@
 # and GET /robots.txt (served by the frontend container). Access picks the most specific path, so the bypass
 # applications win over the whole-host one. Everything else, /api included, needs the login: the frontend and its API
 # share the host, so one login cookie covers both.
+#
+# MCP OAuth bypass (INFRA-147, owner ruling 2026-10-09): an MCP client cannot pass the email PIN, so the paths it calls
+# are open: /mcp, the two OAuth discovery documents (an application path covers its subpaths, so
+# /.well-known/oauth-protected-resource/mcp is included), /api/v1/oauth/* (register, token, the consent endpoints) and
+# the consent page /oauth/authorize. That page is a Next.js page: without its JS and CSS (/_next/static/*, the hashed
+# build output prod serves publicly) it cannot render or call the consent endpoints when the browser holds the app
+# session but no Access session, so that prefix is open too. Not /_next/image or /_next/data, which the page does not
+# need. The consent endpoints still require the app login and step-up; /login and the rest stay behind Access.
 
 locals {
   access_host = "dev.thebetterdecision.com"
@@ -58,4 +66,32 @@ resource "cloudflare_zero_trust_access_application" "tbd_staging_smoke" {
   app_launcher_visible = false
 
   policies = [{ id = cloudflare_zero_trust_access_policy.tbd_staging_smoke_bypass.id, precedence = 1 }]
+}
+
+resource "cloudflare_zero_trust_access_policy" "tbd_staging_mcp_bypass" {
+  account_id = var.account_id
+  name       = "tbd-staging: MCP OAuth bypass (INFRA-147)"
+  decision   = "bypass"
+
+  include = [{ everyone = {} }]
+}
+
+resource "cloudflare_zero_trust_access_application" "tbd_staging_mcp" {
+  for_each = toset([
+    "/mcp",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource",
+    "/api/v1/oauth/*",
+    "/oauth/authorize",
+    "/_next/static/*",
+  ])
+
+  account_id           = var.account_id
+  name                 = "tbd-staging MCP OAuth bypass ${each.key}"
+  type                 = "self_hosted"
+  domain               = "${local.access_host}${each.key}"
+  session_duration     = "24h"
+  app_launcher_visible = false
+
+  policies = [{ id = cloudflare_zero_trust_access_policy.tbd_staging_mcp_bypass.id, precedence = 1 }]
 }

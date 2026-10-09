@@ -340,7 +340,10 @@ rotated 2026-10-04 (INFRA-48).
 
 `dev.thebetterdecision.com` needs a login (INFRA-117): Cloudflare Access, email one-time PIN, allow-list = the owner
 (`local.access_allow_emails` in `terraform/cloudflare/access.tf`), 24 h session. Only `GET /health` and `GET /robots.txt`
-are open, for the [post-deploy smoke](#post-deploy-smoke). Staging is therefore not indexable. Every other path, `/api`
+are open, for the [post-deploy smoke](#post-deploy-smoke), plus the MCP OAuth paths (INFRA-147): `/mcp`, the two
+`/.well-known/oauth-*` documents (subpaths included), `/api/v1/oauth/*`, the consent page `/oauth/authorize` and
+`/_next/static/*` (its JS and CSS). An MCP client cannot pass the PIN; the consent page still needs the app login and
+step-up, which stay behind Access. Staging is therefore not indexable. Every other path, `/api`
 included, needs the session cookie; the frontend and API share the host, so the browser carries it. Google SSO is off
 on staging, so there is no external callback to break. Staging mail links open only in a browser that has logged in.
 
@@ -353,6 +356,9 @@ so the order never breaks it.
 
 **Add an allowed address:** append it to `access_allow_emails`, PR, apply. **Check:** `curl -sI https://dev.thebetterdecision.com/`
 answers 302 to `*.cloudflareaccess.com`; `/health` and `/robots.txt` answer 200; `/api/` answers 302.
+MCP paths: `curl -s https://dev.thebetterdecision.com/.well-known/oauth-protected-resource/mcp` returns the backend's
+JSON (once the tbd release carrying the OAuth server is on staging), `curl -s -o /dev/null -w '%{http_code}\n' -X POST
+https://dev.thebetterdecision.com/mcp` answers 401 from the MCP server (not 302), and `/api/v1/auth/me` still answers 302.
 **Lockout:** applications edited in the dashboard are drift that the next apply reverts; to open staging again, remove
 `cloudflare_zero_trust_access_application.tbd_staging` in a PR.
 
