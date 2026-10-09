@@ -7,7 +7,10 @@
 # valkey NetworkPolicy admits the backend only. The FEATURE_* and BILLING_UI_ENABLED floors match backend.yaml, so
 # tools see the same gates as the app. APP_URL must equal the backend's (OAuth issuer and resource metadata URL).
 # Memory: request 96Mi, limit 256Mi (the scheduler, a comparable non-HTTP import of the app, works at ~120Mi).
-# Image tag moves with backend.yaml (one Renovate group, renovate.json).
+# DB pool 2+3 (plus the rate limiter's own 2+5): it shares MySQL user tbd_staging (MAX_USER_CONNECTIONS 20) with the backend.
+# Image tag moves with backend.yaml (one Renovate group, renovate.json). tbd must publish and promote the mcp image on
+# every release: check-prod-tags.py bounds the tbd-prod tags by the LOWEST tbd-staging tag, so an mcp tag left behind
+# would block the tbd-prod bump.
 apiVersion: v1
 kind: Service
 metadata:
@@ -66,6 +69,10 @@ spec:
               value: "false"
             - name: FEATURE_CUSTOM_DASHBOARD
               value: "true"
+            - name: DB_POOL_SIZE
+              value: "2"
+            - name: DB_MAX_OVERFLOW
+              value: "3"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -86,6 +93,7 @@ spec:
                 secretKeyRef:
                   name: tbd-mcp
                   key: jwt-secret-key
+          # Liveness too (the app pods have readiness only): /health is static, so a failure means a stuck process.
           livenessProbe:
             httpGet:
               path: /health

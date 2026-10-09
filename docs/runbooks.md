@@ -54,7 +54,7 @@ CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Produc
 1. After the release run's `promote` job is green, wait for the staging bump on `main`
    (`git log origin/main -3 -- clusters/platform/tbd-staging`). Tick "run again" on the Dependency Dashboard to force it.
 2. Check staging runs the tag: `curl -s https://dev.thebetterdecision.com/health` reports the new version.
-3. Merge the `tbd images` PR for `tbd-prod` once `Kubernetes checks` is green: its step `prod tags not ahead of staging` (INFRA-89) fails while the PR's tags are newer than `tbd-staging` on its tree. Update its branch if it is behind.
+3. Merge the `tbd images` PR for `tbd-prod` once `Kubernetes checks` is green: its step `prod tags not ahead of staging` (INFRA-89) fails while the PR's tags are newer than `tbd-staging` on its tree. Update its branch if it is behind. The bound is the lowest `tbd-staging` tag, MCP image included (INFRA-147): if mcp did not move with the release, fix the tbd promote first.
 4. A release broken on staging is fixed forward: do not merge the prod PR, release the fix; a newer tag replaces the PR.
 
 ## Post-deploy smoke
@@ -92,7 +92,8 @@ namespace. `gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does th
 `tbd-prod` environment, so a run from another branch fails before it starts.
 
 What it does not cover: the TBD scheduler and the Ziftbook worker have no public endpoint. They run the backend image
-and tag, so a tag that does not pull still shows as `never converged`. A GitHub Actions outage means no smoke; the Route
+and tag, so a tag that does not pull still shows as `never converged`. The TBD staging MCP server (INFRA-147) runs its
+own image and is not checked: look at `kubectl -n tbd-staging get pods -l app=mcp` after a bump. A GitHub Actions outage means no smoke; the Route
 53 uptime check and the daily release drift probe still run.
 
 The smoke account's credentials are the `tbd-prod` environment secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` in this
@@ -340,10 +341,10 @@ rotated 2026-10-04 (INFRA-48).
 
 `dev.thebetterdecision.com` needs a login (INFRA-117): Cloudflare Access, email one-time PIN, allow-list = the owner
 (`local.access_allow_emails` in `terraform/cloudflare/access.tf`), 24 h session. Only `GET /health` and `GET /robots.txt`
-are open, for the [post-deploy smoke](#post-deploy-smoke), plus the MCP OAuth paths (INFRA-147): `/mcp`, the two
-`/.well-known/oauth-*` documents (subpaths included), `/api/v1/oauth/*`, the consent page `/oauth/authorize` and
-`/_next/static/*` (its JS and CSS). An MCP client cannot pass the PIN; the consent page still needs the app login and
-step-up, which stay behind Access. Staging is therefore not indexable. Every other path, `/api`
+are open, for the [post-deploy smoke](#post-deploy-smoke), plus what an MCP client calls without a browser
+(INFRA-147): `/mcp`, the two `/.well-known/oauth-*` documents (subpaths included) and `/api/v1/oauth/*`. The consent
+page `/oauth/authorize` stays behind Access: the browser gets the PIN prompt, then the app login and step-up. Staging
+is therefore not indexable. Every other path, `/api`
 included, needs the session cookie; the frontend and API share the host, so the browser carries it. Google SSO is off
 on staging, so there is no external callback to break. Staging mail links open only in a browser that has logged in.
 

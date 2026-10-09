@@ -11,12 +11,14 @@
 # share the host, so one login cookie covers both.
 #
 # MCP OAuth bypass (INFRA-147, owner ruling 2026-10-09): an MCP client cannot pass the email PIN, so the paths it calls
-# are open: /mcp, the two OAuth discovery documents (an application path covers its subpaths, so
-# /.well-known/oauth-protected-resource/mcp is included), /api/v1/oauth/* (register, token, the consent endpoints) and
-# the consent page /oauth/authorize. That page is a Next.js page: without its JS and CSS (/_next/static/*, the hashed
-# build output prod serves publicly) it cannot render or call the consent endpoints when the browser holds the app
-# session but no Access session, so that prefix is open too. Not /_next/image or /_next/data, which the page does not
-# need. The consent endpoints still require the app login and step-up; /login and the rest stay behind Access.
+# without a browser are open: /mcp, the two OAuth discovery documents and /api/v1/oauth/* (register, token, and the
+# consent endpoints the page calls). An application path covers its subpaths, so
+# /.well-known/oauth-protected-resource/mcp is included (and /mcp/x reaches the frontend's 404 without a login).
+# The consent page /oauth/authorize is NOT bypassed: it is opened in a browser, and every page first calls
+# /api/v1/auth/status (the root layout's AuthProvider), which stays behind Access. Bypassed, a browser without an Access
+# session would get a page whose auth calls fail on the cross-origin Access redirect and never see the PIN prompt; kept
+# behind Access, the browser gets the PIN prompt first and the page then works. For the same reason /_next/static/* is
+# not bypassed either: the page cannot work without an Access session, so its assets need no bypass.
 
 locals {
   access_host = "dev.thebetterdecision.com"
@@ -82,8 +84,6 @@ resource "cloudflare_zero_trust_access_application" "tbd_staging_mcp" {
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource",
     "/api/v1/oauth/*",
-    "/oauth/authorize",
-    "/_next/static/*",
   ])
 
   account_id           = var.account_id
