@@ -1,6 +1,7 @@
 # dev.thebetterdecision.com (INFRA-67): tbd-prod/ingress.yaml for the staging host. The default TLS store's origin-cert
 # covers *.thebetterdecision.com. The Cloudflare record is `dev` in terraform/cloudflare.
-# Staging also runs the MCP server (mcp.yaml, INFRA-147): exact /mcp goes there.
+# Staging only (INFRA-147): the OAuth discovery prefixes go to the backend and exact /mcp to the MCP server (mcp.yaml).
+# Production gets neither until a dedicated security review and pen test (owner ruling 2026-10-09).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:

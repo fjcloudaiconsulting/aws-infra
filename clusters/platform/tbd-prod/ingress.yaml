@@ -1,6 +1,4 @@
-# app.thebetterdecision.com (INFRA-48): Cloudflare (proxied, Full strict) to Traefik, with these routes: /api, /health, /ready and the two
-# OAuth discovery prefixes (INFRA-147; /api/v1/oauth is under /api) go to the backend, everything else, the
-# /oauth/authorize consent page included, to the frontend. No MCP service runs in prod yet, so /mcp is the frontend's 404. Traefik
+# app.thebetterdecision.com (INFRA-48): Cloudflare (proxied, Full strict) to Traefik, with these routes: /api, /health and /ready go to the backend, everything else to the frontend. Traefik
 # tries the longer rule first, so the backend route wins for its prefixes. The default TLS store's origin-cert covers
 # *.thebetterdecision.com. The hostname is unreachable until the Cloudflare record points here (terraform/cloudflare).
 apiVersion: traefik.io/v1alpha1
@@ -11,8 +9,7 @@ metadata:
 spec:
   entryPoints: [websecure]
   routes:
-    - match: Host(`app.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`) ||
-        PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource`))
+    - match: Host(`app.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`))
       kind: Rule
       services:
         - name: backend
