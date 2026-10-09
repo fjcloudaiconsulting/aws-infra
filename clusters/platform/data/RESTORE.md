@@ -229,18 +229,18 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    pg -d "$ZDB" -c 'TRUNCATE sessions; DELETE FROM email_tokens; UPDATE invites SET token_hash = NULL'
    ```
 
-   MySQL (`POD=mysql-0`; write `tbd_staging` for `tbd` with a staging set). Sessions, used one-time tokens
-   and leases live in four tables from migration `089_sessions_to_mysql` on (INFRA-122); members go before
-   families (foreign key). A set from before that migration has no such tables: skip this.
+   Jobs that ran after the dump run again (handlers are safe to repeat). Owners re-check their invite
+   list afterwards: an invite whose `email.invite` job was still pending in the dump gets a fresh
+   link when that job runs; every other open invite needs a resend.
+
+   MySQL (`POD=mysql-0`; write `tbd_staging` for `tbd` with a staging set). From migration
+   `089_sessions_to_mysql` on (INFRA-122), TBD keeps its sessions in MySQL; deleting the families
+   also deletes their members (`ON DELETE CASCADE`). A set from before that migration has no such
+   table: skip this.
 
    ```bash
-   echo 'DELETE FROM auth_session_members; DELETE FROM auth_session_families; DELETE FROM used_tokens; DELETE FROM leases;' | my tbd
+   echo 'DELETE FROM auth_session_families;' | my tbd
    ```
-
-   Ziftbook: jobs that ran after
-   the dump run again (handlers are safe to repeat). Owners re-check their invite list afterwards: an
-   invite whose `email.invite` job was still pending in the dump gets a fresh link when that job runs;
-   every other open invite needs a resend.
 8. Resume (`suspend` was set by hand, so Flux does not clear it):
 
    ```bash
