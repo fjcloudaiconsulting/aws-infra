@@ -1,173 +1,222 @@
-# Graph Report - aws-infra  (2026-10-04)
+# Graph Report - aws-infra  (2026-10-09)
 
 ## Corpus Check
-- 24 files · ~66,799 words
+- 108 files · ~79,243 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 508 nodes · 881 edges · 28 communities (18 shown, 10 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 46 edges (avg confidence: 0.89)
-- Token cost: 0 input · 0 output
+- 677 nodes · 1237 edges · 42 communities (25 shown, 17 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 79 edges (avg confidence: 0.84)
+- Token cost: 347,445 input · 0 output
 
 ## Community Hubs (Navigation)
-- TBD apex stack
+- Backup freshness probe
+- NetBird access and observability
+- Ziftbook prod workloads
 - TBD backups IAM and OIDC
+- Cloudflare zone stack
 - CI and SOPS checks
-- TBD cutover and DR
-- DB backup CronJob
-- Network policies and bootstrap
-- Backup freshness probe tests
+- Backup probe tests
+- Ingress path and data stores
+- Python test helpers
+- Post-deploy smoke tests
 - Platform node and alarms
-- Cloudflare DNS and origin pulls
-- SOPS secret check tests
-- Release drift tests
-- Configuration map
-- NetBird cluster access
-- Flux install
-- DNS diff gate
-- Terraform diagram research
-- Repo README overview
-- Release drift probe
-- tbd-apex provider locks
-- platform provider locks
+- Prod tag tests
+- SOPS secret tests
+- Cloudflare API tokens
+- Repo guidance and architecture
+- Backup chain docs
+- Release drift and Renovate
+- Monitoring and smoke account
+- Node memory and upsize
+- Infra diagram tooling
+- Log retention tests
+- Renovate config
+- HCP Terraform and OIDC roles
+- Ziftbook staging workloads
+- Telemetry to Grafana Cloud
+- Release promotion
+- Ziftbook default-deny policies
+- Log retention script
+- Ziftbook IMDS egress block
+- Cloudflare tokens providers
+- Platform providers
+- TBD default-deny policies
+- TBD IMDS egress block
 - Ziftbook staging ingress
-- Backup freshness script
-- Backup stale notifier
-- cloudflare provider locks
-- tbd-backups provider locks
-- Backend network policy
-- Frontend network policy
+- Cloudflare providers
+- Bootstrap token script
+- TBD backups providers
+- Observability namespace
+- Ziftbook backend policy
+- Ziftbook default-deny (single)
+- IMDS egress (single)
+- Ziftbook frontend policy
 
 ## God Nodes (most connected - your core abstractions)
-1. `aws_cloudfront_distribution.apex` - 24 edges
-2. `probe()` - 19 edges
-3. `SopsSecrets` - 18 edges
-4. `run()` - 16 edges
-5. `aws_s3_bucket.apex` - 15 edges
-6. `var.domain` - 15 edges
-7. `aws_s3_bucket.backups` - 14 edges
-8. `Verdicts` - 12 edges
-9. `listing()` - 10 edges
-10. `aws_s3_bucket.apex_logs` - 9 edges
+1. `run()` - 32 edges
+2. `probe()` - 22 edges
+3. `run()` - 22 edges
+4. `run()` - 19 edges
+5. `ProdTags` - 18 edges
+6. `SopsSecrets` - 18 edges
+7. `Pass` - 17 edges
+8. `tbd()` - 16 edges
+9. `aws_s3_bucket.backups` - 14 edges
+10. `Verdicts` - 14 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Lightsail firewall 443 from Cloudflare only` --semantically_similar_to--> `Authenticated Origin Pulls mTLS (INFRA-93)`  [INFERRED] [semantically similar]
-  terraform/platform/README.md → CLAUDE.md
-- `GHCR images and ghcr-pull secret` --references--> `Namespace tbd-prod`  [EXTRACTED]
-  docs/architecture.md → clusters/platform/namespaces/tbd-prod.yaml
-- `Namespace tbd-prod` --references--> `Valkey 8 sessions`  [EXTRACTED]
-  clusters/platform/namespaces/tbd-prod.yaml → docs/architecture.md
-- `Origin pull client certificate procedure` --references--> `Authenticated Origin Pulls mTLS (INFRA-93)`  [EXTRACTED]
-  docs/runbooks.md → CLAUDE.md
-- `CronJob db-backup 02:00 UTC` --conceptually_related_to--> `Backup freshness verdict logic`  [INFERRED]
-  docs/architecture.md → .github/workflows/backup-freshness-probe.yml
+- `Fail closed into the alarm (could-not-run verdict)` --semantically_similar_to--> `Verified-set .ok upload list`  [INFERRED] [semantically similar]
+  .github/workflows/backup-freshness-probe.yml → clusters/platform/data/db-backup.yaml
+- `Target architecture (decided 2026-10-01)` --conceptually_related_to--> `Platform cost (~$26/month)`  [INFERRED]
+  CLAUDE.md → docs/architecture.md
+- `Secret data/backup-s3` --references--> `SOPS + age Kubernetes Secrets`  [EXTRACTED]
+  terraform/tbd-backups/README.md → docs/architecture.md
+- `Monitoring and alerts (Lightsail alarms, budget, uptime, stale backup)` --references--> `CloudFormation stack platform-node-alarms`  [INFERRED]
+  docs/architecture.md → terraform/platform/README.md
+- `Restoring the database dumps (runbook)` --references--> `IAM role github-actions-backup-probe (list-only)`  [INFERRED]
+  clusters/platform/data/RESTORE.md → .github/workflows/backup-freshness-probe.yml
 
 ## Import Cycles
 - None detected.
 
 ## Hyperedges (group relationships)
-- **Owner kubectl access over NetBird** — clusters_platform_netbird_netbird_deployment_netbird, clusters_platform_netbird_README_policy_owner_to_k3s_api, clusters_platform_netbird_netbird_serviceaccount_owner_admin, clusters_platform_netbird_netbird_clusterrolebinding_owner_admin, clusters_platform_netbird_netbird_secret_netbird_setup_key [EXTRACTED 0.90]
-- **Ziftbook staging request path** — clusters_platform_data_postgres_service_postgres, clusters_platform_ziftbook_staging_networkpolicy_networkpolicy_frontend, clusters_platform_ziftbook_staging_networkpolicy_networkpolicy_backend [EXTRACTED 0.90]
-- **tbd-prod deny-by-default ingress: Traefik to frontend and backend, frontend to backend** — clusters_platform_tbd_prod_networkpolicy_networkpolicy_default_deny_ingress, clusters_platform_tbd_prod_networkpolicy_networkpolicy_frontend, clusters_platform_tbd_prod_networkpolicy_networkpolicy_backend [EXTRACTED 1.00]
+- **Ziftbook staging request path** — clusters_platform_ziftbook_staging_networkpolicy_networkpolicy_frontend, clusters_platform_ziftbook_staging_networkpolicy_networkpolicy_backend [EXTRACTED 0.90]
 - **Ziftbook staging request path (Cloudflare to Traefik to frontend to backend)** — clusters_platform_ziftbook_staging_ingress_ingressroute_frontend [EXTRACTED 1.00]
-- **Nightly DB backup pipeline** — clusters_platform_data_db_backup_cronjob, clusters_platform_data_db_backup_mysql_dump, clusters_platform_data_db_backup_pg_dump, clusters_platform_data_db_backup_upload, clusters_platform_data_restore_backup_bucket [EXTRACTED 1.00]
-- **TBD prod request path** — clusters_platform_tbd_prod_ingress_ingressroute, clusters_platform_tbd_prod_frontend_service, clusters_platform_tbd_prod_backend_service, clusters_platform_data_mysql_service [INFERRED 0.85]
-- **Backup chain** — db_backup_cronjob, backup_bucket, freshness_check, stale_issue [EXTRACTED 1.00]
-- **Origin lockdown layers** — lightsail_firewall, origin_pull_mtls, traefik_origin_ca, cloudflare_proxy [EXTRACTED 1.00]
+- **Release promotion flow: build once, staging automerge, staging-first prod PR, smoke** — docs_release_flow_build_once_retag, docs_release_flow_promote_release, docs_release_flow_staging_automerge, docs_release_flow_prod_bump_pr, docs_release_flow_check_prod_tags, docs_runbooks_post_deploy_smoke [EXTRACTED 1.00]
+- **Origin lockdown: Cloudflare proxy, firewall, Origin CA, Authenticated Origin Pulls** — docs_architecture_cloudflare_proxy, docs_architecture_lightsail_firewall, docs_architecture_origin_ca_certificate, docs_runbooks_origin_pull_client_certificate, docs_architecture_traefik [INFERRED 0.85]
+- **Backup chain: db-backup CronJob, put-only uploader, Object Lock bucket, KMS, freshness probe** — docs_architecture_db_backup_cronjob, terraform_tbd_backups_readme_k3s_backup_uploader, terraform_tbd_backups_readme_backup_bucket, terraform_tbd_backups_readme_kms_key, docs_architecture_backup_freshness_probe, terraform_tbd_backups_readme_backup_probe_role [EXTRACTED 1.00]
+- **Nightly backup chain: dump, verify, upload, off-host freshness probe** — clusters_platform_data_db_backup_db_backup_cronjob, clusters_platform_data_db_backup_publish, clusters_platform_data_db_backup_upload_sh, clusters_platform_data_db_backup_tbd_mysql_backups_bucket, _github_workflows_backup_freshness_probe_probe_job, github_scripts_check_backup_freshness, clusters_platform_data_restore_restore_runbook [EXTRACTED 1.00]
+- **Flux GitOps reconcile with SOPS decryption** — clusters_platform_flux_system_gotk_sync_gitrepository_flux_system, clusters_platform_flux_system_gotk_sync_kustomization_flux_system, clusters_platform_flux_system_gotk_components_source_controller, clusters_platform_flux_system_gotk_components_kustomize_controller, _sops_age_key, _sops_creation_rule [INFERRED 0.85]
+- **Staging-first eviction: PriorityClass plus staging-class-only quotas** — clusters_platform_namespaces_ziftbook_staging_staging_priorityclass, clusters_platform_namespaces_tbd_staging_staging_class_only_quota, clusters_platform_namespaces_ziftbook_staging_staging_class_only_quota [EXTRACTED 1.00]
+- **TBD prod request path: Cloudflare to Traefik (AOP, Origin CA) to frontend/backend** — clusters_platform_traefik_traefik_tlsoption_default, clusters_platform_traefik_traefik_tlsstore_default, clusters_platform_tbd_prod_ingress_ingressroute_app, clusters_platform_tbd_prod_frontend_deployment_frontend, clusters_platform_tbd_prod_backend_deployment_backend, clusters_platform_tbd_prod_backend_client_ip_header_cf_connecting_ip [INFERRED 0.85]
+- **Owner kubectl access over NetBird** — clusters_platform_netbird_readme_owner_to_k3s_api_policy, clusters_platform_netbird_netbird_deployment_netbird, clusters_platform_netbird_netbird_pvc_netbird_state, clusters_platform_netbird_netbird_secret_netbird_setup_key, clusters_platform_netbird_netbird_serviceaccount_owner_admin, clusters_platform_netbird_netbird_clusterrolebinding_owner_admin [EXTRACTED 1.00]
+- **tbd-prod deny-by-default NetworkPolicy set** — clusters_platform_tbd_prod_networkpolicy_networkpolicy_default_deny_ingress, clusters_platform_tbd_prod_networkpolicy_networkpolicy_frontend, clusters_platform_tbd_prod_networkpolicy_networkpolicy_backend, clusters_platform_tbd_prod_networkpolicy_networkpolicy_egress_no_imds [EXTRACTED 1.00]
+- **ziftbook-prod request path: Cloudflare -> Traefik -> frontend -> backend** — concept_cloudflare_proxy, concept_traefik, clusters_platform_ziftbook_prod_ingress_frontend, clusters_platform_ziftbook_prod_frontend_frontend_service, clusters_platform_ziftbook_prod_frontend_frontend_deployment, clusters_platform_ziftbook_prod_backend_backend_service, clusters_platform_ziftbook_prod_backend_backend_deployment, clusters_platform_ziftbook_prod_networkpolicy_frontend, clusters_platform_ziftbook_prod_networkpolicy_backend [EXTRACTED 1.00]
+- **ziftbook-staging request path: Cloudflare -> Traefik -> frontend -> backend** — concept_cloudflare_proxy, concept_traefik, clusters_platform_ziftbook_staging_ingress_frontend, clusters_platform_ziftbook_staging_frontend_frontend_service, clusters_platform_ziftbook_staging_frontend_frontend_deployment, clusters_platform_ziftbook_staging_backend_backend_service, clusters_platform_ziftbook_staging_backend_backend_deployment, clusters_platform_ziftbook_staging_networkpolicy_frontend, clusters_platform_ziftbook_staging_networkpolicy_backend [EXTRACTED 1.00]
+- **Ziftbook processes reading the otel ConfigMap and exporting to Alloy** — clusters_platform_ziftbook_prod_otel_otel, clusters_platform_ziftbook_staging_otel_otel, clusters_platform_ziftbook_prod_backend_backend_deployment, clusters_platform_ziftbook_prod_worker_worker_deployment, clusters_platform_ziftbook_prod_backend_migrate, clusters_platform_ziftbook_prod_worker_migrate, clusters_platform_ziftbook_staging_backend_backend_deployment, clusters_platform_ziftbook_staging_worker_worker_deployment, clusters_platform_ziftbook_staging_backend_migrate, clusters_platform_ziftbook_staging_worker_migrate, concept_grafana_alloy_otlp_endpoint [EXTRACTED 1.00]
 
-## Communities (28 total, 10 thin omitted)
+## Communities (42 total, 17 thin omitted)
 
-### Community 0 - "TBD apex stack"
-Cohesion: 0.06
-Nodes (75): aws_acm_certificate.apex, aws_acm_certificate_validation.apex, aws_cloudfront_distribution.apex, aws_cloudfront_function.viewer_request, aws_cloudfront_origin_access_control.apex, aws_cloudfront_response_headers_policy.apex, aws_iam_openid_connect_provider.github, aws_iam_openid_connect_provider.tfc (+67 more)
-
-### Community 1 - "TBD backups IAM and OIDC"
-Cohesion: 0.07
-Nodes (51): aws_iam_access_key.uploader, aws_iam_openid_connect_provider.github, aws_iam_openid_connect_provider.tfc, aws_iam_role.backup_probe, aws_iam_role_policy.backup_probe, aws_iam_role_policy.tfc_backups_plan, aws_iam_role_policy.tfc_backups_provisioner, aws_iam_role.tfc_backups_plan (+43 more)
-
-### Community 2 - "CI and SOPS checks"
+### Community 0 - "Backup freshness probe"
 Cohesion: 0.05
-Nodes (39): CI workflow, Kubernetes checks job (SOPS check, kubeconform), CI push filter for renovate/ziftbook-staging-** branches (INFRA-36), Terraform checks job (fmt, fences, python tests, validate, tflint), .sops.yaml creation rule (age, clusters/*.secret.yaml), age private key (offline and flux-system/sops-age), main(), problems() (+31 more)
+Nodes (56): Backup Freshness Probe workflow, IAM role github-actions-backup-probe (list-only), keepalive job (re-enable scheduled workflow), Per-prefix minimum dump size floors, probe job (Backup Freshness), changes job (pick namespaces touched by push), Post-deploy Smoke workflow (INFRA-114), smoke job (matrix per namespace) (+48 more)
 
-### Community 3 - "TBD cutover and DR"
+### Community 1 - "NetBird access and observability"
+Cohesion: 0.05
+Nodes (55): ClusterRoleBinding owner-admin -> cluster-admin, Deployment netbird (rootless peer platform-node, hostNetwork), Namespace netbird (prune disabled, privileged PSA), PVC netbird-state, Secret netbird-setup-key (NB_SETUP_KEY), ServiceAccount owner-admin, Cluster access runbook (kubectl and Flux over NetBird), Headlamp + Flux plugin view (+47 more)
+
+### Community 2 - "Ziftbook prod workloads"
+Cohesion: 0.10
+Nodes (44): staging PriorityClass, backend Deployment (ziftbook-prod), backend Service :8000 (ziftbook-prod), backend migrate init container (ziftbook-prod), frontend Deployment, Next.js (ziftbook-prod), frontend Service :3000 (ziftbook-prod), frontend IngressRoute app.ziftbook.com, backend NetworkPolicy, frontend only (ziftbook-prod) (+36 more)
+
+### Community 3 - "TBD backups IAM and OIDC"
 Cohesion: 0.09
-Nodes (37): Object Lock S3 bucket tbd-mysql-backups plus KMS, Namespace tbd-prod, Cloudflare proxy (Full strict), Cutover rollback via revert of DNS PR, Namespace data, CronJob db-backup 02:00 UTC, DigitalOcean rollback target (INFRA-49), Architecture doc (+29 more)
+Nodes (42): aws_iam_openid_connect_provider.github, aws_iam_openid_connect_provider.tfc, aws_iam_role.backup_probe, aws_iam_role_policy.backup_probe, aws_iam_role_policy.tfc_backups_plan, aws_iam_role_policy.tfc_backups_provisioner, aws_iam_role.tfc_backups_plan, aws_iam_role.tfc_backups_provisioner (+34 more)
 
-### Community 4 - "DB backup CronJob"
+### Community 4 - "Cloudflare zone stack"
+Cohesion: 0.09
+Nodes (40): cloudflare_authenticated_origin_pulls_certificate.app, cloudflare_authenticated_origin_pulls_settings.app, cloudflare_dns_record.fjdev_mail, cloudflare_dns_record.tbd, cloudflare_dns_record.tbd_ping, cloudflare_dns_record.ziftbook_app, cloudflare_dns_record.ziftbook_dev, cloudflare_dns_record.ziftbook_mail (+32 more)
+
+### Community 5 - "CI and SOPS checks"
 Cohesion: 0.08
-Nodes (37): Secret backup-s3 (k3s-backup-uploader), common.sh publish helper, db-backup scripts ConfigMap, db-backup CronJob (02:00 UTC), mysql-dump.sh / mysql-dump init container, pg-dump.sh / pg-dump init container, postgres Service / StatefulSet (data ns, Postgres 18), upload.sh / upload container (aws-cli) (+29 more)
+Nodes (22): CI workflow, kubeconform validation of clusters/ (pinned CRDs-catalog), Kubernetes checks job, Terraform checks job (fmt, validate, tflint, python tests), age key (private key offline and in-cluster as flux-system/sops-age), SOPS creation rule (clusters/**/*.secret.yaml, data|stringData, age), Flux CRDs (GitRepository, OCIRepository, Bucket, Helm*, Kustomization), Flux v2.9.6 install manifest (source + kustomize controllers only) (+14 more)
 
-### Community 5 - "Network policies and bootstrap"
-Cohesion: 0.07
-Nodes (34): NetworkPolicies default-deny + egress-no-imds, NetworkPolicy default-deny-ingress (data), NetworkPolicy mysql (data), NetworkPolicy postgres (data), NetworkPolicy valkey (data), ziftbook backend/migrations/bootstrap.sql (pinned commit, sha256 checked), Job ziftbook-bootstrap, Secret postgres (admin, ziftbook-migrate, ziftbook-app passwords) (+26 more)
-
-### Community 6 - "Backup freshness probe tests"
+### Community 6 - "Backup probe tests"
 Cohesion: 0.12
-Nodes (9): datetime, AlarmWiring, all_three(), listing(), night(), PerPrefix, probe(), Backup freshness probe: verdicts and alarm wiring (ported from tbd, INFRA-20).… (+1 more)
+Nodes (7): AlarmWiring, both(), listing(), night(), PerPrefix, probe(), Verdicts
 
-### Community 7 - "Platform node and alarms"
+### Community 7 - "Ingress path and data stores"
+Cohesion: 0.09
+Nodes (35): Cloudflare DNS and proxy (Full strict), data namespace NetworkPolicy (default deny), Cloudflare edge rate limit on auth endpoints (INFRA-123), Flux (source + kustomize controllers), GHCR images, Landing Workers tbd-landing and ziftbook-landing, Lightsail firewall (443 from Cloudflare only), Mailgun EU HTTP API mail standard (+27 more)
+
+### Community 8 - "Python test helpers"
+Cohesion: 0.12
+Nodes (5): Drift, FailsClosed, iso(), run(), run()
+
+### Community 9 - "Post-deploy smoke tests"
+Cohesion: 0.13
+Nodes (4): Alarm, issue(), Pass, run()
+
+### Community 10 - "Platform node and alarms"
 Cohesion: 0.14
 Nodes (30): aws_budgets_budget.monthly, aws_cloudformation_stack.node_alarms, aws_cloudtrail.platform, aws_cloudwatch_metric_alarm.ping, aws_lightsail_instance.node, aws_lightsail_instance_public_ports.firewall, aws_lightsail_static_ip_attachment.node, aws_lightsail_static_ip.node (+22 more)
 
-### Community 8 - "Cloudflare DNS and origin pulls"
-Cohesion: 0.14
-Nodes (27): cloudflare_authenticated_origin_pulls_certificate.app, cloudflare_authenticated_origin_pulls_settings.app, cloudflare_dns_record.fjdev_mail, cloudflare_dns_record.tbd, cloudflare_dns_record.tbd_ping, cloudflare_dns_record.ziftbook_dev, cloudflare_notification_policy.origin_pull_expiry, cloudflare_zone_setting.app (+19 more)
+### Community 11 - "Prod tag tests"
+Cohesion: 0.24
+Nodes (4): img(), ProdTags, run(), tbd()
 
-### Community 10 - "Release drift tests"
+### Community 13 - "Cloudflare API tokens"
+Cohesion: 0.24
+Nodes (14): cloudflare_account_token.cloudflare_workspace, cloudflare_account_token.imported, data.cloudflare_account_api_token_permission_groups_list.access_write, data.tfe_workspace.cloudflare, Terraform module: terraform/cloudflare-tokens, local.access_write_ids, local.account_id, local.cloudflare_workspace_policies (+6 more)
+
+### Community 14 - "Repo guidance and architecture"
 Cohesion: 0.22
-Nodes (4): Drift, FailsClosed, tags: image tags written to clusters/ (one image each); files overrides the raw…, run()
+Nodes (11): aws-mcp server (account 884686184019), claude-mem-lite persistent memory, Architecture (docs/architecture.md), NetBird-only kubectl access (TCP 6443, owner-admin), Configuration map, IAM Identity Center profile fjc, Jira project INFRA, Release flow: staging, then production (+3 more)
 
-### Community 11 - "Configuration map"
-Cohesion: 0.12
-Nodes (16): terraform/cloudflare stack, Out-of-git settings with symptom table, Configuration map, GHCR images and ghcr-pull secret, tfc-platform-plan and tfc-platform-apply OIDC roles, github>fjcloudaiconsulting/.github#v1, Release and deploy chain, extends (+8 more)
+### Community 15 - "Backup chain docs"
+Cohesion: 0.27
+Nodes (10): Backup freshness probe ([backup-stale] issue), CronJob db-backup (02:00 UTC), tfc-platform-plan OIDC role, S3 bucket tbd-mysql-backups-884686184019 (Object Lock GOVERNANCE), Role github-actions-backup-probe (list-only), Secret data/backup-s3, check-tbd-backups-fences.py CI check, IAM user k3s-backup-uploader (put-only) (+2 more)
 
-### Community 12 - "NetBird cluster access"
-Cohesion: 0.25
-Nodes (11): Deployment netbird (hostNetwork, rootless), NetBird policy owner-to-k3s-api (TCP 6443, one way), Cluster access runbook (kubectl and Flux over NetBird), ServiceAccount owner-admin, ClusterRole cluster-admin, ClusterRoleBinding owner-admin, Deployment netbird (hostNetwork, rootless), Namespace netbird (+3 more)
+### Community 16 - "Release drift and Renovate"
+Cohesion: 0.24
+Nodes (10): CI workflow (.github/workflows/ci.yml), Ruleset main protection (aws-infra), Mend Renovate (renovate.json rules), Release and deploy chain (10 steps), Release drift probe ([release-drift] issue), Fix forward policy, Production bump PR (automerge off), RELEASE_CONTRACT.md section 8 (INFRA-87) (+2 more)
 
-### Community 13 - "Flux install"
-Cohesion: 0.28
-Nodes (9): Flux install manifest (generated), Flux CRDs (7: source and kustomize toolkit kinds), Deployment kustomize-controller, Deployment source-controller, GitRepository flux-system (fjcloudaiconsulting/aws-infra, main), Kustomization flux-system (./clusters/platform, prune, SOPS), Secret sops-age (decryption key ref), flux-system kustomization.yaml (+1 more)
+### Community 17 - "Monitoring and smoke account"
+Cohesion: 0.22
+Nodes (10): Platform cost (~$26/month), Monitoring and alerts (Lightsail alarms, budget, uptime, stale backup), Route 53 health check (app.thebetterdecision.com/health/dependencies), Post-deploy smoke (INFRA-114), TBD smoke account (no MFA, TBD-371), Uptime alarm emails during a TBD deploy, AWS credits (account 884686184019), CloudWatch alarm platform-ping-unhealthy (us-east-1) (+2 more)
 
-### Community 14 - "DNS diff gate"
-Cohesion: 0.39
-Nodes (7): DNS diff workflow (Route 53 vs Cloudflare), INFRA-15 gate before registrar NS switch, bad(), ipre(), ok(), q(), dns-diff.sh script
+### Community 18 - "Node memory and upsize"
+Cohesion: 0.31
+Nodes (11): Lightsail node platform-node (medium_3_0, k3s), Lightsail daily snapshots (03:00 UTC), k3s GOGC=50 (INFRA-80), k3s node-name pin (/etc/rancher/k3s/config.yaml), Node memory check and upsize triggers, Upsize: snapshot to a larger bundle, aws-platform stack README, CloudTrail platform-management trail (+3 more)
 
-### Community 15 - "Terraform diagram research"
+### Community 19 - "Infra diagram tooling"
+Cohesion: 0.18
+Nodes (10): AWS Diagram MCP server (deprecated), Script-generated D2 overview of layers, Diagram drift check on graph JSON in CI, Rover, Blast Radius, Pluralith (dormant/abandoned), draw.io official MCP server, Inframap, Mermaid architecture-beta, Structurizr (C4) (+2 more)
+
+### Community 21 - "Renovate config"
+Cohesion: 0.22
+Nodes (8): github>fjcloudaiconsulting/.github#v1, extends, hostRules, ignorePaths, kubernetes, managerFilePatterns, packageRules, $schema
+
+### Community 22 - "HCP Terraform and OIDC roles"
 Cohesion: 0.33
-Nodes (7): Visual documentation for a layered Terraform monorepo (research report), Script-generated D2 overview of cross-layer remote-state edges, draw.io MCP for curated diagrams, Regenerate in CI and diff graph JSON to detect diagram drift, Inframap (state-based fallback), terraform-docs inject mode, TerraVision per-layer diagrams from plan JSON (primary recommendation)
+Nodes (6): HCP Terraform VCS flow (org FlamaCorp), HCP Terraform workspaces (aws-platform, cloudflare, cloudflare-tokens, tbd-backups), HashiCorp terraform-mcp-server, Genesis by root (MFA, break-glass user, roles, workspace), tfc-backups-plan OIDC role (read-only), OIDC provider app.terraform.io
 
-### Community 16 - "Repo README overview"
-Cohesion: 0.33
-Nodes (5): AWS credits (account 884686184019), NetBird owner access, SOPS + age secrets, Kubernetes secrets: *.secret.yaml SOPS-encrypted, Flux decrypts via flux-system/sops-age, Terraform stacks, one HCP Terraform workspace each
+### Community 23 - "Ziftbook staging workloads"
+Cohesion: 0.40
+Nodes (6): ziftbook-staging backend Deployment, ziftbook-staging backend Service, Secret ziftbook, ziftbook-staging frontend Deployment, ziftbook-staging worker Deployment (app.worker), Secret ziftbook-mailgun
 
-### Community 17 - "Release drift probe"
-Cohesion: 0.50
-Nodes (3): Release drift probe (INFRA-38), check-release-drift.sh script, Release Drift Probe workflow
+### Community 24 - "Telemetry to Grafana Cloud"
+Cohesion: 0.67
+Nodes (5): Grafana Alloy DaemonSet (observability), Grafana Cloud stack, access policy and API-provisioned alerts, Memory alerts (rule group node-memory), Metrics to Grafana Cloud (Alloy) runbook, Request log retention CronJob (INFRA-130)
 
-### Community 18 - "tbd-apex provider locks"
-Cohesion: 0.50
-Nodes (3): provider.registry.terraform.io/hashicorp/aws, provider.registry.terraform.io/hashicorp/time, provider.registry.terraform.io/hashicorp/tls
+### Community 25 - "Release promotion"
+Cohesion: 0.40
+Nodes (4): GitHub App fjcloudaiconsulting-release, Tag protection rulesets (refs/tags/v*), promote-release@v1 shared workflow, release-please release PR
+
+### Community 26 - "Ziftbook default-deny policies"
+Cohesion: 0.67
+Nodes (3): data/networkpolicy.yaml, default-deny-ingress NetworkPolicy (ziftbook-prod), default-deny-ingress NetworkPolicy (ziftbook-staging)
 
 ## Knowledge Gaps
-- **67 isolated node(s):** `provider.registry.terraform.io/cloudflare/cloudflare`, `provider.registry.terraform.io/hashicorp/http`, `provider.registry.terraform.io/hashicorp/aws`, `provider.registry.terraform.io/hashicorp/time`, `provider.registry.terraform.io/hashicorp/tls` (+62 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 99 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **79 isolated node(s):** `IngressRoute frontend (dev.ziftbook.com)`, `NetworkPolicy backend (admits frontend)`, `NetworkPolicy frontend (admits Traefik)`, `NetworkPolicy default-deny-ingress (ziftbook-staging)`, `NetworkPolicy egress-no-imds` (+74 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 117 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Namespace tbd-prod` connect `TBD cutover and DR` to `Configuration map`, `Network policies and bootstrap`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Why does `Namespace tbd-prod (Pod Security restricted)` connect `Network policies and bootstrap` to `TBD cutover and DR`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Why does `SopsSecrets` connect `SOPS secret check tests` to `CI and SOPS checks`?**
-  _High betweenness centrality (0.013) - this node is a cross-community bridge._
-- **What connects `provider.registry.terraform.io/cloudflare/cloudflare`, `provider.registry.terraform.io/hashicorp/http`, `provider.registry.terraform.io/hashicorp/aws` to the rest of the system?**
-  _67 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `TBD apex stack` be split into smaller, more focused modules?**
-  _Cohesion score 0.06234177215189873 - nodes in this community are weakly interconnected._
-- **Should `TBD backups IAM and OIDC` be split into smaller, more focused modules?**
-  _Cohesion score 0.07467532467532467 - nodes in this community are weakly interconnected._
-- **Should `CI and SOPS checks` be split into smaller, more focused modules?**
-  _Cohesion score 0.0549645390070922 - nodes in this community are weakly interconnected._
+- **Why does `tbd-prod Namespace` connect `Backup freshness probe` to `CI and SOPS checks`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
+- **What connects `IngressRoute frontend (dev.ziftbook.com)`, `NetworkPolicy backend (admits frontend)`, `NetworkPolicy frontend (admits Traefik)` to the rest of the system?**
+  _79 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Backup freshness probe` be split into smaller, more focused modules?**
+  _Cohesion score 0.05109126984126984 - nodes in this community are weakly interconnected._
+- **Why does `run()` connect `Post-deploy smoke tests` to `Python test helpers`?**
+  _High betweenness centrality (0.030) - this node is a cross-community bridge._
+- **Should `NetBird access and observability` be split into smaller, more focused modules?**
+  _Cohesion score 0.05028248587570622 - nodes in this community are weakly interconnected._
+- **Why does `Configuration map` connect `Repo guidance and architecture` to `Ziftbook prod workloads`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Should `Ziftbook prod workloads` be split into smaller, more focused modules?**
+  _Cohesion score 0.09528214616096208 - nodes in this community are weakly interconnected._
