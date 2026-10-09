@@ -1,0 +1,119 @@
+# TBD MCP server on staging (INFRA-147): its own image (tbd backend/Dockerfile.mcp), POST /mcp and GET /health only.
+# Traefik sends /mcp here (ingress.yaml); MCP clients reach it past Cloudflare Access (terraform/cloudflare/access.tf).
+# Env is the subset of backend.yaml it needs, never the tbd Secret wholesale: the process refuses to boot with any
+# PLATFORM_AI_* key. DATABASE_URL and API_TOKEN_HMAC_KEY are read from the backend's Secret by key (the HMAC key must
+# equal the backend's, or no agent token verifies). JWT_SECRET_KEY is its own (Secret tbd-mcp): the config validator
+# needs one, MCP never signs with it. No REDIS_URL: since v0.295.0 (INFRA-122) nothing reads it. The FEATURE_* and
+# BILLING_UI_ENABLED floors match backend.yaml, so tools see the same gates as the app. APP_URL must equal the
+# backend's (OAuth issuer and resource metadata URL).
+# Memory: request 96Mi, limit 256Mi (the scheduler, a comparable non-HTTP import of the app, works at ~120Mi).
+# DB pool 1+1, the minimum (the rate limiter's own engine adds a fixed 2+5): MCP opens at most 9 connections as MySQL
+# user tbd_staging, whose MAX_USER_CONNECTIONS is 20; with the backend's 15+7 the worst case is 31.
+# Image tag moves with backend.yaml (one Renovate group, renovate.json). tbd must publish and promote the mcp image on
+# every release: check-prod-tags.py bounds the tbd-prod tags by the LOWEST tbd-staging tag, so an mcp tag left behind
+# would block the tbd-prod bump.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp
+  namespace: tbd-staging
+spec:
+  selector:
+    app: mcp
+  ports:
+    - port: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp
+  namespace: tbd-staging
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mcp
+  template:
+    metadata:
+      labels:
+        app: mcp
+    spec:
+      priorityClassName: staging
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001 # mcp in the image; runAsNonRoot cannot check a named user
+        runAsGroup: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: ghcr.io/fjcloudaiconsulting/tbd/mcp:v0.295.0
+          ports:
+            - containerPort: 8001
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: CLIENT_IP_HEADER
+              value: cf-connecting-ip
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: APP_URL
+              value: "https://dev.thebetterdecision.com"
+            - name: BILLING_UI_ENABLED
+              value: "false"
+            - name: FEATURE_REPORTS_V2
+              value: "true"
+            - name: FEATURE_PLANS
+              value: "false"
+            - name: FEATURE_CUSTOM_DASHBOARD
+              value: "true"
+            - name: DB_POOL_SIZE
+              value: "1"
+            - name: DB_MAX_OVERFLOW
+              value: "1"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: database-url
+            - name: API_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd
+                  key: api-token-hmac-key
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tbd-mcp
+                  key: jwt-secret-key
+          # Liveness too (the app pods have readiness only): /health is static, so a failure means a stuck process.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

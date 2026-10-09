@@ -55,6 +55,28 @@ spec:
       ports:
         - port: 8000
 ---
+# MCP (INFRA-147): Traefik only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcp
+  namespace: tbd-staging
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 8001
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

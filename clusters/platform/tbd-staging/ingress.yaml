@@ -1,5 +1,7 @@
 # dev.thebetterdecision.com (INFRA-67): tbd-prod/ingress.yaml for the staging host. The default TLS store's origin-cert
 # covers *.thebetterdecision.com. The Cloudflare record is `dev` in terraform/cloudflare.
+# Staging only (INFRA-147): the OAuth discovery prefixes go to the backend and exact /mcp to the MCP server (mcp.yaml).
+# Production gets neither until a dedicated security review and pen test (owner ruling 2026-10-09).
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -8,11 +10,17 @@ metadata:
 spec:
   entryPoints: [websecure]
   routes:
-    - match: Host(`dev.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`))
+    - match: Host(`dev.thebetterdecision.com`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ready`) ||
+        PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource`))
       kind: Rule
       services:
         - name: backend
           port: 8000
+    - match: Host(`dev.thebetterdecision.com`) && Path(`/mcp`)
+      kind: Rule
+      services:
+        - name: mcp
+          port: 8001
     - match: Host(`dev.thebetterdecision.com`)
       kind: Rule
       services:

@@ -9,6 +9,16 @@
 # and GET /robots.txt (served by the frontend container). Access picks the most specific path, so the bypass
 # applications win over the whole-host one. Everything else, /api included, needs the login: the frontend and its API
 # share the host, so one login cookie covers both.
+#
+# MCP OAuth bypass (INFRA-147, owner ruling 2026-10-09): an MCP client cannot pass the email PIN, so the paths it calls
+# without a browser are open: /mcp, the two OAuth discovery documents and /api/v1/oauth/* (register, token, and the
+# consent endpoints the page calls). An application path covers its subpaths, so
+# /.well-known/oauth-protected-resource/mcp is included (and /mcp/x reaches the frontend's 404 without a login).
+# The consent page /oauth/authorize is NOT bypassed: it is opened in a browser, and every page first calls
+# /api/v1/auth/status (the root layout's AuthProvider), which stays behind Access. Bypassed, a browser without an Access
+# session would get a page whose auth calls fail on the cross-origin Access redirect and never see the PIN prompt; kept
+# behind Access, the browser gets the PIN prompt first and the page then works. For the same reason /_next/static/* is
+# not bypassed either: the page cannot work without an Access session, so its assets need no bypass.
 
 locals {
   access_host = "dev.thebetterdecision.com"
@@ -58,4 +68,30 @@ resource "cloudflare_zero_trust_access_application" "tbd_staging_smoke" {
   app_launcher_visible = false
 
   policies = [{ id = cloudflare_zero_trust_access_policy.tbd_staging_smoke_bypass.id, precedence = 1 }]
+}
+
+resource "cloudflare_zero_trust_access_policy" "tbd_staging_mcp_bypass" {
+  account_id = var.account_id
+  name       = "tbd-staging: MCP OAuth bypass (INFRA-147)"
+  decision   = "bypass"
+
+  include = [{ everyone = {} }]
+}
+
+resource "cloudflare_zero_trust_access_application" "tbd_staging_mcp" {
+  for_each = toset([
+    "/mcp",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource",
+    "/api/v1/oauth/*",
+  ])
+
+  account_id           = var.account_id
+  name                 = "tbd-staging MCP OAuth bypass ${each.key}"
+  type                 = "self_hosted"
+  domain               = "${local.access_host}${each.key}"
+  session_duration     = "24h"
+  app_launcher_visible = false
+
+  policies = [{ id = cloudflare_zero_trust_access_policy.tbd_staging_mcp_bypass.id, precedence = 1 }]
 }
