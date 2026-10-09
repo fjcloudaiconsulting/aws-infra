@@ -44,3 +44,6 @@ terraform.rc
 # planout
 
 __pycache__/
+
+# graphify knowledge graph: local only, rebuilt by the graphify git hooks
+graphify-out/
