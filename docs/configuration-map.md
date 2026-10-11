@@ -17,7 +17,7 @@ in the same PR or right after.
 | Release job fails with `Resource not accessible by integration` on create-a-release | The release App token lacks `workflows`. GitHub treats a new tag as creating workflow files when a later `main` commit changed one | [Release chain](#release-and-deploy-chain) step 4, [GitHub Apps](#github-apps) | Org owner: App permissions > Workflows: Read and write, then accept on the org installation. Re-run the failed job |
 | Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
-| No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release PR and tag` | Fix the job; a `chore` merge alone never opens one |
+| No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release / release` (`publish` in `.github`) | Fix the job; a `chore` merge alone never opens one |
 | Staging image bump sits on a `renovate/ziftbook-staging-*` or `renovate/tbd-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
 | No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-prod`, `ziftbook-staging`, `tbd-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into every file (see [Cluster](#cluster-out-of-band-material)) |
@@ -104,7 +104,7 @@ environment that holds its key (`main` only, see [Per-repo settings](#per-repo-s
 
 | Repo | Ruleset id | Bypass (Always) |
 |---|---|---|
-| .github | 24413637 (INFRA-76) | Org admin only. The owner moves `v1`; the release App is not installed here |
+| .github | 24413637 (INFRA-76) | Org admin, `fjcloudaiconsulting-release` app (id 5166919, added 2026-10-10, INFRA-161): the `publish` workflow creates `vX.Y.Z` and moves `v1` when the owner merges the Release PR |
 | tbd | 24454860 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
 | ziftbook | 24454865 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919) |
 | app-template | 24454868 (INFRA-94, 2026-10-04) | Org admin, `fjcloudaiconsulting-release` app (id 5166919). Repos made from the template get only its files: each new app repo needs this ruleset, the App installed and the `release` environment ([Per-repo settings](#per-repo-settings)) |
@@ -116,13 +116,13 @@ installation, and the grant applies to **every repository in the installation**.
 
 | App | Repos | Notes |
 |---|---|---|
-| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. Keep `.github` and aws-infra out of the selection so this key cannot move the `v1` tag or add a workflow there (`renovate` and `claude` already hold contents and workflows write on those repos) |
+| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42), and `.github` (2026-10-10, INFRA-161) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. In `.github` the key moves `v1` by design: a release there happens only when the owner merges the Release PR (`main` protected, 1 approving review). Keep aws-infra out of the selection (`renovate` and `claude` already hold contents and workflows write there) |
 | `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook, tbd (added 2026-10-04, INFRA-109) | Repos are added on GitHub, not in Mend |
 | `terraform-cloud`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
 ### Per-repo settings
 
-- **Environment `release`** (Ziftbook, tbd from INFRA-42; create the same in every new app repo, app-template does not ship
+- **Environment `release`** (Ziftbook, tbd from INFRA-42, `.github` from INFRA-161; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
 - **Environments `tbd-prod`, `tbd-staging`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
@@ -136,8 +136,8 @@ installation, and the grant applies to **every repository in the installation**.
 - Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
 - Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
-  probe. Apps consume them by the moving major tag `@v1`; changing a workflow means tagging a new semver
-  and moving `v1` (owner approval, public contract).
+  probe. Apps consume them by the moving major tag `@v1`. A merged `feat`/`fix` opens a release-please Release PR there;
+  the owner merging it is the approval, and the `publish` workflow tags `vX.Y.Z` and moves `v1` (INFRA-161).
 
 ### Actions secrets and variables
 
@@ -150,17 +150,18 @@ Every GitHub secret or variable has a workflow on `main` that reads it; one with
 The app-template README carries the same rule for new apps.
 
 Inventory, 2026-10-04, every repo in the org (names from the API, consumers from `main`). Org level: no Actions secrets,
-Actions variables or Dependabot secrets. aws-infra (until INFRA-114's `tbd-prod` environment, row below), `.github` and app-template: none at any level
+Actions variables or Dependabot secrets. aws-infra (until INFRA-114's `tbd-prod` environment, row below) and app-template: none at any level; `.github`: only env `release` (row below, INFRA-161)
 (app-template's `ci.yml` reads the two `release` secrets, which each new repo sets per its checklist).
 tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copilot` and fjconsulting-website's environment `dev` hold nothing.
 
 | Repo | Level | Name | Read by | Class | Fate |
 |---|---|---|---|---|---|
-| tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `release.yml` | pipeline | stays |
-| tbd | repo | secret `GIST_TOKEN` | `test.yml` (coverage badges, `main` only) | pipeline | stays |
+| tbd | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` job `Release` (shared `release.yml@v1`, INFRA-159) | pipeline | stays |
+| .github | env `release` (main only) | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `publish.yml` (INFRA-161) | pipeline | stays |
+| tbd | repo | secret `GIST_TOKEN` | `ci.yml` (coverage badges, `main` only) | pipeline | stays |
 | tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
 | aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
-| ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` | pipeline | stays |
+| ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` job `Release` (shared `release.yml@v1`, INFRA-159) | pipeline | stays |
 | tbd | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `apex-deploy.yml` `deploy-worker` | pipeline; token `tbd-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
 | ziftbook | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline; token `ziftbook-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
 | fjconsulting-website | repo | secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `deploy-dev.yml` | pipeline; token `fjconsulting-website-github-actions` (its HCP workspace uses `fjconsulting-website-terraform-cloud`), both adopted by `cloudflare-tokens` (INFRA-133 import), scopes changed only there | stays |
