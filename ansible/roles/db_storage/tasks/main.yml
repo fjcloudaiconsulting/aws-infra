@@ -1,0 +1,58 @@
+---
+# The databases' local-path volumes live on the Hetzner volume, never on the root disk.
+# Two guards: the fstab entry has no nofail, and k3s requires the mount (drop-in below), so
+# without the volume k3s does not start and MySQL/Postgres cannot initialise empty data dirs.
+
+- name: Find the attached Hetzner volume
+  ansible.builtin.find:
+    paths: /dev/disk/by-id
+    patterns: scsi-0HC_Volume_*
+    excludes: "*-part*"
+    file_type: link
+  register: db_storage_volumes
+
+- name: Exactly one volume is attached
+  ansible.builtin.assert:
+    that: db_storage_volumes.matched == 1
+    fail_msg: >-
+      Expected one Hetzner volume on {{ inventory_hostname }}, found {{ db_storage_volumes.matched }}.
+      Attach the fjc-db volume (terraform/hetzner) before running this play; k3s must not start without it.
+
+- name: Read the volume's filesystem UUID
+  ansible.builtin.command: blkid -s UUID -o value {{ db_storage_volumes.files[0].path }}
+  register: db_storage_uuid
+  changed_when: false
+  check_mode: false
+
+- name: The volume carries a filesystem
+  ansible.builtin.assert:
+    that: db_storage_uuid.stdout | length > 0
+    fail_msg: The volume has no filesystem. terraform/hetzner formats it ext4; never mkfs a volume that may hold data.
+
+- name: Mount the volume for local-path storage
+  ansible.posix.mount:
+    path: "{{ db_storage_path }}"
+    src: UUID={{ db_storage_uuid.stdout }}
+    fstype: ext4
+    opts: defaults
+    state: mounted
+
+- name: Create the k3s unit drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Installed before k3s is first installed or started (this play runs before the k3s play).
+- name: Make k3s require the storage mount
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s.service.d/10-require-storage.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      RequiresMountsFor={{ db_storage_path }}
+  notify: Reload systemd

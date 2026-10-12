@@ -164,6 +164,49 @@ class SopsSecrets(unittest.TestCase):
             "stringData.pw is not encrypted",
         )
 
+    def test_repo_ansible_passes(self):
+        # guard: the committed ansible/ secrets file is encrypted.
+        r = subprocess.run(
+            ["python3", str(CHECK), str(ROOT / "ansible")], capture_output=True, text=True
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_encrypted_sops_vars_pass(self):
+        # guard: an Ansible vars file sops wrote, scalar and list values both ENC.
+        r = run({"ansible/x.sops.yaml": "k3s_token: ENC[AES256_GCM,data:eA==,type:str]\n"
+                 "keys:\n    - ENC[AES256_GCM,data:eA==,type:str]\n" + SOPS_TAIL})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_plaintext_sops_vars_fail(self):
+        # fence: kills a check that only scans Kubernetes Secrets (a vars file has no kind:).
+        self.assertFails(
+            {"ansible/x.sops.yaml": "k3s_token: hunter2\n" + SOPS_TAIL},
+            "k3s_token is not encrypted",
+        )
+
+    def test_plaintext_sops_list_item_fails(self):
+        # fence: kills a value check that only reads `key: value` lines.
+        self.assertFails(
+            {"ansible/x.sops.yaml": "keys:\n    - ENC[AES256_GCM,data:eA==,type:str]\n    - hunter2\n" + SOPS_TAIL},
+            "- is not encrypted",
+        )
+
+    def test_sops_vars_without_metadata_fail(self):
+        # fence: kills a check that trusts the .sops.yaml name alone.
+        self.assertFails(
+            {"ansible/x.sops.yaml": "k3s_token: ENC[fake]\n"},
+            "no SOPS metadata",
+        )
+
+    def test_default_roots_include_ansible(self):
+        # fence: kills a default that scans clusters/ only.
+        with tempfile.TemporaryDirectory() as d:
+            pathlib.Path(d, "ansible").mkdir()
+            pathlib.Path(d, "ansible/x.sops.yaml").write_text("k3s_token: hunter2\n")
+            r = subprocess.run(["python3", str(CHECK)], capture_output=True, text=True, cwd=d)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("x.sops.yaml", r.stdout)
+
     def test_empty_value_left_by_sops_passes(self):
         # guard (inverse defect): sops leaves "" unencrypted; that is not a leak.
         r = run({"x.secret.yaml": SECRET_HEAD

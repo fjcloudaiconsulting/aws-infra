@@ -4,6 +4,7 @@
 Rules: a Secret lives in its own *.secret.yaml file, that file carries SOPS
 metadata with a MAC, and every data/stringData value is an ENC[...] string
 (or empty, which sops leaves as is). Kustomize secretGenerator is not allowed.
+A *.sops.yaml file (Ansible vars) carries SOPS metadata and every value is ENC[...].
 Stdlib only, line-based: it understands the layout `sops encrypt` writes.
 """
 import pathlib
@@ -14,10 +15,30 @@ import sys
 KIND_SECRET = re.compile(r"""^\s*kind:\s*["']?Secret["']?\s*(#.*)?$|"kind"\s*:\s*"Secret\"""", re.M)
 TOP_KEY = re.compile(r"^([^\s#][^:]*):\s*(.*)$")
 ENTRY = re.compile(r"^\s+([^:#\s][^:]*):\s*(.*)$")
+# Any `key: value`, `- key: value` or `- value` line; group 2 is the value.
+VALUE = re.compile(r"^\s*(?:-\s+)?(?:([^:#\s][^:]*):(?:\s+|$))?(.*?)\s*$")
+
+
+def sops_file_problems(text):
+    """A *.sops.yaml file (Ansible vars, INFRA-64): metadata, and every value outside sops: is ENC[...]."""
+    out = []
+    if not re.search(r"^sops:", text, re.M) or not re.search(r"^\s+mac: ENC\[", text, re.M):
+        out.append("no SOPS metadata; run `sops encrypt -i`")
+    for line in text.splitlines():
+        if line.startswith("sops:"):
+            break
+        m = VALUE.match(line)
+        if line.strip() in ("---", "..."):
+            continue
+        if m and m.group(2) and not m.group(2).startswith(("ENC[", "#")) and m.group(2) not in ('""', "''"):
+            out.append(f"{(m.group(1) or '-').strip()} is not encrypted")
+    return out
 
 
 def problems(path):
     text = path.read_text()
+    if path.name.lower().endswith((".sops.yaml", ".sops.yml")):
+        return sops_file_problems(text)
     out = []
     if re.search(r"^\s*secretGenerator:", text, re.M):
         out.append("secretGenerator writes plaintext; use a *.secret.yaml file")
@@ -41,10 +62,15 @@ def problems(path):
     return out
 
 
-def main(root):
+def main(roots):
     failed = False
     files = sorted(
-        p for p in pathlib.Path(root).rglob("*") if p.suffix.lower() in (".yaml", ".yml", ".json")
+        p
+        for root in roots
+        for p in pathlib.Path(root).rglob("*")
+        if p.suffix.lower() in (".yaml", ".yml", ".json")
+        # Third-party Ansible collections installed (git-ignored) under ansible/collections.
+        and "collections" not in p.relative_to(root).parts
     )
     for path in files:
         for p in problems(path):
@@ -54,4 +80,4 @@ def main(root):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "clusters"))
+    sys.exit(main(sys.argv[1:] or ["clusters", "ansible"]))

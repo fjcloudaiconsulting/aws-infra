@@ -1,0 +1,122 @@
+---
+# Hetzner hosts (INFRA-64): base config on every host, the database volume on db-1, then k3s HA.
+# Runbook: README.md. Run from this directory.
+
+- name: Refuse placeholder addresses
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: The inventory holds real addresses
+      ansible.builtin.assert:
+        that: ansible_host is not match('192\.0\.2\.')
+        fail_msg: "{{ inventory_hostname }} still has the placeholder {{ ansible_host }}; set its real IPv4 in inventory.yaml."
+        quiet: true
+
+- name: Base configuration
+  hosts: all
+  roles:
+    - role: node_base
+
+# Before the k3s play, so the mount guard exists before k3s is first installed or started.
+- name: Database volume
+  hosts: db
+  any_errors_fatal: true
+  roles:
+    - role: db_storage
+
+# One server at a time and stop at the first failure, so the etcd quorum (2 of 3) is never at risk.
+# The very first bootstrap runs the three servers as one batch: the collection's join check waits
+# for every server, which a one-host batch can never satisfy on an empty cluster.
+- name: K3s servers
+  hosts: server
+  serial: "{{ (k3s_bootstrap | default(false) | bool) | ternary('100%', 1) }}"
+  max_fail_percentage: 0
+  # The collection writes the token into config.yaml; no diff may print it.
+  diff: false
+  pre_tasks:
+    - name: The private NIC carries the private IP
+      ansible.builtin.assert:
+        that: ansible_facts[k3s_private_iface].ipv4.address | default('') == private_ip
+        fail_msg: "{{ k3s_private_iface }} does not carry {{ private_ip }} on {{ inventory_hostname }}; set k3s_private_iface."
+        quiet: true
+
+    - name: Look for existing etcd data
+      ansible.builtin.stat:
+        path: /var/lib/rancher/k3s/server/db/etcd
+      register: k3s_etcd_dir
+
+    # Split-brain guard: cluster-init on an empty disk starts a second, separate cluster.
+    - name: Bootstrap only an empty cluster, with every server in the run
+      when: k3s_bootstrap | bool
+      run_once: true
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | sort == groups['server'] | sort
+          - groups['server'] | map('extract', hostvars, ['k3s_etcd_dir', 'stat', 'exists']) | select | list | length == 0
+        fail_msg: >-
+          k3s_bootstrap=true is only for the first bootstrap: run it without --limit and only while no server
+          has etcd data. To rebuild a node, run without k3s_bootstrap so it joins a live peer.
+
+    - name: A new server can reach the peer it joins
+      when:
+        - not k3s_bootstrap | bool
+        - not k3s_etcd_dir.stat.exists
+      ansible.builtin.wait_for:
+        host: "{{ k3s_join_peer }}"
+        port: 6443
+        timeout: 30
+        msg: >-
+          No k3s API at {{ k3s_join_peer }}:6443 for {{ inventory_hostname }} to join. For the very first
+          bootstrap of an empty cluster pass -e k3s_bootstrap=true; otherwise bring that peer back first.
+
+    # config.yaml (0644, written by the collection) holds the token; a 0700 parent keeps it root-only.
+    - name: Keep /etc/rancher root-only
+      ansible.builtin.file:
+        path: /etc/rancher
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    # The collection only downloads get.k3s.io when this file is absent, so the installer stays pinned to k3s_version.
+    - name: Install the k3s installer from the release tag
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version }}/install.sh
+        dest: /usr/local/bin/k3s-install.sh
+        owner: root
+        group: root
+        mode: "0755"
+        force: true
+
+  roles:
+    - role: k3s.orchestration.prereq
+    - role: k3s.orchestration.k3s_server
+
+  post_tasks:
+    - name: Wait for this node to be Ready
+      when: not ansible_check_mode
+      ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=30s
+      register: k3s_node_ready
+      until: k3s_node_ready.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Wait for etcd to be healthy
+      when: not ansible_check_mode
+      ansible.builtin.command: k3s kubectl get --raw /readyz/etcd
+      register: k3s_etcd_ready
+      until: k3s_etcd_ready.rc == 0 and k3s_etcd_ready.stdout == 'ok'
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Keep the fetched admin kubeconfig private
+      when: (kubeconfig | expanduser) is file
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "{{ kubeconfig | expanduser }}"
+        mode: "0600"
