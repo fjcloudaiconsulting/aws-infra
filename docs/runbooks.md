@@ -996,7 +996,8 @@ Commit the file in a PR and merge (no kustomization lists it: Flux picks up ever
    `netbird-state` volume.
 2. The access policy is Terraform ([`terraform/netbird`](../terraform/netbird/README.md); the owner creates workspace
    `netbird` with env `NB_PAT` from NetBird service user `terraform` first): `owner-to-hetzner-k3s`, source
-   `owner-devices`, destination group `k3s-hetzner` (the peer's own group), TCP 6443, one way. The peer runs with
+   `owner-devices`, destination group `k3s-hetzner` (the peer's own group), TCP 6443, one way. Group membership is in
+   the same stack: a re-enrolled peer must be added there. The peer runs with
    hostNetwork, so its NetBird IP lands on the node's loopback, where the API server listens. No NetBird Network or
    route: traffic for the routing peer's own private IP is not routed (only the other nodes answered), and the peer
    is pinned to one node by its state volume anyway, so routes to the other nodes add no availability.
