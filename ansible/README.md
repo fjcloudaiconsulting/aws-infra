@@ -109,6 +109,17 @@ rejoins as a stale member, and the rebuilt node then hits a node-password confli
 5. `ssh-keygen -R <public ip>`, accept the new host key, then `ansible-playbook site.yml --limit <name>` (never with
    `k3s_bootstrap`). The rebuilt node has no etcd data, so the quorum guard lets it run alone; it joins a live peer.
 
+If that run fails after k3s started on the new node, the node now has etcd data and the quorum guard would refuse a
+plain rerun on it. Reset it instead:
+
+1. db-1 only, FIRST: `systemctl stop k3s && /usr/local/bin/k3s-killall.sh && umount /var/lib/rancher/k3s/storage`,
+   and check `findmnt /var/lib/rancher/k3s/storage` prints nothing. `k3s-uninstall.sh` deletes everything under the
+   k3s data dir, including the contents of a volume still mounted inside it: the database files.
+2. On the new node: `/usr/local/bin/k3s-uninstall.sh`.
+3. If it registered (`k3s kubectl get nodes` on a working node lists it): `k3s kubectl delete node <name>` from a
+   working node.
+4. Rerun `ansible-playbook site.yml --limit <name>` (on db-1 this mounts the volume again before k3s is installed).
+
 ### App node (node-2)
 
 The steps above, nothing more.

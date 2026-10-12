@@ -59,6 +59,26 @@
           Not restarting {{ inventory_hostname }}: {{ groups['server'] | difference(ansible_play_hosts) | join(', ') }}
           failed, was unreachable or was left out by --limit. Fix that server first; only a rebuilt node (no etcd data) runs alone.
 
+    # Node Ready can be stale for the node-monitor grace period and says nothing about etcd, so ask every
+    # server's own apiserver for its etcd health too.
+    - name: Read etcd health on every server
+      when: k3s_etcd_dir.stat.exists
+      ansible.builtin.command: k3s kubectl get --raw /readyz/etcd
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['server'] }}"
+      register: k3s_peers_etcd
+      failed_when: false
+      changed_when: false
+      check_mode: false
+
+    - name: Etcd is healthy on every server
+      when: k3s_etcd_dir.stat.exists
+      ansible.builtin.assert:
+        that: k3s_peers_etcd.results | rejectattr('stdout', 'equalto', 'ok') | list | length == 0
+        fail_msg: >-
+          Not restarting {{ inventory_hostname }}: /readyz/etcd is not ok on
+          {{ k3s_peers_etcd.results | rejectattr('stdout', 'equalto', 'ok') | map(attribute='item') | join(', ') }}.
+
     - name: Read the server nodes' Ready status
       when: k3s_etcd_dir.stat.exists
       ansible.builtin.command: >-
