@@ -101,8 +101,7 @@ spec:
       app: cloudflared
 ---
 # No ingress. Egress: DNS and the origin Services inside the cluster (each app namespace's own NetworkPolicy decides
-# whether cloudflared may reach it), and Cloudflare's edge on 7844 (QUIC, TCP fallback) and 443 (API), except
-# instance metadata.
+# whether cloudflared may reach it), and Cloudflare's edge.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -114,14 +113,24 @@ spec:
   egress:
     - to:
         - namespaceSelector: {}
+    # Tunnel connections (QUIC, HTTP/2 fallback): region1 and region2.v2.argotunnel.com, per Cloudflare's "Tunnel with
+    # firewall" page (checked 2026-10-12). IPv4 only: the cluster is single-stack.
     - to:
         - ipBlock:
-            cidr: 0.0.0.0/0
-            except: [169.254.169.254/32]
+            cidr: 198.41.192.0/24
+        - ipBlock:
+            cidr: 198.41.200.0/24
       ports:
         - protocol: UDP
           port: 7844
         - protocol: TCP
           port: 7844
+    # 443: api.cloudflare.com, update.argotunnel.com and the other optional endpoints sit on shared Cloudflare anycast
+    # addresses that the docs list per host, not as a stable range.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+      ports:
         - protocol: TCP
           port: 443

@@ -971,17 +971,19 @@ ssh root@$N1 k3s kubectl apply -f - < clusters/hetzner/flux-system/gotk-sync.yam
 ```
 
 **6. kubeconfig over NetBird (owner).** The CA comes from the admin kubeconfig Ansible fetched; the token is
-`netbird/owner-admin` (90 days, revocable as in the NetBird README section 5) and goes from `ssh` straight into the
-kubeconfig. The server is a private IP in the k3s certificate (Ansible's `tls-san`), so no `tls-server-name` is needed;
-`10.0.1.12` or `10.0.1.21` work too if node-1 is down.
+`netbird/owner-admin` (90 days, revocable as in the NetBird README section 5). `ssh` writes it straight into a 0600
+file that the kubeconfig names as `tokenFile` (kubectl reads it on every call), so it never sits in a variable or
+argv. Renewing is that one `ssh` line again. The server is a private IP in the k3s certificate (Ansible's `tls-san`), so no
+`tls-server-name` is needed; `10.0.1.12` or `10.0.1.21` work too if node-1 is down.
 
 ```bash
 export KUBECONFIG=~/.kube/hetzner
 kubectl config view --raw --kubeconfig ~/.kube/fjc-hetzner.yaml -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
   | base64 -d > ~/.kube/hetzner-ca.crt && grep -c 'BEGIN CERTIFICATE' ~/.kube/hetzner-ca.crt   # 1
 kubectl config set-cluster hetzner --server=https://10.0.1.11:6443 --certificate-authority="$HOME/.kube/hetzner-ca.crt" --embed-certs
-TOKEN=$(ssh root@$N1 k3s kubectl -n netbird create token owner-admin --duration=2160h)
-[ -n "$TOKEN" ] && kubectl config set-credentials owner-admin --token="$TOKEN" && echo "token set (${#TOKEN} chars)"; unset TOKEN
+(umask 077; ssh root@$N1 k3s kubectl -n netbird create token owner-admin --duration=2160h > ~/.kube/hetzner-token)
+wc -c < ~/.kube/hetzner-token   # several hundred bytes; 0 means the ssh failed: run it again
+kubectl config set-credentials owner-admin && kubectl config set users.owner-admin.tokenFile "$HOME/.kube/hetzner-token"
 kubectl config set-context hetzner --cluster=hetzner --user=owner-admin && kubectl config use-context hetzner
 chmod 600 ~/.kube/hetzner
 for ip in 10.0.1.11 10.0.1.12 10.0.1.21; do for p in 6443 10250 22; do nc -z -G 3 $ip $p && echo "$ip:$p open" || echo "$ip:$p closed"; done; done

@@ -29,7 +29,9 @@ class LogRetention(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def run_script(self, **env):
-        e = {**os.environ, "LOG_ROOT": str(self.root), "CUTOFF": CUTOFF, "TMPDIR": self.tmp.name, **env}
+        e = {**os.environ, "LOG_ROOT": str(self.root), "CUTOFF": CUTOFF, "TMPDIR": self.tmp.name}
+        e.pop("NODE_NAME", None)  # only what a test passes: an outer NODE_NAME would change the heartbeat
+        e.update(env)
         return subprocess.run(["sh", str(self.script)], env=e, capture_output=True, text=True)
 
     def test_live_file_with_old_first_line_is_truncated_not_unlinked(self):
@@ -100,8 +102,8 @@ class LogRetention(unittest.TestCase):
         self.assertEqual(old.stat().st_size, 0)
         self.assertGreater(kept.stat().st_size, 0)
 
-    def heartbeat(self, **env):
-        """Runs a clean pass against a local OTLP stand-in; returns the posted payload's resource attributes."""
+    def otlp_stand_in(self):
+        """A local OTLP endpoint; returns its URL and the list that collects posted bodies."""
         if not shutil.which("wget"):
             self.skipTest("no wget on this host; the script posts with busybox wget")
         bodies = []
@@ -119,13 +121,31 @@ class LogRetention(unittest.TestCase):
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)  # cleanups run last-in first-out: shutdown, then close
         self.addCleanup(srv.shutdown)
-        r = self.run_script(HEARTBEAT_URL=f"http://127.0.0.1:{srv.server_port}/v1/metrics", NOW="1790000000", **env)
+        return f"http://127.0.0.1:{srv.server_port}/v1/metrics", bodies
+
+    def heartbeat(self, **env):
+        """Runs a clean pass against the stand-in; returns the posted payload's resource attributes."""
+        url, bodies = self.otlp_stand_in()
+        r = self.run_script(HEARTBEAT_URL=url, NOW="1790000000", **env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(bodies), 1)
         res = json.loads(bodies[0])["resourceMetrics"][0]
         point = res["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]
         self.assertEqual(point["asDouble"], 1790000000)
         return {a["key"]: a["value"]["stringValue"] for a in res["resource"]["attributes"]}
+
+    def test_failed_pass_posts_no_heartbeat(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory modes")
+        url, bodies = self.otlp_stand_in()
+        # an unreadable directory makes find fail; the endpoint is reachable, so only the script can stop the post
+        bad = self.root / "ns_pod_uid" / "locked"
+        bad.mkdir()
+        bad.chmod(0)
+        self.addCleanup(bad.chmod, 0o755)
+        r = self.run_script(HEARTBEAT_URL=url)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(bodies, [], "a pass with errors must not report success")
 
     def test_heartbeat_is_otlp_json(self):
         self.assertEqual(self.heartbeat(), {"service.name": "log-retention"})
