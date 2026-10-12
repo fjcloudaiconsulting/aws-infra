@@ -2,7 +2,7 @@
 """A prod image may not be newer than staging's (INFRA-89, release contract section 8).
 
 For every directory named <app>-prod under the clusters root, each ghcr.io/fjcloudaiconsulting image
-must also appear in the sibling <app>-staging directory, and its vX.Y.Z tag must be <= the LOWEST tag
+must also appear in the <app>-staging directory (in any cluster tree), and its vX.Y.Z tag must be <= the LOWEST tag
 staging has for that image's repo (a release is one unit: a lagging staging image bounds prod).
 Older is allowed (rollback).
 "Deployed in staging" means "on this tree under <app>-staging": static, no cluster or network access.
@@ -48,23 +48,28 @@ def main(root):
     if not prods:
         errs.append(f"no <app>-prod directory under {root}")
     for prod in prods:
-        stg = prod.with_name(prod.name[: -len("prod")] + "staging")
+        sname = prod.name[: -len("prod")] + "staging"
+        # Staging may live in another cluster tree than prod (Hetzner migration): any <app>-staging under the root.
+        stgs = [d for d in sorted(pathlib.Path(root).rglob(sname)) if d.is_dir()]
         pr = refs(prod, errs)
         if not pr:
             errs.append(f"{prod}: no ghcr.io/fjcloudaiconsulting images")
-        if not stg.is_dir():
-            errs.append(f"{prod}: {stg.name} does not exist; prod needs a staging that runs the tag first")
+        if not stgs:
+            errs.append(f"{prod}: {sname} does not exist; prod needs a staging that runs the tag first")
             continue
-        sr = refs(stg, errs)
+        sr = {}
+        for stg in stgs:
+            for image, v in refs(stg, errs).items():
+                sr.setdefault(image, []).extend(v)
         for image, uses in pr.items():
             if image not in sr:
-                errs.append(f"{prod}: {image} is not in {stg.name}")
+                errs.append(f"{prod}: {image} is not in {sname}")
                 continue
             repo = image.split("/")[0]
             low = min((t for i, v in sr.items() if i.split("/")[0] == repo for t, _ in v), key=ver)
             for tag, f in uses:
                 if ver(tag) > ver(low):
-                    errs.append(f"{f}: {image}:{tag} is newer than {stg.name} ({low}); wait for the staging bump on main, then update the branch")
+                    errs.append(f"{f}: {image}:{tag} is newer than {sname} ({low}); wait for the staging bump on main, then update the branch")
         print(f"checked {prod}")
     for e in errs:
         print(f"::error::{e}" if os.environ.get("GITHUB_ACTIONS") else e, file=sys.stderr)

@@ -4,7 +4,7 @@
   "kubernetes": {
     "managerFilePatterns": ["/^clusters/.+\\.ya?ml$/"]
   },
-  "ignorePaths": ["clusters/platform/flux-system/**"],
+  "ignorePaths": ["clusters/*/flux-system/**"],
   "hostRules": [
     {
       "matchHost": "ghcr.io",
