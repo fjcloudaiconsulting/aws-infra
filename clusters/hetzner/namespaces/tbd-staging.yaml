@@ -1,5 +1,5 @@
-# TBD staging (INFRA-67), same pattern as ziftbook-staging. The PriorityClass `staging` is cluster-scoped and defined
-# once, in ziftbook-staging.yaml; it is not repeated here (two files would give one object two owners).
+# TBD staging (INFRA-67, on Hetzner since INFRA-173), same pattern as ziftbook-staging. The PriorityClass `staging` is
+# cluster-scoped and defined once, in priorityclass-staging.yaml (two files would give one object two owners).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -28,7 +28,7 @@ metadata:
   namespace: tbd-staging
 spec:
   hard:
-    # backend 128/384, frontend 96/256, valkey 32/64 (INFRA-67): 256Mi requests, 704Mi limits. Recreate everywhere, and
+    # backend 128/384, frontend 96/256 (no Valkey since INFRA-173): 224Mi requests, 640Mi limits. Recreate everywhere, and
     # the migrate init container (96/256) fits inside the backend's own figures.
     requests.memory: 320Mi
     limits.memory: 768Mi
