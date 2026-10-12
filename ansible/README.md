@@ -12,7 +12,8 @@ everything on the hosts: base config, the volume mount on db-1, and k3s. There i
 All three are k3s servers with embedded etcd (quorum 2 of 3), flannel `wireguard-native` over the private NIC.
 
 `site.yml` runs four plays: refuse placeholder addresses, `node_base` on every host (swap, security-only
-unattended upgrades without reboot, key-only SSH), `db_storage` on db-1, then the k3s servers one at a time
+unattended upgrades without reboot, key-only SSH, the private NIC on DHCP via `/etc/netplan/60-private.yaml`
+because a network attached after first boot is missing from cloud-init's netplan file), `db_storage` on db-1, then the k3s servers one at a time
 (`serial: 1`, stop at the first failure, wait for the node Ready and etcd healthy after each, db-1 last).
 
 ## Prerequisites (the machine running Ansible)
@@ -25,8 +26,8 @@ unattended upgrades without reboot, key-only SSH), `db_storage` on db-1, then th
   admin kubeconfig.
 - `ansible-galaxy collection install -r requirements.yml` (installs into the git-ignored `collections/`).
 - The deploy key at `~/.ssh/fjc-hetzner-deploy`.
-- `inventory.yaml` holds real addresses: replace each `192.0.2.x` placeholder with that server's primary IPv4
-  (`terraform/hetzner` outputs). The first play fails while any placeholder is left.
+- `inventory.yaml` holds each server's primary IPv4 (they outlive server rebuilds). The first play refuses a
+  `192.0.2.x` placeholder.
 
 The collection handles the token in task arguments. The `k3s_server` role runs with `no_log` (so `-v` shows
 `censored` for it) and the k3s play has `diff: false` (so `--diff` cannot print it). `-e k3s_no_log=false` lifts
@@ -71,7 +72,7 @@ After each restart it waits for that node's own `/readyz/etcd`, then for the nod
 ## First bootstrap
 
 1. `terraform/hetzner` applied; the volume `fjc-db` is attached to db-1.
-2. Real addresses in `inventory.yaml` (a PR, merged).
+2. The primary IPv4s in `inventory.yaml` match `terraform/hetzner`.
 3. `ssh -i ~/.ssh/fjc-hetzner-deploy root@<ip> true` for each host, to accept the host keys.
 4. From `main` at the merged SHA:
 

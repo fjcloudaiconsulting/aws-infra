@@ -1,7 +1,6 @@
 ---
-# The servers come from terraform/hetzner (INFRA-169); the private IPs are fixed there.
-# PLACEHOLDERS: every ansible_host below is in 192.0.2.0/24 (TEST-NET-1) until terraform/hetzner is applied.
-# Replace each with the server's primary IPv4; site.yml refuses to run while any placeholder is left.
+# The servers come from terraform/hetzner (INFRA-169); the private IPs are fixed there. ansible_host is each
+# server's primary IPv4 (primary IPs outlive the servers). site.yml refuses a 192.0.2.0/24 placeholder.
 all:
   vars:
     ansible_user: root
@@ -11,13 +10,13 @@ all:
     server:
       hosts:
         node-1:
-          ansible_host: 192.0.2.11  # PLACEHOLDER
+          ansible_host: 138.199.193.76
           private_ip: 10.0.1.11
         node-2:
-          ansible_host: 192.0.2.12  # PLACEHOLDER
+          ansible_host: 138.199.221.162
           private_ip: 10.0.1.12
         db-1:
-          ansible_host: 192.0.2.21  # PLACEHOLDER
+          ansible_host: 138.199.201.235
           private_ip: 10.0.1.21
     app:
       hosts:

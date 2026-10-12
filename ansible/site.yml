@@ -95,8 +95,8 @@
 
     - name: The private NIC carries the private IP
       ansible.builtin.assert:
-        that: ansible_facts[k3s_private_iface].ipv4.address | default('') == private_ip
-        fail_msg: "{{ k3s_private_iface }} does not carry {{ private_ip }} on {{ inventory_hostname }}; set k3s_private_iface."
+        that: ansible_facts[private_nic].ipv4.address | default('') == private_ip
+        fail_msg: "{{ private_nic }} does not carry {{ private_ip }} on {{ inventory_hostname }}; set private_nic."
         quiet: true
 
     # Split-brain guard: cluster-init on an empty disk starts a second, separate cluster.

@@ -57,3 +57,32 @@
       PubkeyAuthentication yes
     validate: /usr/sbin/sshd -t -f %s
   notify: Reload sshd
+
+# A network attached after first boot is missing from cloud-init's 50-cloud-init.yaml, so its NIC stays down.
+# Netplan merges the same interface ID across files: where cloud-init already lists the NIC (by MAC, dhcp4),
+# this adds nothing new.
+- name: Configure the private NIC for DHCP
+  ansible.builtin.copy:
+    dest: /etc/netplan/60-private.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      network:
+        version: 2
+        ethernets:
+          {{ private_nic }}:
+            dhcp4: true
+  notify: Bring up the private NIC
+
+- name: Apply pending network and sshd changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the private NIC to carry the private IP
+  when: not ansible_check_mode
+  ansible.builtin.command: ip -4 -o addr show dev {{ private_nic }}
+  register: node_base_private_addr
+  until: (private_ip ~ '/') in node_base_private_addr.stdout
+  retries: 12
+  delay: 5
+  changed_when: false

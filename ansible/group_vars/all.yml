@@ -2,9 +2,9 @@
 # Same release as terraform/platform; upgrading is a deliberate change of this line.
 k3s_version: v1.36.5+k3s1
 
-# Hetzner's documented private NIC name on current server generations (CX gen 3 included);
-# site.yml asserts it carries private_ip before k3s is configured with it.
-k3s_private_iface: enp7s0
+# The private network NIC (seen as enp7s0 on the CAX21 nodes). node_base brings it up with DHCP and waits for
+# private_ip on it; site.yml asserts that again before k3s is configured with it.
+private_nic: enp7s0
 
 # true ONLY for the very first bootstrap of an empty cluster (-e k3s_bootstrap=true). See README.md.
 k3s_bootstrap: false
@@ -31,7 +31,7 @@ server_config_yaml: |
   node-name: {{ inventory_hostname }}
   node-ip: {{ private_ip }}
   advertise-address: {{ private_ip }}
-  flannel-iface: {{ k3s_private_iface }}
+  flannel-iface: {{ private_nic }}
   flannel-backend: wireguard-native
   disable: ["traefik", "servicelb"]
   secrets-encryption: true
