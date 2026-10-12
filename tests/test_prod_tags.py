@@ -33,6 +33,21 @@ class ProdTags(unittest.TestCase):
                  "hetzner/tbd-staging": {"a.yaml": img("tbd", "backend", "v0.2.0")}})
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_staging_name_must_match_exactly(self):
+        # xtbd-staging is not tbd's staging (kills a suffix match).
+        r = run({"platform/tbd-prod": {"a.yaml": img("tbd", "backend", "v0.2.0")},
+                 "hetzner/xtbd-staging": {"a.yaml": img("tbd", "backend", "v0.2.0")}})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tbd-staging does not exist", r.stderr)
+
+    def test_staging_in_two_trees_bounds_prod_by_the_lowest(self):
+        # Either tree may hold the lower tag (kills taking only the first or only the last).
+        for lo, hi in (("platform", "hetzner"), ("hetzner", "platform")):
+            r = run({"a/tbd-prod": {"a.yaml": img("tbd", "backend", "v0.3.0")},
+                     f"{lo}/tbd-staging": {"a.yaml": img("tbd", "backend", "v0.2.0")},
+                     f"{hi}/tbd-staging": {"a.yaml": img("tbd", "backend", "v0.3.0")}})
+            self.assertEqual(r.returncode, 1, (lo, r.stderr))
+
     def test_staging_missing_in_all_trees_fails(self):
         r = run({"platform/tbd-prod": {"a.yaml": img("tbd", "backend", "v0.2.0")},
                  "hetzner/ziftbook-staging": {"a.yaml": img("ziftbook", "backend", "v0.2.0")}})

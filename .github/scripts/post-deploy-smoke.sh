@@ -28,8 +28,10 @@ esac
 front="${front:-/}"; follow="${follow--L}"
 DIR="${CLUSTERS_DIR:-clusters}"
 # The namespace's tree is not fixed (platform today, hetzner later): first match under any tree.
-MANIFEST="$(ls "$DIR/$ns/backend.yaml" "$DIR"/*/"$ns/backend.yaml" 2>/dev/null | head -n 1)"
-MANIFEST="${MANIFEST:-$DIR/$ns/backend.yaml}"
+mapfile -t found < <(ls "$DIR/$ns/backend.yaml" "$DIR"/*/"$ns/backend.yaml" 2>/dev/null)
+# A namespace moves between trees by a rename: in two trees at once is a bug, not a choice.
+(( ${#found[@]} <= 1 )) || { echo "$ns has a backend.yaml in more than one tree: ${found[*]}" >&2; exit 1; }
+MANIFEST="${found[0]:-$DIR/$ns/backend.yaml}"
 RUN_URL="${RUN_URL:-local run}"
 title="[post-deploy-smoke] $ns"
 verdict=""

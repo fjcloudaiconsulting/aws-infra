@@ -48,7 +48,7 @@ def issue(n, ns="tbd-prod"):
 
 
 def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200", app_rc=0, existing="",
-        converge=30, frontend=0, fetch_rc=0, tree=""):
+        converge=30, frontend=0, fetch_rc=0, tree="", dup_tree=""):
     """Default: the first poll still sees the old version, the second the new one (a real rollout)."""
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
@@ -63,6 +63,9 @@ def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200"
         (d / c / "ziftbook-prod/backend.yaml").write_text(ZIF.format("v0.291.0"))
         if manifest is not None:
             (d / c / ns / "backend.yaml").write_text(manifest)
+        if dup_tree:  # the same namespace in a second tree
+            (d / "clusters" / dup_tree / ns).mkdir(parents=True)
+            (d / "clusters" / dup_tree / ns / "backend.yaml").write_text(TBD.format("v0.291.0"))
         for name, body in (("curl", CURL), ("gh", GH), ("sleep", SLEEP)):
             (d / "bin" / name).write_text(body)
             (d / "bin" / name).chmod(0o755)
@@ -131,6 +134,12 @@ class Pass(unittest.TestCase):
         r, log = run(tree="hetzner")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("converged on 0.291.0", r.stdout)
+
+    def test_namespace_in_two_trees_fails_loudly(self):
+        # A namespace moves by git mv: two matches is a bug, never "first one wins" (INFRA-166).
+        r, log = run(tree="hetzner", dup_tree="platform")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("more than one tree", r.stdout + r.stderr)
 
     def test_backend_tag_is_read_not_the_migrations_tag(self):
         m = "image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.290.0\n" + TBD.format("v0.291.0")
