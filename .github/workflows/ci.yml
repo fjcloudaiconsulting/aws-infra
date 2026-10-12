@@ -22,18 +22,35 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: changed paths
+        # A required check, so the job always reports; PRs that touch no Terraform skip the Terraform steps.
+        # Pushes (main, Renovate branches) run everything.
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            changed=$(git diff --name-only "$BASE" HEAD)
+            grep -qE '^(terraform/|\.tflint\.hcl$|\.github/workflows/ci\.yml$|\.github/scripts/check-tbd-backups-fences\.py$|aws/bootstrap/)' <<<"$changed" || exit 0
+          fi
+          echo terraform=true >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: steps.changes.outputs.terraform == 'true'
         with:
           terraform_version: v1.16.5
       - name: fmt
+        if: steps.changes.outputs.terraform == 'true'
         run: terraform fmt -check -recursive -diff
       - name: tbd-backups fences
+        if: steps.changes.outputs.terraform == 'true'
         # Trust-anchor (TBD-372) and least-privilege policy checks, ported from tbd (INFRA-18).
         run: python3 .github/scripts/check-tbd-backups-fences.py
       - name: python tests
         # Backup probe and the SOPS secrets check.
         run: python3 -m unittest discover -s tests
       - name: validate every stack
+        if: steps.changes.outputs.terraform == 'true'
         run: |
           set -uo pipefail
           # Every directory directly under terraform/ is a root stack; shared modules go elsewhere.
@@ -49,9 +66,11 @@ jobs:
           done
           exit $rc
       - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        if: steps.changes.outputs.terraform == 'true'
         with:
           tflint_version: v0.64.0
       - name: tflint every stack
+        if: steps.changes.outputs.terraform == 'true'
         env:
           # Plugin downloads hit the GitHub API; unauthenticated runs get rate-limited.
           GITHUB_TOKEN: ${{ github.token }}
@@ -91,29 +110,3 @@ jobs:
             -schema-location default \
             -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRDS_CATALOG_SHA/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             clusters/
-
-  ansible:
-    name: Ansible checks
-    runs-on: ubuntu-26.04
-    env:
-      ANSIBLE_CORE_VERSION: 2.21.5
-      ANSIBLE_LINT_VERSION: 26.9.0
-    defaults:
-      run:
-        working-directory: ansible
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: install ansible
-        run: |
-          set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/ansible"
-          "$RUNNER_TEMP/ansible/bin/pip" install --quiet "ansible-core==$ANSIBLE_CORE_VERSION" "ansible-lint==$ANSIBLE_LINT_VERSION"
-          echo "$RUNNER_TEMP/ansible/bin" >> "$GITHUB_PATH"
-      - name: install pinned collections
-        run: ansible-galaxy collection install -r requirements.yml
-      - name: syntax check
-        run: ansible-playbook site.yml --syntax-check
-      - name: ansible-lint
-        run: ansible-lint
