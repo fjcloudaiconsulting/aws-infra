@@ -21,6 +21,9 @@ user_kubectl: false
 # The admin kubeconfig fetched from node-1 lands here on the machine running Ansible, never in ~/.kube/config.
 kubeconfig: ~/.kube/fjc-hetzner.yaml
 manage_firewall: false
+# GOGC=50 trades a little CPU for a smaller k3s heap (about 846Mi to 625Mi RSS on Lightsail, INFRA-80).
+# The installer rewrites k3s.service.env; the collection re-adds this line after it on every run.
+extra_service_envs: ["GOGC=50"]
 k3s_node_labels: []
 k3s_node_taints: []
 # Merged last over the collection's generated config, so cluster-init and server below are what k3s gets.
