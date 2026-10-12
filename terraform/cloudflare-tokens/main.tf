@@ -65,6 +65,11 @@ locals {
   access_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
   if g.name == "Access: Apps and Policies Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
+  # Same lookup for "Cloudflare One Connector: cloudflared Write" (INFRA-165): create a tunnel, write its config, read its
+  # token. Narrower than the legacy "Cloudflare Tunnel Write", which Cloudflare docs list as equivalent for those calls.
+  tunnel_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
+  if g.name == "Cloudflare One Connector: cloudflared Write" && contains(g.scopes, "com.cloudflare.api.account")]
+
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
   # object with two keys at one level can come back in another order and fail the apply. Keep one key per level:
   # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
@@ -109,6 +114,11 @@ resource "cloudflare_account_token" "cloudflare_workspace" {
       effect            = "allow"
       resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
       permission_groups = [{ id = one(local.access_write_ids) }]
+      }, {
+      # Cloudflare Tunnels managed by the `cloudflare` workspace (INFRA-165, Hetzner migration INFRA-164). Account scope.
+      effect            = "allow"
+      resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
+      permission_groups = [{ id = one(local.tunnel_write_ids) }]
     }],
   )
 
