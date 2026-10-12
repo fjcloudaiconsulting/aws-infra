@@ -325,14 +325,14 @@ The credentials live in these places, kept equal:
   SMOKE_USERNAME=$SU SMOKE_PASSWORD=$SP SMOKE_BASE_URL=https://app.thebetterdecision.com ~/src/tbd/scripts/smoke-test.sh; unset SU SP
   ```
 
-- aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the
+- cloud-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (write-only), used by the
   [post-deploy smoke](#post-deploy-smoke).
 
 **Rotate** (never display the password; the hash is TBD's own `bcrypt`): generate it in memory, set the bcrypt hash on
 the user row in the production database (`UPDATE users SET password_hash=..., password_changed_at=UTC_TIMESTAMP() WHERE
 username=...`, expect 1 row), run the smoke test above with the new value, then `printf %s "$P" | gh secret set
 SMOKE_PASSWORD --env tbd-prod -R
-fjcloudaiconsulting/aws-infra` and rewrite `tbd-smoke.secret.yaml` with
+fjcloudaiconsulting/cloud-infra` and rewrite `tbd-smoke.secret.yaml` with
 `jq -n ... | sops encrypt --input-type json --output-type yaml --filename-override <file> /dev/stdin > <file>`. Last
 rotated 2026-10-04 (INFRA-48).
 

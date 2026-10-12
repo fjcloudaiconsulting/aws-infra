@@ -57,7 +57,7 @@
       },
       "annotations": {
         "summary": "Synthetic checks report {{ $labels.instance }} failing from both probes over the last 6 minutes (or the check reports nothing). Cloudflare, Traefik or the app is down; see the Synthetic uptime runbook.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#synthetic-uptime"
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#synthetic-uptime"
       },
       "notification_settings": {
         "receiver": "owner-email",

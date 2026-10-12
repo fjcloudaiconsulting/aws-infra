@@ -58,7 +58,7 @@ resource "cloudflare_authenticated_origin_pulls_settings" "app" {
 resource "cloudflare_notification_policy" "origin_pull_expiry" {
   account_id  = var.account_id
   name        = "Origin pull certificate expiring (INFRA-93)"
-  description = "Zone-level Authenticated Origin Pulls certificate expires within 30 days. Rotate per docs/runbooks.md in aws-infra."
+  description = "Zone-level Authenticated Origin Pulls certificate expires within 30 days. Rotate per docs/runbooks.md in cloud-infra."
   alert_type  = "zone_aop_custom_certificate_expiration_type"
   mechanisms  = { email = [{ id = "flamarion@fjconsulting.io" }] }
 }

@@ -57,7 +57,7 @@
       },
       "annotations": {
         "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 20% (766Mi on the 4 GB node) for 30 minutes. Upsize trigger 1.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
         "__dashboardUid__": "node-memory",
         "__panelId__": "1"
       },
@@ -122,7 +122,7 @@
       },
       "annotations": {
         "summary": "Node memory available is {{ humanizePercentage $values.A.Value }} of the node, under 10% for 5 minutes. OOM kills and evictions are close.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
         "__dashboardUid__": "node-memory",
         "__panelId__": "1"
       },
@@ -187,7 +187,7 @@
       },
       "annotations": {
         "summary": "Node memory available is {{ humanize1024 $values.A.Value }}B, under 200Mi. The kubelet sets MemoryPressure and evicts pods at 100Mi. Upsize trigger 2.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
         "__dashboardUid__": "node-memory",
         "__panelId__": "1"
       },
@@ -252,7 +252,7 @@
       },
       "annotations": {
         "summary": "The kernel OOM-killed a process on the node in the last 10 minutes. Find the container with the runbook check. Upsize trigger 2.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#node-memory-and-the-upsize",
         "__dashboardUid__": "node-memory",
         "__panelId__": "1"
       },
@@ -317,7 +317,7 @@
       },
       "annotations": {
         "summary": "Node or cAdvisor metrics of {{ $labels.instance }} stopped reaching Grafana Cloud for 10 minutes, so the memory alerts for that node are blind. Check the Alloy pod on that node (runbook: Metrics to Grafana Cloud). A node retired on purpose keeps this firing for a day: silence it.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#metrics-to-grafana-cloud-alloy"
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#metrics-to-grafana-cloud-alloy"
       },
       "notification_settings": {
         "receiver": "owner-email",

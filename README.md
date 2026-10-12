@@ -1,6 +1,7 @@
-# aws-infra
+# cloud-infra
 
-Infrastructure that hosts FJ Consulting applications (TBD, Ziftbook). App repos keep app code,
+Infrastructure of FJ Consulting apps (TBD, Ziftbook). It runs on AWS Lightsail today and is migrating to
+Hetzner (INFRA-164); AWS keeps the backup chain and account-level resources. App repos keep app code,
 Dockerfiles and their own CI; everything about where and how the apps run lives here.
 
 ## Architecture
