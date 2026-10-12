@@ -8,7 +8,7 @@ terraform {
     }
   }
 
-  # State + plan/apply run in HCP Terraform (FlamaCorp/hetzner), VCS-driven against aws-infra, working
+  # State + plan/apply run in HCP Terraform (FlamaCorp/hetzner), VCS-driven against cloud-infra, working
   # directory terraform/hetzner/. Speculative plans on PR; merges to main await Confirm & Apply.
   # The provider reads HCLOUD_TOKEN from the workspace environment.
   cloud {
