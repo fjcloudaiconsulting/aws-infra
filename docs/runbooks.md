@@ -694,6 +694,47 @@ Each call prints the JSON Grafana returns; an error prints its reason. Then dele
 stack first needs the folder (`POST /api/folders` with `{"uid":"platform","title":"Platform"}`) and the contact point
 once (`POST /api/v1/provisioning/contact-points`).
 
+### Synthetic uptime
+
+Grafana Cloud Synthetic Monitoring (INFRA-172) probes `https://app.thebetterdecision.com/health/dependencies` and
+`https://app.ziftbook.com/api/healthz` (the backend's readiness path) from the outside, expecting 200, and replaces the
+Route 53 health check. Rule `ProdEndpointDown` (group `synthetic-uptime`, folder Platform) emails `owner-email` when
+`probe_success` averages under 0.5 over 6 minutes for 2 minutes (both probes failing; no data also fires), then every 4 h.
+Payloads: [`grafana/synthetic-*.json`](../grafana/).
+
+Free tier: 100,000 test executions a month; one HTTP check run from one probe is one execution. Every 2 minutes is
+21,600 runs in a 30-day month (22,320 in 31 days) per check per probe; 2 checks x 2 probes = 89,280, inside the limit
+with 10% to spare. Every minute would be 178,560 and bill. Adding a third probe or check needs a slower frequency.
+Verify the limit in the stack's Synthetic Monitoring usage page before applying.
+
+Apply (once, then on every payload change). Token: Grafana > Testing & synthetics > Synthetics > Config > Access
+tokens > Generate (the SM access token, not a Grafana service account); the API URL is on the same Config page
+(`https://synthetic-monitoring-api-<region>.grafana.net`). From the repo root, in bash or zsh, with `jq`:
+
+```bash
+read -rs T; S=https://synthetic-monitoring-api-<region>.grafana.net
+sm() { printf 'Authorization: Bearer %s\n' "$T" | curl -sS --fail-with-body -H @- -H 'Content-Type: application/json' "$@"; }
+sm "$S/api/v1/probe/list" | jq -r '.[] | select(.public) | "\(.id)\t\(.region)\t\(.name)\t\(.countryCode // .country // "")"'
+```
+
+Pick two EU probes in different countries from that list (for example Frankfurt and Amsterdam), then:
+
+```bash
+P='[<id1>,<id2>]'
+for f in grafana/synthetic-*.check.json; do
+  jq --argjson p "$P" '.probes = $p' "$f" | sm -X POST "$S/api/v1/check/add" --data-binary @- && echo
+done
+unset T
+```
+
+`check/add` is not idempotent: a second run fails on the duplicate job and target. To change a check, list it
+(`GET /api/v1/check/list`), then `POST /api/v1/check/update` with the same body plus its `id` and `tenantId`. Then
+apply the rule with the Grafana API as under [Memory alerts](#memory-alerts):
+`api PUT /api/v1/provisioning/folder/platform/rule-groups/synthetic-uptime grafana/synthetic-uptime.rules.json`.
+Check: the checks show Up in Synthetics, and `probe_success{job="tbd-prod-health"}` returns 1 in Explore. Delete the
+SM token afterwards (Config > Access tokens). To test the alert, silence nothing: set one check's target to a 404 path
+via the UI for 10 minutes, expect the mail, then re-apply nothing (the UI edit is overwritten by the next update).
+
 ### Upsize: snapshot to a larger bundle
 
 Lightsail cannot resize an instance: the path is a snapshot and a new instance from it on a larger bundle. The disk

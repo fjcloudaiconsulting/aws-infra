@@ -1,0 +1,69 @@
+{
+  "title": "synthetic-uptime",
+  "interval": 60,
+  "rules": [
+    {
+      "uid": "synthetic-uptime-down",
+      "title": "ProdEndpointDown",
+      "folderUID": "platform",
+      "ruleGroup": "synthetic-uptime",
+      "orgID": 1,
+      "condition": "B",
+      "data": [
+        {
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "grafanacloud-prom",
+          "model": {
+            "refId": "A",
+            "expr": "avg by (job, instance) (avg_over_time(probe_success{job=~\"tbd-prod-health|ziftbook-prod-health\"}[6m]))",
+            "instant": true,
+            "range": false
+          }
+        },
+        {
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "B",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    0.5
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "for": "2m",
+      "noDataState": "Alerting",
+      "execErrState": "Alerting",
+      "labels": {
+        "severity": "critical",
+        "component": "uptime"
+      },
+      "annotations": {
+        "summary": "Synthetic checks report {{ $labels.instance }} failing from at least half of the probes over the last 6 minutes (or the check reports nothing). Cloudflare, Traefik or the app is down; see the Synthetic uptime runbook.",
+        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#synthetic-uptime"
+      },
+      "notification_settings": {
+        "receiver": "owner-email",
+        "group_wait": "30s",
+        "repeat_interval": "4h"
+      }
+    }
+  ]
+}
