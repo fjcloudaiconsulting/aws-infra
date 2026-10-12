@@ -38,13 +38,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.295.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.296.0
           ports:
             - containerPort: 3000
           env:
             - name: HOSTNAME
               value: 0.0.0.0
-            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
+            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through the Cloudflare Tunnel.
             - name: BACKEND_INTERNAL_URL
               value: http://backend:8000
             # Access-log client IP, as in backend.yaml and tbd-prod (INFRA-97); images before that tbd release ignore it.

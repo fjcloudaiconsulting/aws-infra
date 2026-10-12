@@ -54,8 +54,9 @@ locals {
     # TBD on the k3s node (INFRA-48): proxied, so clients see Cloudflare and Cloudflare reaches the node through
     # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update.
     app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
-    # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Same path as `app`.
-    dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
+    # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). On the Hetzner cluster since
+    # INFRA-173: the Cloudflare Tunnel (tunnel.tf), which needs the proxied CNAME to <tunnel id>.cfargotunnel.com.
+    dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "${cloudflare_zero_trust_tunnel_cloudflared.hetzner_k3s.id}.cfargotunnel.com", ttl = 1, proxied = true }
 
     # Mailgun sending domain m.thebetterdecision.com (EU).
     mailgun_mx_a     = { name = "m.thebetterdecision.com", type = "MX", content = "mxa.eu.mailgun.org", priority = 10, ttl = 300 }

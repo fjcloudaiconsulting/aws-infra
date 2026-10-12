@@ -12,6 +12,10 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "hetzner_k3s" {
   config = {
     ingress = [
       # Hostname rules (hostname + path -> http://<svc>.<ns>.svc.cluster.local:<port>) are added per environment in the move tickets, next to the DNS change.
+      # First match wins. `path` is a regex; these mirror the old Traefik PathPrefix routes.
+      # TBD staging (INFRA-173): API, health and readiness to the backend, everything else to the frontend.
+      { hostname = "dev.thebetterdecision.com", path = "^/(api|health|ready)", service = "http://backend.tbd-staging.svc.cluster.local:8000" },
+      { hostname = "dev.thebetterdecision.com", service = "http://frontend.tbd-staging.svc.cluster.local:3000" },
       { service = "http_status:404" },
     ]
   }

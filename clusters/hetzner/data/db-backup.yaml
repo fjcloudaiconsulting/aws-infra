@@ -3,10 +3,10 @@
 # Each dump init container exits 0 and writes <set>.ok (its upload list) only when its dump verifies;
 # upload sends each verified set dump, grants, manifest (manifest last, so the probe sees only complete
 # nights) and fails the Job if a set is missing. Run now: kubectl -n data create job --from=cronjob/db-backup db-backup-manual
-# Hetzner (INFRA-171): suspended with DUMP_SETS empty until the first environment moves. The set prefixes are shared with
-# clusters/platform, so a set uploaded from here before its data moves would put an empty dump in front of the live one,
-# and a running Job with no sets fails every night (upload.sh refuses an empty list). Each move ticket adds its set here,
-# drops it from clusters/platform's DUMP_SETS in the same PR, and unsuspends on the first one.
+# Hetzner (INFRA-171): DUMP_SETS lists only the sets whose data lives on this cluster. The set prefixes are shared with
+# clusters/platform, so a set uploaded from here before its data moves would put an empty dump in front of the live one.
+# Each move ticket adds its set here and drops it from clusters/platform's DUMP_SETS in the same PR (tbd-staging-mysql
+# first, INFRA-173). Dumps of the not-yet-moved databases fail softly and are never uploaded.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -103,8 +103,7 @@ metadata:
   name: db-backup
   namespace: data
 spec:
-  # See the top of this file: no environment lives on this cluster yet.
-  suspend: true
+  suspend: false
   # Probe reads at 04:17 UTC.
   schedule: "0 2 * * *"
   timeZone: Etc/UTC
@@ -272,9 +271,9 @@ spec:
               env:
                 - name: HOME
                   value: /tmp
-                # Empty until an environment moves (see the top of this file); clusters/platform uploads all four today.
+                # Only the sets that live here (see the top of this file); clusters/platform uploads the rest.
                 - name: DUMP_SETS
-                  value: ""
+                  value: tbd-staging-mysql
                 - name: BUCKET
                   value: tbd-mysql-backups-884686184019
                 - name: KMS_KEY_ARN

@@ -52,7 +52,7 @@ A TBD release reaches `tbd-staging` by itself (INFRA-91): Renovate pushes `renov
 CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Production is the separate `tbd images` PR.
 
 1. After the release run's `promote` job is green, wait for the staging bump on `main`
-   (`git log origin/main -3 -- clusters/platform/tbd-staging`). Tick "run again" on the Dependency Dashboard to force it.
+   (`git log origin/main -3 -- clusters/*/tbd-staging`). Tick "run again" on the Dependency Dashboard to force it.
 2. Check staging runs the tag: `curl -s https://dev.thebetterdecision.com/health` reports the new version.
 3. Merge the `tbd images` PR for `tbd-prod` once `Kubernetes checks` is green: its step `prod tags not ahead of staging` (INFRA-89) fails while the PR's tags are newer than `tbd-staging` on its tree. Update its branch if it is behind.
 4. A release broken on staging is fixed forward: do not merge the prod PR, release the fix; a newer tag replaces the PR.
@@ -177,7 +177,7 @@ Run from the repo root in bash or zsh (no comments inside the commands: an inter
 one). The first block prints `exit 0` and nothing else; `exit 1` alone means no password was extracted and nothing ran.
 
 ```sh
-PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/platform/tbd-staging/tbd.secret.yaml \
+PW=$(sops -d --extract '["stringData"]["database-url"]' clusters/hetzner/tbd-staging/tbd.secret.yaml \
   | sed -E 's#^mysql\+aiomysql://tbd_staging:([0-9a-f]+)@.*#\1#')
 [[ $PW =~ ^[0-9a-f]{64}$ ]] && sed "s/@PW@/$PW/g" <<'SQL' | kubectl -n data exec -i mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
 CREATE DATABASE IF NOT EXISTS tbd_staging;
