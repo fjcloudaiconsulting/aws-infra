@@ -19,20 +19,26 @@ unattended upgrades without reboot, key-only SSH), `db_storage` on db-1, then th
 
 - Run every command from this directory (`ansible/`), so `ansible.cfg` applies.
 - ansible-core 2.21 (CI pins 2.21.5), the Python `netaddr` library (`k3s.orchestration` uses `ansible.utils.ipwrap`),
-  `sops`, and the owner age key (`export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt`).
+  `sops`, and the Ansible age key: `export SOPS_AGE_KEY_FILE=~/.config/sops/age/ansible-hetzner.txt`. The owner's
+  cluster key is never needed for Ansible.
+- `kubectl` on this machine. The k3s play checks it first: without it the collection silently skips fetching the
+  admin kubeconfig.
 - `ansible-galaxy collection install -r requirements.yml` (installs into the git-ignored `collections/`).
 - The deploy key at `~/.ssh/fjc-hetzner-deploy`.
 - `inventory.yaml` holds real addresses: replace each `192.0.2.x` placeholder with that server's primary IPv4
   (`terraform/hetzner` outputs). The first play fails while any placeholder is left.
 
-Never pass `-v` (or more) on a k3s run: the collection handles the token in task arguments. The k3s play has
-`diff: false` so `--diff` cannot print it.
+The collection handles the token in task arguments. The `k3s_server` role runs with `no_log` (so `-v` shows
+`censored` for it) and the k3s play has `diff: false` (so `--diff` cannot print it). `-e k3s_no_log=false` lifts
+`no_log` to debug a failing role; never share that output.
 
 ## The k3s token
 
-`secrets.sops.yaml` holds `k3s_token`, encrypted to the owner age key only (`.sops.yaml`). It is decrypted lazily,
-only when a k3s task needs it. A separate Ansible age key comes with the first non-owner machine that must decrypt
-(INFRA-180). To rotate it on a fresh cluster only (a live cluster's token cannot simply be swapped):
+`secrets.sops.yaml` holds `k3s_token`, encrypted to two age keys (`.sops.yaml`): the owner key and the Ansible key
+(`~/.config/sops/age/ansible-hetzner.txt` on the operator laptop, which decrypts only `ansible/`). INFRA-180 adds a CI
+recipient. It is decrypted lazily, only when a k3s task needs it. A lost Ansible key: make a new one, swap its public
+key into `.sops.yaml`, then `sops updatekeys ansible/secrets.sops.yaml` with the owner key. To rotate the token itself,
+on a fresh cluster only (a live cluster's token cannot simply be swapped):
 `openssl rand -hex 32 | sed 's/^/k3s_token: /' | sops encrypt --filename-override ansible/secrets.sops.yaml > ansible/secrets.sops.yaml`
 from the repo root. Never print it.
 
@@ -55,6 +61,12 @@ The first bootstrap runs the three servers as one batch, because the collection'
 has joined, which a one-host batch can never satisfy on an empty cluster. Every later run is `serial: 1`.
 
 The collection restarts k3s on every server on every run, one at a time. Expect a short API blip per node.
+
+Quorum guard: before restarting a server that has etcd data, the play checks that every server is in the run (none
+failed or was unreachable in an earlier play, none left out by `--limit`) and that `kubectl get nodes` shows every
+server Ready. Otherwise it stops before any restart, since restarting one member while another is down leaves etcd
+at 1 of 3. So steady-state runs always cover all three servers; only a rebuilt node (no etcd data yet) runs alone.
+After each restart it waits for that node's own `/readyz/etcd`, then for the node to be Ready.
 
 ## First bootstrap
 
@@ -86,12 +98,16 @@ Rebuild means Terraform replaces the server (`terraform apply -replace='hcloud_s
 the primary IP and private IP stay. Etcd keeps quorum with two of three servers, so rebuild one node at a time and
 wait for it to be Ready before touching another.
 
-Before the replace, from a working node: `k3s kubectl drain <name> --ignore-daemonsets --delete-emptydir-data`, then
-`k3s kubectl delete node <name>`. Deleting the node removes its etcd member and its node-password secret, so the
-rebuilt node can join under the same name.
+The order matters: stop k3s on the old node before deleting its Node object. Deleting the Node removes its etcd
+member and its node-password secret; a k3s that is still running (or restarts) on the old node re-registers and
+rejoins as a stale member, and the rebuilt node then hits a node-password conflict.
 
-After the replace: `ssh-keygen -R <public ip>`, accept the new host key, then
-`ansible-playbook site.yml --limit <name>` (never with `k3s_bootstrap`).
+1. From a working node: `k3s kubectl drain <name> --ignore-daemonsets --delete-emptydir-data`.
+2. On the OLD node: `systemctl disable --now k3s && /usr/local/bin/k3s-killall.sh`.
+3. From a working node: `k3s kubectl delete node <name>`.
+4. Replace the server in TFC.
+5. `ssh-keygen -R <public ip>`, accept the new host key, then `ansible-playbook site.yml --limit <name>` (never with
+   `k3s_bootstrap`). The rebuilt node has no etcd data, so the quorum guard lets it run alone; it joins a live peer.
 
 ### App node (node-2)
 
@@ -108,20 +124,22 @@ The volume holds the database files and survives the rebuild; it must be unmount
 goes away.
 
 1. Scale the database StatefulSets in `data` to 0 and wait for the pods to go.
-2. Drain and delete the node as above.
-3. On db-1: `systemctl stop k3s && /usr/local/bin/k3s-killall.sh`, then `umount /var/lib/rancher/k3s/storage`
-   (`findmnt /var/lib/rancher/k3s/storage` prints nothing).
-4. Replace the server in TFC (the attachment follows the new server).
-5. `ansible-playbook site.yml --limit db-1`. The play finds the volume, mounts it by its filesystem UUID and installs
-   the k3s mount guard before k3s is installed.
-6. Scale the StatefulSets back up; the local-path volumes are pinned to node `db-1` and come back with their data.
+2. Drain db-1 (step 1 above).
+3. On the old db-1: `systemctl disable --now k3s && /usr/local/bin/k3s-killall.sh`, then
+   `umount /var/lib/rancher/k3s/storage` (`findmnt /var/lib/rancher/k3s/storage` prints nothing).
+4. `k3s kubectl delete node db-1` from a working node.
+5. Replace the server in TFC (the attachment follows the new server).
+6. `ssh-keygen -R <public ip>`, then `ansible-playbook site.yml --limit db-1`. The play finds the volume, mounts it by
+   its filesystem UUID and installs the k3s mount guard before k3s is installed.
+7. Scale the StatefulSets back up; the local-path volumes are pinned to node `db-1` and come back with their data.
 
 ## Volume-missing drill (db-1)
 
 What it proves: without the volume, k3s on db-1 does not start, so the databases cannot initialise empty data dirs
 on the root disk.
 
-1. Do the db-1 steps 1 to 3 above (databases at 0, node drained, k3s stopped, volume unmounted).
+1. Scale the database StatefulSets in `data` to 0, drain db-1, then on db-1
+   `systemctl stop k3s && /usr/local/bin/k3s-killall.sh` and `umount /var/lib/rancher/k3s/storage`. Keep the Node object.
 2. Detach the volume (Hetzner console or `hcloud volume detach fjc-db`).
 3. `systemctl start k3s` fails with a dependency error after the device timeout (about 90 s);
    `systemctl status k3s` names `var-lib-rancher-k3s-storage.mount`.

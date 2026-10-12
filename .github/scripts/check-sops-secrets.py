@@ -69,8 +69,8 @@ def main(roots):
         for root in roots
         for p in pathlib.Path(root).rglob("*")
         if p.suffix.lower() in (".yaml", ".yml", ".json")
-        # Third-party Ansible collections installed (git-ignored) under ansible/collections.
-        and "collections" not in p.relative_to(root).parts
+        # Third-party collections installed (git-ignored) by ansible-galaxy and ansible-lint at the root only.
+        and p.relative_to(root).parts[0] not in ("collections", ".ansible")
     )
     for path in files:
         for p in problems(path):

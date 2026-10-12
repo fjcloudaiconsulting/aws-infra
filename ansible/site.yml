@@ -35,16 +35,49 @@
   # The collection writes the token into config.yaml; no diff may print it.
   diff: false
   pre_tasks:
-    - name: The private NIC carries the private IP
-      ansible.builtin.assert:
-        that: ansible_facts[k3s_private_iface].ipv4.address | default('') == private_ip
-        fail_msg: "{{ k3s_private_iface }} does not carry {{ private_ip }} on {{ inventory_hostname }}; set k3s_private_iface."
-        quiet: true
+    # Without kubectl here the collection silently skips fetching the admin kubeconfig.
+    - name: Kubectl is installed on this machine
+      run_once: true
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command: kubectl version --client
+      changed_when: false
+      check_mode: false
 
     - name: Look for existing etcd data
       ansible.builtin.stat:
         path: /var/lib/rancher/k3s/server/db/etcd
       register: k3s_etcd_dir
+
+    # Quorum guard: restarting an etcd member while another server is down or out of the run drops etcd to 1 of 3.
+    # ansible_play_hosts drops hosts that failed or were unreachable in any earlier play.
+    - name: Every server is in this run and reachable
+      when: k3s_etcd_dir.stat.exists
+      ansible.builtin.assert:
+        that: groups['server'] | difference(ansible_play_hosts) | length == 0
+        fail_msg: >-
+          Not restarting {{ inventory_hostname }}: {{ groups['server'] | difference(ansible_play_hosts) | join(', ') }}
+          failed, was unreachable or was left out by --limit. Fix that server first; only a rebuilt node (no etcd data) runs alone.
+
+    - name: Read the server nodes' Ready status
+      when: k3s_etcd_dir.stat.exists
+      ansible.builtin.command: >-
+        k3s kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
+      register: k3s_nodes_ready
+      changed_when: false
+      check_mode: false
+
+    - name: Every server node is Ready
+      when: k3s_etcd_dir.stat.exists
+      ansible.builtin.assert:
+        that: groups['server'] | map('regex_replace', '$', '=True') | difference(k3s_nodes_ready.stdout_lines) | length == 0
+        fail_msg: "Not restarting {{ inventory_hostname }}: not every server is Ready ({{ k3s_nodes_ready.stdout_lines | join(', ') }})."
+
+    - name: The private NIC carries the private IP
+      ansible.builtin.assert:
+        that: ansible_facts[k3s_private_iface].ipv4.address | default('') == private_ip
+        fail_msg: "{{ k3s_private_iface }} does not carry {{ private_ip }} on {{ inventory_hostname }}; set k3s_private_iface."
+        quiet: true
 
     # Split-brain guard: cluster-init on an empty disk starts a second, separate cluster.
     - name: Bootstrap only an empty cluster, with every server in the run
@@ -52,7 +85,7 @@
       run_once: true
       ansible.builtin.assert:
         that:
-          - ansible_play_hosts_all | sort == groups['server'] | sort
+          - ansible_play_hosts | sort == groups['server'] | sort
           - groups['server'] | map('extract', hostvars, ['k3s_etcd_dir', 'stat', 'exists']) | select | list | length == 0
         fail_msg: >-
           k3s_bootstrap=true is only for the first bootstrap: run it without --limit and only while no server
@@ -91,24 +124,29 @@
 
   roles:
     - role: k3s.orchestration.prereq
+    # The role passes the token through task arguments and set_fact results; -v would print them.
+    # -e k3s_no_log=false to debug a failing role (and then never share the output).
     - role: k3s.orchestration.k3s_server
+      no_log: "{{ k3s_no_log | default(true) }}"
 
   post_tasks:
+    # Both gates, in this order: node Ready alone can be a stale status (about 40 s) from before the restart,
+    # while /readyz/etcd comes from this node's own, restarted apiserver (k3s kubectl talks to 127.0.0.1).
+    - name: Wait for this node's etcd to be healthy
+      when: not ansible_check_mode
+      ansible.builtin.command: k3s kubectl get --raw /readyz/etcd
+      register: k3s_etcd_ready
+      until: k3s_etcd_ready.rc == 0 and k3s_etcd_ready.stdout == 'ok'
+      retries: 30
+      delay: 10
+      changed_when: false
+
     - name: Wait for this node to be Ready
       when: not ansible_check_mode
       ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=30s
       register: k3s_node_ready
       until: k3s_node_ready.rc == 0
       retries: 20
-      delay: 10
-      changed_when: false
-
-    - name: Wait for etcd to be healthy
-      when: not ansible_check_mode
-      ansible.builtin.command: k3s kubectl get --raw /readyz/etcd
-      register: k3s_etcd_ready
-      until: k3s_etcd_ready.rc == 0 and k3s_etcd_ready.stdout == 'ok'
-      retries: 30
       delay: 10
       changed_when: false
 

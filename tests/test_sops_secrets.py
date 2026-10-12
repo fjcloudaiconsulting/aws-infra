@@ -207,6 +207,19 @@ class SopsSecrets(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("x.sops.yaml", r.stdout)
 
+    def test_only_root_collections_dir_is_skipped(self):
+        # fence: kills an exclusion that skips any directory named collections.
+        self.assertFails(
+            {"c/collections/x.sops.yaml": "k3s_token: hunter2\n" + SOPS_TAIL},
+            "k3s_token is not encrypted",
+        )
+
+    def test_root_collections_and_ansible_dirs_are_skipped(self):
+        # guard: installed third-party collections under <root>/collections and <root>/.ansible.
+        r = run({"collections/a/x.sops.yaml": "k3s_token: hunter2\n",
+                 ".ansible/collections/b/y.sops.yaml": "k3s_token: hunter2\n"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_empty_value_left_by_sops_passes(self):
         # guard (inverse defect): sops leaves "" unencrypted; that is not a leak.
         r = run({"x.secret.yaml": SECRET_HEAD

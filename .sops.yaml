@@ -3,6 +3,9 @@ creation_rules:
   - path_regex: ^clusters/.*\.secret\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age1e7q279sydk4n4kvpgldzadq3e9r9det9tnrnv33kyk9wdlq47vvsvd3wap
-  # Ansible secrets (INFRA-64): owner key only until a non-owner machine must decrypt (INFRA-180).
+  # Ansible secrets (INFRA-64): the owner key plus the Ansible key (operator laptop,
+  # ~/.config/sops/age/ansible-hetzner.txt), so Ansible runs never need the cluster key.
   - path_regex: ^ansible/.*\.sops\.yaml$
-    age: age1e7q279sydk4n4kvpgldzadq3e9r9det9tnrnv33kyk9wdlq47vvsvd3wap
+    age: >-
+      age1e7q279sydk4n4kvpgldzadq3e9r9det9tnrnv33kyk9wdlq47vvsvd3wap,
+      age17qhastngyg92087fzfsq0u052eaej9saa2u2qw9frqnxefqn24dq5puszz
