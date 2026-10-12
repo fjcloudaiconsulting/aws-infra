@@ -1,0 +1,127 @@
+# Cloudflare Tunnel connectors for tunnel hetzner-k3s (terraform/cloudflare/tunnel.tf, INFRA-170): the cluster's only
+# ingress. Remotely managed: the hostname -> Service rules live in that Terraform config, not here; this only runs the
+# connectors. Two replicas on different app nodes, so a node loss or drain keeps one connected (each opens 4
+# connections to two Cloudflare data centres).
+# Token: Secret cloudflared-token (key TUNNEL_TOKEN, file cloudflared-token.secret.yaml next to this one), written by the
+# owner from the Terraform output without displaying it (docs/runbooks.md, Hetzner cluster bootstrap). Until it exists
+# the pods sit in CreateContainerConfigError; nothing else depends on them yet.
+# Metrics and /ready listen on :2000; the NetworkPolicy admits no ingress (kubelet probes are node-local).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  replicas: 2
+  # Required anti-affinity on two app nodes leaves no room for a surge pod: replace one at a time instead.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values: [app]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: cloudflared
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # nonroot in the image
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          # Docker Hub's cloudflare/cloudflared through Google's pull-through mirror (same digest; INFRA-152).
+          image: mirror.gcr.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+          # The image's entrypoint is `cloudflared --no-autoupdate`; `tunnel run` reads the token from TUNNEL_TOKEN.
+          args: [tunnel, --no-autoupdate, --metrics, 0.0.0.0:2000, run]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-token
+                  key: TUNNEL_TOKEN
+          ports:
+            - name: metrics
+              containerPort: 2000
+          # /ready is 200 once at least one connection to Cloudflare is up.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+---
+# No ingress. Egress: DNS and the origin Services inside the cluster (each app namespace's own NetworkPolicy decides
+# whether cloudflared may reach it), and Cloudflare's edge on 7844 (QUIC, TCP fallback) and 443 (API), except
+# instance metadata.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector: {}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+      ports:
+        - protocol: UDP
+          port: 7844
+        - protocol: TCP
+          port: 7844
+        - protocol: TCP
+          port: 443
