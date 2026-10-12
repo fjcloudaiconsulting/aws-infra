@@ -1,6 +1,6 @@
-# Ingress to tbd-staging is deny-by-default: tbd-prod/networkpolicy.yaml, plus the staging Valkey, which only the
-# backend reaches. Egress is open except instance metadata. data/networkpolicy.yaml admits this namespace to MySQL only
-# (never to data/valkey). Node-local traffic bypasses these policies (see data/networkpolicy.yaml).
+# Ingress to tbd-staging is deny-by-default. The only way in is the Cloudflare Tunnel (cloudflared namespace, INFRA-173;
+# no Traefik on this cluster); the frontend also calls the backend. Egress is open except instance metadata.
+# data/networkpolicy.yaml admits this namespace to MySQL only. Node-local traffic bypasses these policies.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -24,10 +24,10 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
+              kubernetes.io/metadata.name: cloudflared
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: traefik
+              app: cloudflared
       ports:
         - port: 3000
 ---
@@ -45,33 +45,15 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
+              kubernetes.io/metadata.name: cloudflared
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: traefik
+              app: cloudflared
         - podSelector:
             matchLabels:
               app: frontend
       ports:
         - port: 8000
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: valkey
-  namespace: tbd-staging
-spec:
-  podSelector:
-    matchLabels:
-      app: valkey
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: backend
-      ports:
-        - port: 6379
 ---
 # Pods are listed separately because ipBlock is meant for addresses outside the cluster.
 apiVersion: networking.k8s.io/v1

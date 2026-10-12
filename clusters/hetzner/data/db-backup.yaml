@@ -104,7 +104,7 @@ metadata:
   namespace: data
 spec:
   # See the top of this file: no environment lives on this cluster yet.
-  suspend: true
+  suspend: false
   # Probe reads at 04:17 UTC.
   schedule: "0 2 * * *"
   timeZone: Etc/UTC
@@ -274,7 +274,7 @@ spec:
                   value: /tmp
                 # Empty until an environment moves (see the top of this file); clusters/platform uploads all four today.
                 - name: DUMP_SETS
-                  value: ""
+                  value: tbd-staging-mysql
                 - name: BUCKET
                   value: tbd-mysql-backups-884686184019
                 - name: KMS_KEY_ARN
