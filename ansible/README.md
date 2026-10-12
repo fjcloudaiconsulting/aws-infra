@@ -90,7 +90,11 @@ After each restart it waits for that node's own `/readyz/etcd`, then for the nod
 1. Merge the change first.
 2. `git switch main && git pull` and note the SHA.
 3. `ansible-playbook site.yml --check --diff`, read it.
-4. `ansible-playbook site.yml` (no `-e k3s_bootstrap`).
+4. `ansible-playbook site.yml` (no `-e k3s_bootstrap`). It leaves k3s alone on every server that already has etcd
+   data, so a re-run changes nothing (`changed=0`). The pinned collection restarts every running server whenever it
+   runs, so it runs only for a bootstrap, a new or rebuilt node, or a k3s settings change
+   (`group_vars` k3s keys): then add `-e k3s_reconfigure=true`, which restarts the servers one at a time behind the
+   quorum guard. k3s versions move through system-upgrade-controller (INFRA-179), not this playbook.
 5. Paste the `PLAY RECAP` into the PR with the SHA.
 
 ## Rebuilding one node
