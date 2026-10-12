@@ -8,10 +8,10 @@ on:
   push:
     branches: [main]
     paths:
-      - clusters/platform/tbd-prod/**
-      - clusters/platform/tbd-staging/**
-      - clusters/platform/ziftbook-staging/**
-      - clusters/platform/ziftbook-prod/**
+      - clusters/*/tbd-prod/**
+      - clusters/*/tbd-staging/**
+      - clusters/*/ziftbook-staging/**
+      - clusters/*/ziftbook-prod/**
   workflow_dispatch:
     inputs:
       namespace:
@@ -48,7 +48,7 @@ jobs:
             # paths both count (a rename out of a namespace). Anything unreadable, or nothing found, means all.
             list="$(gh api "repos/$GH_REPO/compare/$BEFORE...$AFTER" \
                       --jq '.files[] | .filename, (.previous_filename // empty)' \
-                    | sed -nE 's#^clusters/platform/([^/]+)/.*#\1#p' | sort -u | grep -xE "${all// /|}")" || list=""
+                    | sed -nE 's#^clusters/[^/]+/([^/]+)/.*#\1#p' | sort -u | grep -xE "${all// /|}")" || list=""
           fi
           [[ -n "$list" ]] || list="$all"
           # $list unquoted on purpose: one namespace per line.
