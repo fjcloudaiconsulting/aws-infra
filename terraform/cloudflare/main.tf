@@ -207,16 +207,13 @@ resource "cloudflare_dns_record" "tbd_ping" {
   proxied = true
 }
 
-# Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). Under
-# strict, Traefik must serve an Origin CA cert that covers ziftbook.com, or this host answers 526
-# (the apex and www are a Worker and do not use the origin). Same node IP as ping above.
-# The zone was read 2026-10-03 as ssl = full, ssl_automatic_mode = auto: auto re-scans and could move the mode
-# back, so it is pinned to custom first. Merge the origin-cert secret before approving this apply.
+# Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). On the Hetzner cluster
+# since INFRA-173: the Cloudflare Tunnel (tunnel.tf), which needs the proxied CNAME to <tunnel id>.cfargotunnel.com.
 resource "cloudflare_dns_record" "ziftbook_dev" {
   zone_id = data.cloudflare_zone.ziftbook.id
   name    = "dev.ziftbook.com"
-  type    = "A"
-  content = "52.57.109.122"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.hetzner_k3s.id}.cfargotunnel.com"
   ttl     = 1 # automatic, required for proxied records
   proxied = true
 }

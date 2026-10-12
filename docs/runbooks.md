@@ -59,7 +59,7 @@ CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Produc
 
 ## Post-deploy smoke
 
-Every push to `main` that changes `clusters/platform/tbd-prod/`, `clusters/platform/ziftbook-staging/` or `clusters/platform/ziftbook-prod/` runs the
+Every push to `main` that changes `clusters/*/tbd-prod/`, `clusters/*/tbd-staging/`, `clusters/*/ziftbook-staging/` or `clusters/*/ziftbook-prod/` runs the
 **Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
 reaches the apps through Cloudflare like a user. Per namespace:
 
@@ -154,7 +154,7 @@ staging file (owner, needs `SOPS_AGE_KEY_FILE`); it prints `1`:
 set -euo pipefail
 export SOPS_AGE_KEY_FILE=<path to the key file>
 G=clusters/platform/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
-sops -d clusters/platform/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
+sops -d clusters/hetzner/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
   | sed -E 's#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
   | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G.tmp" && mv "$G.tmp" "$G"
 sops -d "$G" | grep -c 'namespace: ziftbook-prod$'
@@ -281,7 +281,7 @@ reporting, and the tracking CNAME `email.m` to `eu.mailgun.org`.
 2. Write the key to a new Secret `<app>-mailgun` (key `api-key`) in the environment's namespace, as in the Secret
    section. Then wire the app's env to it, with the app's own setting names: Ziftbook uses `ZIF_MAILGUN_DOMAIN`,
    `ZIF_MAILGUN_REGION` (eu) and `ZIF_MAILGUN_API_KEY` from `secretKeyRef ziftbook-mailgun/api-key` (see
-   [`clusters/platform/ziftbook-staging/worker.yaml`](../clusters/platform/ziftbook-staging/worker.yaml)).
+   [`clusters/hetzner/ziftbook-staging/worker.yaml`](../clusters/hetzner/ziftbook-staging/worker.yaml)).
 
 **Add a production domain:**
 
@@ -472,10 +472,10 @@ openssl x509 -in terraform/cloudflare/origin-pull/$G.crt -noout -enddate   # the
 
 ```sh
 export KUBECONFIG=~/.kube/platform
-curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/                 # 200: our zones pass
+curl -sSL -o /dev/null -w '%{http_code}\n' https://app.ziftbook.com/                 # 200: our zones pass
 curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the thebetterdecision.com zone passes too
 kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
-  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to dev.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://dev.ziftbook.com/
+  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to app.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://app.ziftbook.com/
 # 000 and a "curl: (56)" error (handshake refused; the verify-result text is about the server cert): enforced.
 # Any HTTP code (307, 200, 404) means the origin accepts clients without our certificate.
 ```

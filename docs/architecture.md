@@ -73,7 +73,8 @@ flowchart LR
 Proxied hostnames go through Cloudflare to the node's static IP: `ping.thebetterdecision.com` and, since the
 INFRA-48 cutover, `app.thebetterdecision.com` (TBD production, a proxied CNAME to `ping`). The thebetterdecision.com zone is in Full
 (strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. ziftbook.com is in Full
-(strict) too, with `dev.ziftbook.com` (Ziftbook staging) as its one proxied host on the node. An Origin CA
+(strict) too, with `app.ziftbook.com` (Ziftbook production) on the node; `dev.ziftbook.com` (staging) goes through the
+Hetzner cluster's Cloudflare Tunnel since INFRA-173. An Origin CA
 certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the
 default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
 [runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
