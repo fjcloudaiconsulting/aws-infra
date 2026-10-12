@@ -1,0 +1,12 @@
+# The Grafana Cloud Secret (../grafana-cloud.secret.yaml) stays outside this directory: Flux picks it up on its own,
+# so a missing Secret leaves only the Alloy pod waiting instead of failing the whole flux-system build.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - alloy.yaml
+# The name gets a content hash, so a config change rolls the DaemonSet (Alloy does not reload a changed file).
+configMapGenerator:
+  - name: alloy-config
+    namespace: observability
+    files:
+      - config.alloy

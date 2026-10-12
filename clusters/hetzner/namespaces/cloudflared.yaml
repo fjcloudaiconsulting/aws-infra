@@ -1,0 +1,7 @@
+# The Cloudflare Tunnel connectors (INFRA-170, INFRA-171): the cluster's only ingress. No Traefik and no open 443 here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

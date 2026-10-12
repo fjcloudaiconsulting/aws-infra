@@ -9,7 +9,7 @@ The settings each step depends on, and what to check when one breaks, are in
 1. **Build once.** Every merge to an app's `main` builds images tagged `sha-<7>`. A release never rebuilds: it adds
    the tag `vX.Y.Z` to the image that was already built and tested.
 2. **A release is not a deploy.** Deploying means changing an image tag in this repo (`clusters/platform/<app>-<env>/`).
-   Flux applies whatever `main` of aws-infra says, so git is the record of what runs where (Flux in Argo CD terms:
+   Flux applies whatever `main` of cloud-infra says, so git is the record of what runs where (Flux in Argo CD terms:
    [runbooks.md, Follow Flux and rollouts](runbooks.md#follow-flux-and-rollouts)).
 3. **Staging follows releases on its own.** Renovate sees the new tag and moves the staging manifests to it, with no PR
    and no human. Proven for Ziftbook (v0.22.0); configured the same for TBD (INFRA-91) but not yet run by a TBD release.
@@ -32,7 +32,7 @@ flowchart TD
 
     F --> G["Renovate sees vX.Y.Z on GHCR"]
 
-    subgraph infra["aws-infra"]
+    subgraph infra["cloud-infra"]
         G --> H["Branch renovate/&lt;app&gt;-staging-*<br/>bumps clusters/platform/&lt;app&gt;-staging"]
         H --> I{"CI green<br/>on the branch?"}
         I -- yes --> J["Renovate merges the branch into main<br/>(no PR)"]
@@ -68,7 +68,7 @@ sequenceDiagram
     participant App as App repo CI
     participant GHCR
     participant Ren as Renovate
-    participant Infra as aws-infra main
+    participant Infra as cloud-infra main
     participant Flux
     participant Stg as staging (dev.)
     participant Prod as production (app.)
@@ -96,11 +96,11 @@ sequenceDiagram
 | Build `sha-` images, keep the release PR up to date | CI, release-please | App repo |
 | Merge the release PR | You | App repo, PR titled `chore(main): release X.Y.Z` |
 | Tag, GitHub release, retag images as `vX.Y.Z`, release smoke | CI | App repo |
-| Bump staging and merge it | Renovate (branch automerge) | aws-infra, branch `renovate/<app>-staging-*` |
+| Bump staging and merge it | Renovate (branch automerge) | cloud-infra, branch `renovate/<app>-staging-*` |
 | Roll out staging | Flux | Cluster, `<app>-staging` |
-| Open the production bump PR | Renovate | aws-infra, branch `renovate/ziftbook-prod-*` (TBD: `renovate/tbd-images`) |
-| Hold it until staging runs the version | CI, `prod tags not ahead of staging`; Renovate rebases the PR once the staging bump is on `main` (if it has not yet, use Update branch) | aws-infra |
-| Merge the production PR | You | aws-infra |
+| Open the production bump PR | Renovate | cloud-infra, branch `renovate/ziftbook-prod-*` (TBD: `renovate/tbd-images`) |
+| Hold it until staging runs the version | CI, `prod tags not ahead of staging`; Renovate rebases the PR once the staging bump is on `main` (if it has not yet, use Update branch) | cloud-infra |
+| Merge the production PR | You | cloud-infra |
 | Roll out production, smoke it from outside | Flux, post-deploy smoke | Cluster, `<app>-prod`; GitHub Actions |
 
 Only `feat`, `fix`, `perf`, `revert` and breaking-change commits make a release (Renovate's `fix(deps)` bumps of
@@ -131,7 +131,7 @@ health endpoint and the post-deploy smoke cover that (the smoke runs for `tbd-pr
 - **Staging runs but is broken:** do not merge the production PR. Fix forward with a new release. To keep a broken
   release out of the drift watch, mark its GitHub release as a prerelease.
 - **Production is broken after a merge:** prefer fixing forward. For an urgent rollback, revert the production bump
-  commit in aws-infra by PR (the older tag is still on GHCR, so Flux rolls back within minutes). A rollback across a
+  commit in cloud-infra by PR (the older tag is still on GHCR, so Flux rolls back within minutes). A rollback across a
   migration also needs the schema to accept the older code; check the release notes before reverting.
 - **Post-deploy smoke issue opened:** it names the failed step (converge, frontend or app smoke). The next full pass
   closes it. To re-run by hand: Actions > Post-deploy Smoke > Run workflow > namespace.

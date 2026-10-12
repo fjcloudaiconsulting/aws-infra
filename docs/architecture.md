@@ -57,7 +57,7 @@ flowchart LR
   hc --> cf
 
   subgraph control["Control plane"]
-    gh["GitHub fjcloudaiconsulting/aws-infra"]
+    gh["GitHub fjcloudaiconsulting/cloud-infra"]
     tfc["HCP Terraform (org FlamaCorp)<br/>AWS via OIDC roles, Cloudflare via API token"]
     ghcr["GHCR images"]
     probe["Freshness probe (GitHub Actions)"]
