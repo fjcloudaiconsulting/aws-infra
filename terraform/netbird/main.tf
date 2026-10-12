@@ -3,7 +3,8 @@
 # built-in group "All" and the account's disabled "Default" policy are NetBird's and stay unmanaged.
 
 locals {
-  # Peer names as shown in the dashboard (the peer's NB_HOSTNAME or the device's hostname).
+  # Peer names as shown in the dashboard (the peer's NB_HOSTNAME or the device's hostname), matched exactly. A deleted
+  # peer's name is free again: whatever enrols under it next joins the group, so remove names here when retiring a device.
   group_members = {
     owner_devices = ["arvore"]
     k3s           = ["platform-node"]
@@ -16,8 +17,8 @@ data "netbird_peer" "member" {
   name     = each.value
 }
 
-# Created in the dashboard, imported 2026-10-12. The dashboard name had a trailing space ("owner-devices "); the import
-# corrects it.
+# Created in the dashboard, imported 2026-10-12. The dashboard name had a trailing space ("owner-devices "); the first
+# apply corrects it.
 import {
   to = netbird_group.owner_devices
   id = "davnd72fadhs73fbp140"

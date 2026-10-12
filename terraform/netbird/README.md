@@ -5,7 +5,7 @@ groups and `owner-to-k3s-api` were made in the dashboard and imported on 2026-10
 
 | Resource | Notes |
 |---|---|
-| `netbird_group` `owner-devices` | The owner's devices (peer `arvore`). The dashboard name had a trailing space, fixed by the import |
+| `netbird_group` `owner-devices` | The owner's devices (peer `arvore`). The dashboard name had a trailing space, fixed by the first apply |
 | `netbird_group` `k3s` | Lightsail peer `platform-node` (`clusters/platform/netbird`) |
 | `netbird_group` `k3s-hetzner` | Hetzner peer `hetzner-k3s` (`clusters/hetzner/netbird`) |
 | `netbird_policy` `owner-to-k3s-api` | `owner-devices` -> `k3s`, TCP 6443, one way |
