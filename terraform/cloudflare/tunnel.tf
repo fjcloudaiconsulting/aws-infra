@@ -16,6 +16,8 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "hetzner_k3s" {
       # TBD staging (INFRA-173): API, health and readiness to the backend, everything else to the frontend.
       { hostname = "dev.thebetterdecision.com", path = "^/(api|health|ready)", service = "http://backend.tbd-staging.svc.cluster.local:8000" },
       { hostname = "dev.thebetterdecision.com", service = "http://frontend.tbd-staging.svc.cluster.local:3000" },
+      # Ziftbook staging (INFRA-173): everything to the frontend, which proxies /api/* to the backend (as the old IngressRoute).
+      { hostname = "dev.ziftbook.com", service = "http://frontend.ziftbook-staging.svc.cluster.local:3000" },
       { service = "http_status:404" },
     ]
   }

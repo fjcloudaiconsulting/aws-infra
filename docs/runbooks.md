@@ -59,11 +59,11 @@ CI runs on it and Renovate fast-forwards it into `main`; Flux applies it. Produc
 
 ## Post-deploy smoke
 
-Every push to `main` that changes `clusters/platform/tbd-prod/`, `clusters/platform/ziftbook-staging/` or `clusters/platform/ziftbook-prod/` runs the
+Every push to `main` that changes `clusters/*/tbd-prod/`, `clusters/*/tbd-staging/`, `clusters/*/ziftbook-staging/` or `clusters/*/ziftbook-prod/` runs the
 **Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
 reaches the apps through Cloudflare like a user. Per namespace:
 
-1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
+1. **Converge:** reads the backend tag from `clusters/<cluster>/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
    `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
@@ -154,7 +154,7 @@ staging file (owner, needs `SOPS_AGE_KEY_FILE`); it prints `1`:
 set -euo pipefail
 export SOPS_AGE_KEY_FILE=<path to the key file>
 G=clusters/platform/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
-sops -d clusters/platform/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
+sops -d clusters/hetzner/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
   | sed -E 's#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
   | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G.tmp" && mv "$G.tmp" "$G"
 sops -d "$G" | grep -c 'namespace: ziftbook-prod$'
@@ -281,7 +281,7 @@ reporting, and the tracking CNAME `email.m` to `eu.mailgun.org`.
 2. Write the key to a new Secret `<app>-mailgun` (key `api-key`) in the environment's namespace, as in the Secret
    section. Then wire the app's env to it, with the app's own setting names: Ziftbook uses `ZIF_MAILGUN_DOMAIN`,
    `ZIF_MAILGUN_REGION` (eu) and `ZIF_MAILGUN_API_KEY` from `secretKeyRef ziftbook-mailgun/api-key` (see
-   [`clusters/platform/ziftbook-staging/worker.yaml`](../clusters/platform/ziftbook-staging/worker.yaml)).
+   [`clusters/hetzner/ziftbook-staging/worker.yaml`](../clusters/hetzner/ziftbook-staging/worker.yaml)).
 
 **Add a production domain:**
 
@@ -472,10 +472,10 @@ openssl x509 -in terraform/cloudflare/origin-pull/$G.crt -noout -enddate   # the
 
 ```sh
 export KUBECONFIG=~/.kube/platform
-curl -sSL -o /dev/null -w '%{http_code}\n' https://dev.ziftbook.com/                 # 200: our zones pass
+curl -sSL -o /dev/null -w '%{http_code}\n' https://app.ziftbook.com/                 # 200: our zones pass
 curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the thebetterdecision.com zone passes too
 kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
-  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to dev.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://dev.ziftbook.com/
+  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to app.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://app.ziftbook.com/
 # 000 and a "curl: (56)" error (handshake refused; the verify-result text is about the server cert): enforced.
 # Any HTTP code (307, 200, 404) means the origin accepts clients without our certificate.
 ```
@@ -528,8 +528,8 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
   Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics or traces to `http://alloy.observability.svc:4318` (set
-  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
-  and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only the app namespaces
+  may reach the port (Lightsail: `tbd-prod`, `ziftbook-prod`; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
   `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
   from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
@@ -764,7 +764,7 @@ cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node
 kubectl -n tbd-prod scale deploy --all --replicas=0
-kubectl -n ziftbook-staging scale deploy --all --replicas=0   # and every other app namespace listed above
+kubectl -n ziftbook-prod scale deploy --all --replicas=0   # and every other app namespace listed above
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
 kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer

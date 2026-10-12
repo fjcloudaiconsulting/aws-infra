@@ -1,14 +1,5 @@
-# Staging shares the node with prod: lowest priority, so among pods over their memory request
-# the kubelet evicts staging first, and it never preempts. Pods without a class get priority 0,
-# so the class is negative.
-apiVersion: scheduling.k8s.io/v1
-kind: PriorityClass
-metadata:
-  name: staging
-value: -100
-preemptionPolicy: Never
-description: Staging workloads, evicted before anything else on the node.
----
+# Ziftbook staging (INFRA-46, on Hetzner since INFRA-173). The PriorityClass `staging` is cluster-scoped and defined
+# once, in priorityclass-staging.yaml (two files would give one object two owners).
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -6,7 +6,7 @@
 # Hetzner (INFRA-171): DUMP_SETS lists only the sets whose data lives on this cluster. The set prefixes are shared with
 # clusters/platform, so a set uploaded from here before its data moves would put an empty dump in front of the live one.
 # Each move ticket adds its set here and drops it from clusters/platform's DUMP_SETS in the same PR (tbd-staging-mysql
-# first, INFRA-173). Dumps of the not-yet-moved databases fail softly and are never uploaded.
+# and ziftbook-postgres first, INFRA-173). Dumps of the not-yet-moved databases fail softly and are never uploaded.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -197,9 +197,9 @@ spec:
               image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
               command: [bash, -c, 'bash /scripts/pg-dump.sh || echo "!! postgres dump failed" >&2; exit 0']
               env:
-                # 1 after the first Ziftbook staging migration; 0 until then, as the database is empty.
+                # Ziftbook staging data since INFRA-173: an empty dump fails the set.
                 - name: MIN_TABLES
-                  value: "0"
+                  value: "1"
                 - name: PGHOST
                   value: postgres
                 - name: PGUSER
@@ -273,7 +273,7 @@ spec:
                   value: /tmp
                 # Only the sets that live here (see the top of this file); clusters/platform uploads the rest.
                 - name: DUMP_SETS
-                  value: tbd-staging-mysql
+                  value: tbd-staging-mysql ziftbook-postgres
                 - name: BUCKET
                   value: tbd-mysql-backups-884686184019
                 - name: KMS_KEY_ARN
