@@ -1,0 +1,27 @@
+---
+# The servers come from terraform/hetzner (INFRA-169); the private IPs are fixed there. ansible_host is each
+# server's primary IPv4 (primary IPs outlive the servers). site.yml refuses a 192.0.2.0/24 placeholder.
+all:
+  vars:
+    ansible_user: root
+    ansible_ssh_private_key_file: ~/.ssh/fjc-hetzner-deploy
+  children:
+    # Order matters: the first server bootstraps etcd, the last one (db-1) is restarted last.
+    server:
+      hosts:
+        node-1:
+          ansible_host: 138.199.193.76
+          private_ip: 10.0.1.11
+        node-2:
+          ansible_host: 138.199.221.162
+          private_ip: 10.0.1.12
+        db-1:
+          ansible_host: 138.199.201.235
+          private_ip: 10.0.1.21
+    app:
+      hosts:
+        node-1:
+        node-2:
+    db:
+      hosts:
+        db-1:

@@ -1,0 +1,44 @@
+---
+# Same release as terraform/platform; upgrading is a deliberate change of this line.
+k3s_version: v1.36.5+k3s1
+
+# The private network NIC (seen as enp7s0 on the CAX21 nodes). node_base brings it up with DHCP and waits for
+# private_ip on it; site.yml asserts that again before k3s is configured with it.
+private_nic: enp7s0
+
+# true ONLY for the very first bootstrap of an empty cluster (-e k3s_bootstrap=true). See README.md.
+k3s_bootstrap: false
+
+# The live peer a server joins through: node-1 joins via node-2, every other server via node-1.
+k3s_join_peer: "{{ hostvars[groups['server'][1 if inventory_hostname == groups['server'][0] else 0]]['private_ip'] }}"
+k3s_init_node: "{{ (k3s_bootstrap | bool) and inventory_hostname == groups['server'][0] }}"
+
+# k3s.orchestration inputs. api_endpoint is per host: the init node points at itself, every other server at its peer.
+api_endpoint: "{{ private_ip if (k3s_init_node | bool) else k3s_join_peer }}"
+# Decrypted lazily, only when a k3s task needs it.
+token: "{{ lookup('community.sops.sops', playbook_dir ~ '/secrets.sops.yaml', extract='[\"k3s_token\"]') }}"
+user_kubectl: false
+# The admin kubeconfig fetched from node-1 lands here on the machine running Ansible, never in ~/.kube/config.
+kubeconfig: ~/.kube/fjc-hetzner.yaml
+manage_firewall: false
+# GOGC=50 trades a little CPU for a smaller k3s heap (about 846Mi to 625Mi RSS on Lightsail, INFRA-80).
+# The installer rewrites k3s.service.env; the collection re-adds this line after it on every run.
+extra_service_envs: ["GOGC=50"]
+k3s_node_labels: []
+k3s_node_taints: []
+# Merged last over the collection's generated config, so cluster-init and server below are what k3s gets.
+server_config_yaml: |
+  node-name: {{ inventory_hostname }}
+  node-ip: {{ private_ip }}
+  advertise-address: {{ private_ip }}
+  flannel-iface: {{ private_nic }}
+  flannel-backend: wireguard-native
+  disable: ["traefik", "servicelb"]
+  secrets-encryption: true
+  write-kubeconfig-mode: "0600"
+  kubelet-arg: ["fail-swap-on=false"]
+  tls-san: {{ groups['server'] | map('extract', hostvars, 'private_ip') | list | to_json }}
+  node-label: {{ k3s_node_labels | to_json }}
+  node-taint: {{ k3s_node_taints | to_json }}
+  cluster-init: {{ k3s_init_node | bool | to_json }}
+  {% if not k3s_init_node | bool %}server: https://{{ api_endpoint }}:6443{% endif %}

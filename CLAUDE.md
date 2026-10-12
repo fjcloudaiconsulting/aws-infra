@@ -30,13 +30,15 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 - `terraform/<stack>/`: every directory directly under `terraform/` is a root stack, one per HCP Terraform workspace (org `FlamaCorp`). Plan runs on the PR, apply on
   merge after approval in the TFC UI. Local CLI only for debugging.
 - `clusters/<cluster>/`: Kubernetes manifests reconciled by Flux.
+- `ansible/`: host config and k3s HA for the Hetzner servers (INFRA-64), run by hand from that directory;
+  runbook `ansible/README.md`. Secrets are `*.sops.yaml` there.
 - `aws/bootstrap/`: IAM documents for the HCP Terraform OIDC roles, minted once by root (see each stack's
   README). A workspace never manages its own role.
 - `grafana/`: Grafana Cloud alert rules, contact point and dashboard as API payloads; applied by hand after merge
   (runbooks.md "Memory alerts"). Nothing applies them automatically: keep git and the stack in step.
 - CI (`.github/workflows/ci.yml`) runs `terraform fmt -check -recursive -diff`, `init -backend=false && validate`
   for every stack, tflint (`.tflint.hcl`), and the Python tests (`python3 -m unittest discover -s tests`: backup probe, SOPS check). A second job runs kubeconform on
-  `clusters/` and `.github/scripts/check-sops-secrets.py` (every Secret under `clusters/` must be SOPS-encrypted) and `.github/scripts/check-prod-tags.py` (every `<app>-prod` image tag <= that app's `<app>-staging` tags). Locally: `terraform fmt -recursive`,
+  `clusters/` and `.github/scripts/check-sops-secrets.py` (every Secret under `clusters/` and every `ansible/**/*.sops.yaml` must be SOPS-encrypted) and `.github/scripts/check-prod-tags.py` (every `<app>-prod` image tag <= that app's `<app>-staging` tags). A third job runs `ansible-playbook --syntax-check` and `ansible-lint` (production profile) in `ansible/`. Locally: `terraform fmt -recursive`,
   `terraform -chdir=terraform/<stack> validate`, and `tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"`.
 - The Terraform version is pinned in `ci.yml`; keep workspaces on the same version.
 

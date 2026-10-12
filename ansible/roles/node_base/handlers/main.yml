@@ -1,0 +1,11 @@
+---
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded
+
+# Not `netplan apply`: that restarts networkd for every link. This reconfigures only the private NIC,
+# so the SSH session on eth0 is never touched.
+- name: Bring up the private NIC
+  ansible.builtin.shell: netplan generate && networkctl reload && networkctl reconfigure {{ private_nic }}
+  changed_when: true

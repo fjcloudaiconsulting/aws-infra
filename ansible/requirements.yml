@@ -1,0 +1,15 @@
+---
+collections:
+  # k3s-io/k3s-ansible tag 1.2.2 (galaxy.yml version 1.2.2), pinned to the tag's commit.
+  - name: https://github.com/k3s-io/k3s-ansible.git
+    type: git
+    version: 165062c410ab8bd194a815d2cbd76f6d83755fd1
+  # k3s.orchestration uses ansible.utils.ipwrap without declaring it.
+  - name: ansible.utils
+    version: 6.1.1
+  - name: ansible.posix
+    version: 2.2.2
+  - name: community.general
+    version: 13.5.0
+  - name: community.sops
+    version: 2.5.0
