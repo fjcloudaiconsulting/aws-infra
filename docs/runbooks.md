@@ -994,12 +994,11 @@ Commit the file in a PR and merge (no kustomization lists it: Flux picks up ever
 
    Commit in a PR and merge. The key is spent at enrolment (step 5); the peer identity then lives on the
    `netbird-state` volume.
-2. After step 5, once peer `hetzner-k3s` shows Connected: turn off its login expiration. Networks -> Add Network
-   `hetzner-k3s`; add resources `node-1` `10.0.1.11/32`, `node-2` `10.0.1.12/32`, `db-1` `10.0.1.21/32`, all in a new
-   group `hetzner-k3s-api`; routing peer: `hetzner-k3s`, masquerade on.
-3. Access Control -> Policies -> Add Policy `owner-to-hetzner-k3s-api`: source `owner-devices`, destination group
-   `hetzner-k3s-api`, protocol TCP, port `6443`, one way. That is the only policy that names these resources, and no
-   policy names group `k3s-hetzner`, so nothing else on the nodes is reachable over NetBird.
+2. The access policy is Terraform (`terraform/netbird`, workspace `netbird`): `owner-to-hetzner-k3s`, source
+   `owner-devices`, destination group `k3s-hetzner` (the peer's own group), TCP 6443, one way. The peer runs with
+   hostNetwork, so its NetBird IP lands on the node's loopback, where the API server listens. No NetBird Network or
+   route: traffic for the routing peer's own private IP is not routed (only the other nodes answered), and the peer
+   is pinned to one node by its state volume anyway, so routes to the other nodes add no availability.
 
 **5. Flux (lead).** Same version and components as `clusters/platform` (v2.9.6, source and kustomize controllers);
 applied once by hand, then Flux manages itself (the memory patch in `flux-system/kustomization.yaml` lands on its first
@@ -1014,21 +1013,23 @@ ssh root@$N1 k3s kubectl apply -f - < clusters/hetzner/flux-system/gotk-sync.yam
 **6. kubeconfig over NetBird (owner).** The CA comes from the admin kubeconfig Ansible fetched; the token is
 `netbird/owner-admin` (90 days, revocable as in the NetBird README section 5). `ssh` writes it straight into a 0600
 file that the kubeconfig names as `tokenFile` (kubectl reads it on every call), so it never sits in a variable or
-argv. Renewing is that one `ssh` line again. The server is a private IP in the k3s certificate (Ansible's `tls-san`), so no
-`tls-server-name` is needed; `10.0.1.12` or `10.0.1.21` work too if node-1 is down.
+argv. Renewing is that one `ssh` line again. The server is the peer's NetBird name; its certificate is the API
+server's, which names `kubernetes`, hence `--tls-server-name`.
 
 ```bash
 export KUBECONFIG=~/.kube/hetzner
 kubectl config view --raw --kubeconfig ~/.kube/fjc-hetzner.yaml -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
   | base64 -d > ~/.kube/hetzner-ca.crt && grep -c 'BEGIN CERTIFICATE' ~/.kube/hetzner-ca.crt   # 1
-kubectl config set-cluster hetzner --server=https://10.0.1.11:6443 --certificate-authority="$HOME/.kube/hetzner-ca.crt" --embed-certs
+kubectl config set-cluster hetzner --server=https://hetzner-k3s.netbird.cloud:6443 --tls-server-name=kubernetes \
+  --certificate-authority="$HOME/.kube/hetzner-ca.crt" --embed-certs
 (umask 077; ssh root@$N1 k3s kubectl -n netbird create token owner-admin --duration=2160h > ~/.kube/hetzner-token)
 wc -c < ~/.kube/hetzner-token   # several hundred bytes; 0 means the ssh failed: run it again
 kubectl config set-credentials owner-admin && kubectl config set users.owner-admin.tokenFile "$HOME/.kube/hetzner-token"
 kubectl config set-context hetzner --cluster=hetzner --user=owner-admin && kubectl config use-context hetzner
 chmod 600 ~/.kube/hetzner
-for ip in 10.0.1.11 10.0.1.12 10.0.1.21; do for p in 6443 10250 22; do nc -z -G 3 $ip $p && echo "$ip:$p open" || echo "$ip:$p closed"; done; done
-# expect 6443 open on all three, 10250 and 22 closed (22 is reachable only from the owner CIDR on the public IP)
+# macOS nc -G does not time out on dropped packets; GNU timeout does.
+for p in 6443 10250 22; do timeout 4 nc -z hetzner-k3s.netbird.cloud $p && echo "$p open" || echo "$p closed"; done
+# expect 6443 open, 10250 and 22 closed
 ```
 
 **7. Checks (lead).** With `KUBECONFIG=~/.kube/hetzner`:
