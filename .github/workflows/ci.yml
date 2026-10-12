@@ -32,7 +32,7 @@ jobs:
         run: |
           if [ -n "$BASE" ]; then
             changed=$(git diff --name-only "$BASE" HEAD)
-            grep -qE '^(terraform/|\.tflint\.hcl$|\.github/workflows/ci\.yml$|\.github/scripts/check-tbd-backups-fences\.py$)' <<<"$changed" || exit 0
+            grep -qE '^(terraform/|\.tflint\.hcl$|\.github/workflows/ci\.yml$|\.github/scripts/check-tbd-backups-fences\.py$|aws/bootstrap/)' <<<"$changed" || exit 0
           fi
           echo terraform=true >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
