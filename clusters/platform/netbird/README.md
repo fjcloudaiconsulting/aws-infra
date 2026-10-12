@@ -12,11 +12,12 @@ off screen.
 
 At https://app.netbird.io:
 
-1. Groups: `k3s` and `owner-devices`.
+1. Groups and policies are Terraform (`terraform/netbird`, INFRA-171): `k3s`, `owner-devices` and the policy in
+   step 4 are defined there; membership is `local.group_members` in its `main.tf`.
 2. Setup Keys -> Create Setup Key: name `platform-node`, Reusable off, Ephemeral off,
    auto-assigned group `k3s`, expiry 7 days.
 3. Access Control -> Policies: disable the `Default` (All <-> All) policy.
-4. Add Policy `owner-to-k3s-api`: source `owner-devices`, destination `k3s`, TCP `6443`, one way.
+4. Policy `owner-to-k3s-api` (in `terraform/netbird`): source `owner-devices`, destination `k3s`, TCP `6443`, one way.
 
 The policy is the security boundary. NetBird forwards traffic for the peer's IP to the node's
 loopback, so an allow-all policy would expose the kubelet, metrics endpoints and Traefik (bypassing
@@ -51,7 +52,8 @@ a suffix).
 ## 3. Add an admin device
 
 1. Install the client: `brew install --cask netbirdio/tap/netbird-ui`, open it, Connect, log in.
-2. In the dashboard, add the device's peer to group `owner-devices`.
+2. Add the device's peer name to `owner_devices` in `local.group_members` (`terraform/netbird/main.tf`), PR, merge,
+   apply. A dashboard edit is undone by the next apply.
 3. Check: `netbird status -d | grep -A3 platform-node` lists the peer (`Idle` is normal with lazy
    connections; it connects on first use).
 
