@@ -65,7 +65,7 @@ aws iam put-role-policy --role-name tfc-platform-apply \
 ```
 
 HCP Terraform workspace `aws-platform` (org FlamaCorp, same project as the other workspaces): VCS
-`fjcloudaiconsulting/aws-infra` branch `main`, working directory `terraform/platform`, VCS
+`fjcloudaiconsulting/cloud-infra` branch `main`, working directory `terraform/platform`, VCS
 trigger "Only trigger runs when files in specified paths change" with the pattern `terraform/platform/**`,
 Terraform 1.16.4, auto-apply off, speculative plans on. Environment
 variables:

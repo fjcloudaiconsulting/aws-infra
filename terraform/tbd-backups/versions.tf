@@ -7,7 +7,7 @@ terraform {
   # genesis. Do not copy an account id between the two.
   #
   # State + plan/apply run in Terraform Cloud (FlamaCorp/tbd-backups),
-  # VCS-driven against aws-infra, working directory terraform/tbd-backups/,
+  # VCS-driven against cloud-infra, working directory terraform/tbd-backups/,
   # trigger patterns terraform/tbd-backups/** and aws/bootstrap/tfc-backups-*. Speculative plans on PR; merges
   # to main create runs awaiting manual Confirm & Apply. Auto-apply is off,
   # matching FlamaCorp/tbd and FlamaCorp/tbd-apex.

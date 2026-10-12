@@ -18,7 +18,7 @@ in the same PR or right after.
 | Release job fails creating the release or tag with `Repository rule violations found` (creations restricted) | The release App is missing from the repo's `tag protection` ruleset bypass list, or release-please ran with another token (`GITHUB_TOKEN` or a non-admin PAT) | [Tag protection](#tag-protection) | Ruleset `tag protection` > Bypass list > `fjcloudaiconsulting-release` (app) > Always. Re-run the failed job |
 | Release job is green but `promote` and `smoke` are skipped, no tag | `main` moved on after the release PR merged ("main is at X; skipping"). Expected | The newer main run | Nothing, the newest commit's run releases it. If the newest run also skipped or failed, re-run it |
 | No release PR after a merge | Only `feat`, `fix`, `perf`, `revert` and breaking commits release (Renovate's `fix(deps):` does); `chore`, `ci`, `docs`, `build`, `test`, `refactor`, `style` do not. Or the release job failed | Run of the merge commit, job `Release / release` (`publish` in `.github`) | Fix the job; a `chore` merge alone never opens one |
-| Staging image bump sits on a `renovate/ziftbook-staging-*` or `renovate/tbd-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the aws-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
+| Staging image bump sits on a `renovate/ziftbook-staging-*` or `renovate/tbd-staging-*` branch and never merges, or shows up as a PR | Renovate app is not a bypass actor on the cloud-infra ruleset, or CI did not run on the branch | [Rulesets](#branch-protection), `ci.yml` push filter | Ruleset > Bypass list > Renovate (app) > Always. CI must report `Terraform checks` and `Kubernetes checks` on the branch |
 | No app image bumps, Dependency Dashboard lists `ghcr.io` lookup failures (other dependencies still get PRs) | `GHCR_READ_TOKEN` (Mend org secret) expired or revoked | [Mend Renovate](#mend-renovate) | New classic PAT with only `read:packages`, owned by GitHub user `flamarion` (the username is fixed in `renovate.json` hostRules); replace the Mend secret, tick "run again" on the dashboard |
 | `ImagePullBackOff` in `ziftbook-prod`, `ziftbook-staging`, `tbd-staging` or `tbd-prod` | The `ghcr-pull` credential expired or was revoked | `clusters/platform/namespaces/*-ghcr-pull.secret.yaml` | Re-encrypt a new GHCR read credential into every file (see [Cluster](#cluster-out-of-band-material)) |
 | After a node replacement, `mysql-0`, `postgres-0`, `valkey-0` or `netbird` stay Pending with `volume node affinity conflict`, or `kubectl get nodes` lists a second node | k3s registered under the new instance's hostname; local-path volumes are pinned to the old node name | `kubectl get nodes`, `kubectl -n data describe pod mysql-0` (Events) | On the node: `node-name: <old name>` in `/etc/rancher/k3s/config.yaml`, `sudo systemctl restart k3s`, delete the new Node object ([runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2) |
@@ -68,7 +68,7 @@ release a prerelease keeps it out of the drift watch below.
 | 3 | release-please opens or updates the release PR | Release App token, environment `release`, secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` |
 | 4 | Owner merges the release PR; the release job creates the tag and GitHub release at the release commit | App permission **Workflows: write** |
 | 5 | `promote` retags the `sha-` image as `vX.Y.Z` (same digest, never rebuilt); `smoke` runs | `sha-` image still on GHCR, `promote-release@v1` |
-| 6 | Renovate in aws-infra sees the new tag and pushes `renovate/ziftbook-staging-ziftbook-images` | `GHCR_READ_TOKEN`, regex versioning in `renovate.json` |
+| 6 | Renovate in cloud-infra sees the new tag and pushes `renovate/ziftbook-staging-ziftbook-images` | `GHCR_READ_TOKEN`, regex versioning in `renovate.json` |
 | 7 | CI runs on that branch push | `ci.yml` `push` filter `renovate/ziftbook-staging-**` |
 | 8 | Renovate fast-forwards the branch into `main` without a PR | Renovate app in the `main protection` bypass list |
 | 9 | Flux applies the commit; Deployments use `Recreate` | `sops-age`, `ghcr-pull` |
@@ -87,7 +87,7 @@ private repositories cannot have branch protection, so every repo that must be p
 
 | Repo | Mechanism | Rules |
 |---|---|---|
-| aws-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
+| cloud-infra | Ruleset `main protection` (id 24298796) | PR with 1 approval (squash only), linear history, no force-push or deletion, required checks `Terraform checks` and `Kubernetes checks` (strict). Bypass: org admin, repository admin role, **Renovate app (id 2740, Always, added 2026-10-03)** |
 | .github | Ruleset `main protection` (id 24298798) | PR with 1 approval (squash only), linear history, no force-push or deletion, no required checks. Bypass: org admin, repository admin role. Tags: see [Tag protection](#tag-protection) |
 | app-template | Ruleset `main protection` (id 24384611) | Same as `.github`: PR with 1 approval, linear history, no required checks |
 | ziftbook | Classic branch protection | 1 review, strict checks `Backend Checks`, `Frontend Checks`, `pr-title / check`, admins not enforced. **Force-push and deletion of `main` are allowed** |
@@ -116,8 +116,8 @@ installation, and the grant applies to **every repository in the installation**.
 
 | App | Repos | Notes |
 |---|---|---|
-| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42), and `.github` (2026-10-10, INFRA-161) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. In `.github` the key moves `v1` by design: a release there happens only when the owner merges the Release PR (`main` protected, 1 approving review). Keep aws-infra out of the selection (`renovate` and `claude` already hold contents and workflows write there) |
-| `renovate` (Mend) | selected: `.github`, aws-infra, ziftbook, tbd (added 2026-10-04, INFRA-109) | Repos are added on GitHub, not in Mend |
+| `fjcloudaiconsulting-release` | selected: each app repo on the shared release flow (Ziftbook, app-template, tbd from INFRA-42), and `.github` (2026-10-10, INFRA-161) | Permissions: contents, issues, pull requests write; metadata read; **workflows write** (added 2026-10-03, INFRA-78). Private key held by the owner and stored only as the `release` environment secret. In `.github` the key moves `v1` by design: a release there happens only when the owner merges the Release PR (`main` protected, 1 approving review). Keep cloud-infra out of the selection (`renovate` and `claude` already hold contents and workflows write there) |
+| `renovate` (Mend) | selected: `.github`, cloud-infra, ziftbook, tbd (added 2026-10-04, INFRA-109) | Repos are added on GitHub, not in Mend |
 | `terraform-cloud`, `gitguardian`, `atlassian`, `claude`, `tbd-branch-protection-probe` | various | Not part of the release chain. `atlassian` links PRs to Jira |
 
 ### Per-repo settings
@@ -125,7 +125,7 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `release`** (Ziftbook, tbd from INFRA-42, `.github` from INFRA-161; create the same in every new app repo, app-template does not ship
   it): deployment branches limited to `main`, **no required reviewers** (the job runs on every `main`
   push, a reviewer would block each one), secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`.
-- **Environments `tbd-prod`, `tbd-staging`, `ziftbook-staging` and `ziftbook-prod`** (aws-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
+- **Environments `tbd-prod`, `tbd-staging`, `ziftbook-staging` and `ziftbook-prod`** (cloud-infra, INFRA-114, INFRA-90): the post-deploy smoke jobs run in them.
   `tbd-prod`: deployment branches "Selected branches and tags", `main` only, no tag rule, no required reviewers;
   secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` (the [TBD smoke account](#cluster-out-of-band-material)). A missing
   secret shows as `app smoke failed` on the `[post-deploy-smoke] tbd-prod` issue. `tbd-staging` (INFRA-135), `ziftbook-staging` and `ziftbook-prod` hold nothing (a job
@@ -133,8 +133,8 @@ installation, and the grant applies to **every repository in the installation**.
 - **Environment `landing`** (tbd and ziftbook, INFRA-60/INFRA-98): deployment branches `main` only; secret
   `CLOUDFLARE_API_TOKEN`, a per-Worker token for that app's landing Worker. Scopes and rules:
   [Worker and Snippet access](#worker-and-snippet-access-infra-98).
-- Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, aws-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
-- Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in aws-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
+- Dependabot vulnerability alerts (`gh api -i repos/<r>/vulnerability-alerts`: 204 on, 404 off): on in `.github`, cloud-infra and ziftbook; **off in tbd** as of 2026-10-04 (INFRA-109, owner to enable). Renovate's security-fix PRs, which skip grouping and dashboard approval, only fire where they are on. Dependabot security updates (`repos/<r>/automated-security-fixes`) are off in all four (Renovate opens the fixes).
+- Actions default workflow permission is read-only everywhere checked. "Allow GitHub Actions to create and approve pull requests" is off in cloud-infra, tbd and ziftbook (turned off 2026-10-04; release-please uses the release App token, nothing approves with `GITHUB_TOKEN`). It is still on in app-template.
 - `.github` hosts the contract, the reusable workflows, the Renovate preset and the weekly conformance
   probe. Apps consume them by the moving major tag `@v1`. A merged `feat`/`fix` opens a release-please Release PR there;
   the owner merging it is the approval, and the `publish` workflow tags `vX.Y.Z` and moves `v1` (INFRA-161).
@@ -150,7 +150,7 @@ Every GitHub secret or variable has a workflow on `main` that reads it; one with
 The app-template README carries the same rule for new apps.
 
 Inventory, 2026-10-04, every repo in the org (names from the API, consumers from `main`). Org level: no Actions secrets,
-Actions variables or Dependabot secrets. aws-infra (until INFRA-114's `tbd-prod` environment, row below) and app-template: none at any level; `.github`: only env `release` (row below, INFRA-161)
+Actions variables or Dependabot secrets. cloud-infra (until INFRA-114's `tbd-prod` environment, row below) and app-template: none at any level; `.github`: only env `release` (row below, INFRA-161)
 (app-template's `ci.yml` reads the two `release` secrets, which each new repo sets per its checklist).
 tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copilot` and fjconsulting-website's environment `dev` hold nothing.
 
@@ -160,7 +160,7 @@ tbd and ziftbook have no repo-level Dependabot secrets; tbd's environment `copil
 | .github | env `release` (main only) | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `publish.yml` (INFRA-161) | pipeline | stays |
 | tbd | repo | secret `GIST_TOKEN` | `ci.yml` (coverage badges, `main` only) | pipeline | stays |
 | tbd | repo | secret `PROTECTION_PROBE_APP_KEY`, variable `PROTECTION_PROBE_APP_ID` | `branch-protection-probe.yml` | pipeline | stays |
-| aws-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
+| cloud-infra | env `tbd-prod` (main only) | secrets `SMOKE_USERNAME`, `SMOKE_PASSWORD` | `post-deploy-smoke.yml` (INFRA-114) | pipeline: the post-deploy smoke logs in as the smoke account; copy of `tbd-prod/tbd-smoke` | stays |
 | ziftbook | env `release` | secrets `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | `ci.yml` job `Release` (shared `release.yml@v1`, INFRA-159) | pipeline | stays |
 | tbd | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `apex-deploy.yml` `deploy-worker` | pipeline; token `tbd-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
 | ziftbook | env `landing` (main only) | secret `CLOUDFLARE_API_TOKEN` | `landing.yml` | pipeline; token `ziftbook-landing deploy`, adopted by workspace `cloudflare-tokens` (INFRA-133 import), value set by hand when the token was made | stays |
@@ -175,16 +175,16 @@ Hosted Mend app, Free plan, repos selected at
 `https://github.com/organizations/fjcloudaiconsulting/settings/installations/167278400`.
 
 - **`GHCR_READ_TOKEN`**: Mend org secret, a classic PAT with only `read:packages`, 90-day expiry, created
-  2026-10-02 (expires around 2026-12-31). aws-infra's `renovate.json` reads it as
+  2026-10-02 (expires around 2026-12-31). cloud-infra's `renovate.json` reads it as
   `{{ secrets.GHCR_READ_TOKEN }}`; Mend rejects encrypted secrets in repo config. Rotation: new token,
   replace the Mend secret.
-- aws-infra rules in `renovate.json`: database majors never proposed (data dirs upgrade by hand after a
+- cloud-infra rules in `renovate.json`: database majors never proposed (data dirs upgrade by hand after a
   fresh dump); `ghcr.io/fjcloudaiconsulting/**` tracks `vX.Y.Z` only, no digest pin, production bumps stay
   PRs; manifests under `clusters/**/ziftbook-staging/**` bump in one grouped branch and automerge by
   branch. `clusters/**/tbd-staging/**` the same way (INFRA-91, group `tbd staging images`, branch prefix
   `tbd-staging-`); `tbd-prod` is one grouped PR (backend, migrations, frontend, scheduler if present), no automerge.
 - Each repo has a Dependency Dashboard issue; ticking "run again" there forces a run.
-- App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle aws-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
+- App repos (tbd, ziftbook) add repo-level rules in their own `renovate.json` (tbd#833, ziftbook#180), not in the shared preset: there they would also bundle cloud-infra's platform image bumps into one docker group and put staging app-image majors behind dashboard approval, breaking the ziftbook-staging automerge. Rules: non-major updates grouped per ecosystem, FastAPI and uvicorn standalone, OpenTelemetry in its own group, npm updates wait 1 day (pnpm 12's default release age), majors and runtime upgrades only on Dependency Dashboard approval, datastore image majors off. tbd needs no `GHCR_READ_TOKEN`: it references no private `ghcr.io` image.
 - Local dry run (check a config without waiting for Mend): Node 24, then `renovate --platform=local --dry-run=full` with `GITHUB_COM_TOKEN`, `RENOVATE_TOKEN` and `RENOVATE_SECRETS='{"GHCR_READ_TOKEN":"..."}'` in the environment. The local platform reads only committed files, and `local>` presets do not resolve there. `LOG_LEVEL=debug LOG_FORMAT=json` prints a `packageFiles with updates` record with each update's branch; it does not render the dashboard, so approval gates show only on the first Mend run.
 
 ## HCP Terraform
@@ -353,7 +353,7 @@ Made by hand by the owner (INFRA-85); the cluster side is `clusters/platform/obs
 | Ziftbook production secrets | `data/postgres-ziftbook-prod`, `ziftbook-prod/ziftbook` (generated together), `namespaces/ziftbook-prod-ghcr-pull.secret.yaml` (staging's credential), `ziftbook-prod/ziftbook-mailgun` (optional, key `api-key` of the `m.ziftbook.com` sending key, INFRA-139) | Whole new files; [runbooks.md](runbooks.md#ziftbook-production-secrets). Only the pull secret needs the offline key. No mail from production until the Mailgun domain and key exist |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
 | TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values were carried over from the old hosting at the INFRA-48 cutover (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed. A rotated MySQL app or Valkey password must be written here too |
-| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), aws-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
+| TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), cloud-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, `tbd-staging`) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
 | Mailgun domain `m.ziftbook.com` (EU, Ziftbook production) | Mailgun dashboard > Sending > Domains (created 2026-10-06 by API); DNS `ziftbook_mail` in `terraform/cloudflare`; sending key `ziftbook-prod` (send-only, this domain) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-prod/ziftbook-mailgun.secret.yaml`, INFRA-139); the worker reads it as optional. Rotate as for the dev domain, then restart `deploy/worker` in `ziftbook-prod` |
 | k3s node name (after an upsize) | `node-name:` in `/etc/rancher/k3s/config.yaml` on the node, added by hand in [the upsize runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2; `node-init.sh.tftpl` does not write it | Keeps the old name (`ip-172-26-3-190`) on a new instance, since every local-path volume is pinned to it. Configuration management (INFRA-64) must keep it |

@@ -57,7 +57,7 @@
       },
       "annotations": {
         "summary": "The node log-retention job has not reported success for 3 hours (or never has). Container logs reach the privacy policy's 7-day limit about 21 hours after the last success. See the Request log retention runbook.",
-        "runbook_url": "https://github.com/fjcloudaiconsulting/aws-infra/blob/main/docs/runbooks.md#request-log-retention"
+        "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#request-log-retention"
       },
       "notification_settings": {
         "receiver": "owner-email",

@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-Single home for the infrastructure of FJ Consulting apps: TBD (`fjcloudaiconsulting/tbd`, in prod on this
+Single home for the infrastructure of FJ Consulting apps (AWS today, migrating to Hetzner, epic INFRA-164; AWS keeps the backup chain and account-level resources): TBD (`fjcloudaiconsulting/tbd`, in prod on this
 cluster since the 2026-10-04 cutover) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
 app code, Dockerfiles and CI; this repo owns where and how they run. Work is tracked in Jira `INFRA`.
 
 ## Target architecture (decided 2026-10-01)
+
+The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster below is still live.
 
 - One AWS Lightsail `medium_3_0` (4 GB) in eu-central-1, single-node k3s. No EKS, no RDS, no ALB/NAT: cost
   ceiling is ~$26/mo against limited AWS credits.
