@@ -20,7 +20,8 @@ HCP Terraform `FlamaCorp/hetzner`, VCS flow against this repo, working directory
 the PR; apply runs on merge after approval in the UI. Created by the owner (not by Terraform).
 
 - Env `HCLOUD_TOKEN` (**sensitive**): Hetzner project token `tfc-hetzner` (Read & Write), set by the owner.
-- Variable `ssh_allowed_cidrs` (HCL list, not sensitive), for example `["203.0.113.7/32"]`.
+- Variable `ssh_allowed_cidrs` (HCL list, not sensitive), for example `["203.0.113.7/32"]`. If the owner's public IP
+  changes, update it here and re-apply, or Ansible loses SSH (the Hetzner console still works).
 - Variable `deploy_ssh_public_key` (string, not sensitive): the `ssh-ed25519 ...` public key.
 
 `location` and `server_type` have defaults. Both no-default variables are validated at plan time.
