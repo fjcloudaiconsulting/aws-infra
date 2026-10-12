@@ -70,7 +70,6 @@ variable "github_repos" {
   description = "GitHub repos whose main-branch workflow may assume the read-only freshness probe role, written as the repo part of the OIDC sub claim (`gh api repos/OWNER/REPO/actions/oidc/customization/sub` -> sub_claim_prefix without `repo:`). Repos created with immutable subjects use owner@id/name@id. One trust statement each."
   type        = list(string)
   default = [
-    "fjcloudaiconsulting@279198687/aws-infra@1399390121",
     "fjcloudaiconsulting@279198687/cloud-infra@1399390121",
   ]
 }
