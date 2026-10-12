@@ -49,10 +49,24 @@
         path: /var/lib/rancher/k3s/server/db/etcd
       register: k3s_etcd_dir
 
+    # The collection restarts every running server on every run, so a steady-state run skips it: it runs only to
+    # bootstrap, to install a new or rebuilt node, or when asked to apply changed k3s settings. Versions move
+    # through system-upgrade-controller (INFRA-179), not this play.
+    - name: Decide whether this run installs or reconfigures k3s
+      ansible.builtin.set_fact:
+        k3s_apply: "{{ (k3s_bootstrap | bool) or (k3s_reconfigure | default(false) | bool) or not k3s_etcd_dir.stat.exists }}"
+
+    - name: Say why k3s is left alone
+      when: not k3s_apply | bool
+      ansible.builtin.debug:
+        msg: >-
+          k3s is installed on {{ inventory_hostname }}; skipping it. Pass -e k3s_reconfigure=true to apply
+          changed k3s settings (restarts each server, one at a time).
+
     # Quorum guard: restarting an etcd member while another server is down or out of the run drops etcd to 1 of 3.
     # ansible_play_hosts drops hosts that failed or were unreachable in any earlier play.
     - name: Every server is in this run and reachable
-      when: k3s_etcd_dir.stat.exists
+      when: k3s_apply | bool and k3s_etcd_dir.stat.exists
       ansible.builtin.assert:
         that: groups['server'] | difference(ansible_play_hosts) | length == 0
         fail_msg: >-
@@ -62,7 +76,7 @@
     # Node Ready can be stale for the node-monitor grace period and says nothing about etcd, so ask every
     # server's own apiserver for its etcd health too.
     - name: Read etcd health on every server
-      when: k3s_etcd_dir.stat.exists
+      when: k3s_apply | bool and k3s_etcd_dir.stat.exists
       ansible.builtin.command: k3s kubectl get --raw /readyz/etcd
       delegate_to: "{{ item }}"
       loop: "{{ groups['server'] }}"
@@ -72,7 +86,7 @@
       check_mode: false
 
     - name: Etcd is healthy on every server
-      when: k3s_etcd_dir.stat.exists
+      when: k3s_apply | bool and k3s_etcd_dir.stat.exists
       ansible.builtin.assert:
         that: k3s_peers_etcd.results | rejectattr('stdout', 'equalto', 'ok') | list | length == 0
         fail_msg: >-
@@ -80,7 +94,7 @@
           {{ k3s_peers_etcd.results | rejectattr('stdout', 'equalto', 'ok') | map(attribute='item') | join(', ') }}.
 
     - name: Read the server nodes' Ready status
-      when: k3s_etcd_dir.stat.exists
+      when: k3s_apply | bool and k3s_etcd_dir.stat.exists
       ansible.builtin.command: >-
         k3s kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
       register: k3s_nodes_ready
@@ -88,7 +102,7 @@
       check_mode: false
 
     - name: Every server node is Ready
-      when: k3s_etcd_dir.stat.exists
+      when: k3s_apply | bool and k3s_etcd_dir.stat.exists
       ansible.builtin.assert:
         that: groups['server'] | map('regex_replace', '$', '=True') | difference(k3s_nodes_ready.stdout_lines) | length == 0
         fail_msg: "Not restarting {{ inventory_hostname }}: not every server is Ready ({{ k3s_nodes_ready.stdout_lines | join(', ') }})."
@@ -134,6 +148,7 @@
 
     # The collection only downloads get.k3s.io when this file is absent, so the installer stays pinned to k3s_version.
     - name: Install the k3s installer from the release tag
+      when: k3s_apply | bool
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version }}/install.sh
         dest: /usr/local/bin/k3s-install.sh
@@ -143,10 +158,12 @@
         force: true
 
   roles:
+    # prereq (forwarding sysctls, packages) never restarts k3s, so it runs every time and corrects drift.
     - role: k3s.orchestration.prereq
     # The role passes the token through task arguments and set_fact results; -v would print them.
     # -e k3s_no_log=false to debug a failing role (and then never share the output).
     - role: k3s.orchestration.k3s_server
+      when: k3s_apply | bool
       no_log: "{{ k3s_no_log | default(true) }}"
 
   post_tasks:
