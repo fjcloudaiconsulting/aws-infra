@@ -994,11 +994,13 @@ Commit the file in a PR and merge (no kustomization lists it: Flux picks up ever
 
    Commit in a PR and merge. The key is spent at enrolment (step 5); the peer identity then lives on the
    `netbird-state` volume.
-2. The access policy is Terraform (`terraform/netbird`, workspace `netbird`): `owner-to-hetzner-k3s`, source
+2. The access policy is Terraform ([`terraform/netbird`](../terraform/netbird/README.md); the owner creates workspace
+   `netbird` with env `NB_PAT` from NetBird service user `terraform` first): `owner-to-hetzner-k3s`, source
    `owner-devices`, destination group `k3s-hetzner` (the peer's own group), TCP 6443, one way. The peer runs with
    hostNetwork, so its NetBird IP lands on the node's loopback, where the API server listens. No NetBird Network or
    route: traffic for the routing peer's own private IP is not routed (only the other nodes answered), and the peer
    is pinned to one node by its state volume anyway, so routes to the other nodes add no availability.
+   No login-expiration change: it applies only to peers added by SSO login, not by setup key.
 
 **5. Flux (lead).** Same version and components as `clusters/platform` (v2.9.6, source and kustomize controllers);
 applied once by hand, then Flux manages itself (the memory patch in `flux-system/kustomization.yaml` lands on its first
