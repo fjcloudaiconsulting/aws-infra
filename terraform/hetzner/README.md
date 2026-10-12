@@ -1,6 +1,6 @@
 # `hetzner`
 
-The Hetzner Cloud project `fj-platform` (INFRA-164, INFRA-169): three CX33 servers in `nbg1` on a private
+The Hetzner Cloud project `fj-platform` (INFRA-164, INFRA-169): three CAX21 (ARM64) servers in `nbg1` on a private
 network, a firewall, and the volume that holds the databases. The servers have no `user_data`: Ansible
 configures them afterwards from a static inventory (see the `nodes` output).
 

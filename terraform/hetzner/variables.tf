@@ -25,7 +25,7 @@ variable "location" {
 }
 
 variable "server_type" {
-  description = "Server type for all three nodes."
+  description = "Server type for all three nodes. CAX21 is ARM64: CX33 was not orderable in any EU location on 2026-10-12."
   type        = string
-  default     = "cx33"
+  default     = "cax21"
 }
