@@ -27,6 +27,18 @@ def tbd(prod, stg):
 
 
 class ProdTags(unittest.TestCase):
+    def test_staging_in_another_cluster_tree_passes(self):
+        # Migration: prod in one tree, staging in another (INFRA-166).
+        r = run({"platform/tbd-prod": {"a.yaml": img("tbd", "backend", "v0.2.0")},
+                 "hetzner/tbd-staging": {"a.yaml": img("tbd", "backend", "v0.2.0")}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_staging_missing_in_all_trees_fails(self):
+        r = run({"platform/tbd-prod": {"a.yaml": img("tbd", "backend", "v0.2.0")},
+                 "hetzner/ziftbook-staging": {"a.yaml": img("ziftbook", "backend", "v0.2.0")}})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tbd-staging does not exist", r.stderr)
+
     def test_equal_passes(self):
         self.assertEqual(run(tbd([("backend", "v0.2.0")], [("backend", "v0.2.0")])).returncode, 0)
 

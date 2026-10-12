@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Post-deploy smoke (INFRA-114): after a push to clusters/platform/<namespace>/, wait until the public URL serves the
+# Post-deploy smoke (INFRA-114): after a push to clusters/<tree>/<namespace>/, wait until the public URL serves the
 # backend tag the manifest names, wait for the frontend, run the app's own smoke script at that tag, and open, comment
 # on or close ONE issue per namespace. Runs outside the cluster, through Cloudflare, like a user.
 #
 # Usage: post-deploy-smoke.sh <namespace>. Env: GH_TOKEN, GH_REPO, RUN_URL; SMOKE_USERNAME / SMOKE_PASSWORD for an
-# app smoke that logs in. Optional: CLUSTERS_DIR (default clusters/platform), CONVERGE_SECONDS (900), POLL_SECONDS
+# app smoke that logs in. Optional: CLUSTERS_DIR (default clusters; the namespace is found in any tree under it), CONVERGE_SECONDS (900), POLL_SECONDS
 # (15), SETTLE_SECONDS (150), FRONTEND_SECONDS (300), FRONTEND_GAP_SECONDS (10). Needs curl, gh, python3.
 #
 # Every failure after the usage check raises the alarm (fails INTO the alarm, like the backup probe); only a full
@@ -26,7 +26,10 @@ case "$ns" in
   *) echo "usage: $0 tbd-prod|tbd-staging|ziftbook-staging|ziftbook-prod" >&2; exit 2 ;;
 esac
 front="${front:-/}"; follow="${follow--L}"
-DIR="${CLUSTERS_DIR:-clusters/platform}"
+DIR="${CLUSTERS_DIR:-clusters}"
+# The namespace's tree is not fixed (platform today, hetzner later): first match under any tree.
+MANIFEST="$(ls "$DIR/$ns/backend.yaml" "$DIR"/*/"$ns/backend.yaml" 2>/dev/null | head -n 1)"
+MANIFEST="${MANIFEST:-$DIR/$ns/backend.yaml}"
 RUN_URL="${RUN_URL:-local run}"
 title="[post-deploy-smoke] $ns"
 verdict=""
@@ -34,9 +37,9 @@ tag=""
 
 check() {
   # The backend container's image only (the migrations init container and the scheduler have their own lines).
-  tag="$(grep -hoE "ghcr\.io/fjcloudaiconsulting/$repo/backend:[^\"'[:space:]@]+" "$DIR/$ns/backend.yaml" 2>/dev/null \
+  tag="$(grep -hoE "ghcr\.io/fjcloudaiconsulting/$repo/backend:[^\"'[:space:]@]+" "$MANIFEST" 2>/dev/null \
          | sed 's#.*:##' | sort -u)"
-  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { verdict="bad backend tag in $DIR/$ns/backend.yaml: '${tag//$'\n'/ }'"; return; }
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { verdict="bad backend tag in $MANIFEST: '${tag//$'\n'/ }'"; return; }
   local want="${tag#v}" live="" i=0 ok=0 code deadline=$(( SECONDS + ${CONVERGE_SECONDS:-900} ))
 
   # 1. The new pods: Recreate with one replica, so once the reported version matches no old backend serves. A 5xx or

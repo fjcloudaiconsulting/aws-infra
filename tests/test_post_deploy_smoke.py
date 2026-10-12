@@ -48,18 +48,21 @@ def issue(n, ns="tbd-prod"):
 
 
 def run(ns="tbd-prod", manifest=None, *, versions="0.290.0,0.291.0", front="200", app_rc=0, existing="",
-        converge=30, frontend=0, fetch_rc=0):
+        converge=30, frontend=0, fetch_rc=0, tree=""):
     """Default: the first poll still sees the old version, the second the new one (a real rollout)."""
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
-        for sub in ("clusters/tbd-prod", "clusters/tbd-staging", "clusters/ziftbook-staging", "clusters/ziftbook-prod", "bin", "state"):
+        c = f"clusters/{tree}" if tree else "clusters"  # tree: the namespaces live under clusters/<tree>/
+        for sub in ("tbd-prod", "tbd-staging", "ziftbook-staging", "ziftbook-prod"):
+            (d / c / sub).mkdir(parents=True)
+        for sub in ("bin", "state"):
             (d / sub).mkdir(parents=True)
-        (d / "clusters/tbd-prod/backend.yaml").write_text(TBD.format("v0.291.0"))
-        (d / "clusters/tbd-staging/backend.yaml").write_text(TBD.format("v0.292.0"))
-        (d / "clusters/ziftbook-staging/backend.yaml").write_text(ZIF.format("v0.291.0"))
-        (d / "clusters/ziftbook-prod/backend.yaml").write_text(ZIF.format("v0.291.0"))
+        (d / c / "tbd-prod/backend.yaml").write_text(TBD.format("v0.291.0"))
+        (d / c / "tbd-staging/backend.yaml").write_text(TBD.format("v0.292.0"))
+        (d / c / "ziftbook-staging/backend.yaml").write_text(ZIF.format("v0.291.0"))
+        (d / c / "ziftbook-prod/backend.yaml").write_text(ZIF.format("v0.291.0"))
         if manifest is not None:
-            (d / "clusters" / ns / "backend.yaml").write_text(manifest)
+            (d / c / ns / "backend.yaml").write_text(manifest)
         for name, body in (("curl", CURL), ("gh", GH), ("sleep", SLEEP)):
             (d / "bin" / name).write_text(body)
             (d / "bin" / name).chmod(0o755)
@@ -122,6 +125,12 @@ class Pass(unittest.TestCase):
         r, log = run()
         self.assertIn("repos/fjcloudaiconsulting/tbd/contents/scripts/smoke-test.sh?ref=refs/tags/v0.291.0", log)
         self.assertIn("app smoke base=https://app.thebetterdecision.com user=set gh=unset", r.stdout)
+
+    def test_namespace_is_found_in_a_non_platform_tree(self):
+        # INFRA-166: the manifest sits under clusters/hetzner/, not directly under the clusters dir.
+        r, log = run(tree="hetzner")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("converged on 0.291.0", r.stdout)
 
     def test_backend_tag_is_read_not_the_migrations_tag(self):
         m = "image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.290.0\n" + TBD.format("v0.291.0")
