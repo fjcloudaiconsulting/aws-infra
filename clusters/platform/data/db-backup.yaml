@@ -74,7 +74,10 @@ data:
   upload.sh: |
     set -uo pipefail
     rc=0
-    for set in tbd-mysql ziftbook-postgres tbd-staging-mysql ziftbook-prod-postgres; do
+    # The sets this cluster hosts (env DUMP_SETS, space-separated); empty must fail, not upload nothing.
+    read -ra sets <<<"${DUMP_SETS:-}"
+    [ "${#sets[@]}" -gt 0 ] || { echo "!! DUMP_SETS is empty or unset: no sets to upload" >&2; exit 1; }
+    for set in "${sets[@]}"; do
       keys=()
       [ -f "/backup/$set.ok" ] && mapfile -t keys <"/backup/$set.ok"
       # Exactly dump, grants, manifest, manifest last; anything else counts as missing.
@@ -263,6 +266,8 @@ spec:
               env:
                 - name: HOME
                   value: /tmp
+                - name: DUMP_SETS
+                  value: tbd-mysql ziftbook-postgres tbd-staging-mysql ziftbook-prod-postgres
                 - name: BUCKET
                   value: tbd-mysql-backups-884686184019
                 - name: KMS_KEY_ARN
