@@ -48,6 +48,8 @@ resource "hcloud_primary_ip" "node" {
   type        = "ipv4"
   location    = var.location
   auto_delete = false
+
+  delete_protection = true
 }
 
 resource "hcloud_server" "node" {
@@ -72,6 +74,7 @@ resource "hcloud_server" "node" {
   network {
     network_id = hcloud_network.main.id
     ip         = each.value.ip
+    alias_ips  = []
   }
 
   depends_on = [hcloud_network_subnet.main]

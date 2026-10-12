@@ -36,4 +36,5 @@ the PR; apply runs on merge after approval in the UI. Created by the owner (not 
 
 `terraform taint 'hcloud_server.node["node-1"]'` (or "Replace resources" on a run), then apply. The server is
 recreated with the same primary IP and private IP and Ansible reconfigures it. For `db-1` the volume attachment is
-recreated and the volume itself survives; re-run the Ansible mount step.
+recreated and the volume itself survives; re-run the Ansible mount step. Before replacing `db-1`, drain/stop k3s and
+the DBs and unmount the volume: the attachment is destroyed (hot detach) before the server is deleted.
