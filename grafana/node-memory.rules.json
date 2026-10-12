@@ -273,13 +273,13 @@
         {
           "refId": "A",
           "relativeTimeRange": {
-            "from": 900,
+            "from": 86400,
             "to": 0
           },
           "datasourceUid": "grafanacloud-prom",
           "model": {
             "refId": "A",
-            "expr": "count(up{job=~\"node|cadvisor\"} == 1) or vector(0)",
+            "expr": "sum by (instance) (up{job=~\"node|cadvisor\"} == 1) or sum by (instance) (max_over_time(up{job=~\"node|cadvisor\"}[1d])) * 0",
             "instant": true,
             "range": false
           }
@@ -316,7 +316,7 @@
         "component": "node"
       },
       "annotations": {
-        "summary": "Node or cAdvisor metrics stopped reaching Grafana Cloud for 10 minutes, so the memory alerts are blind. Check the Alloy pod (runbook: Metrics to Grafana Cloud).",
+        "summary": "Node or cAdvisor metrics of {{ $labels.instance }} stopped reaching Grafana Cloud for 10 minutes, so the memory alerts for that node are blind. Check the Alloy pod on that node (runbook: Metrics to Grafana Cloud). A node retired on purpose keeps this firing for a day: silence it.",
         "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#metrics-to-grafana-cloud-alloy"
       },
       "notification_settings": {

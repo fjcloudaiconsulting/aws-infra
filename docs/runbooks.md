@@ -646,7 +646,8 @@ unlinks a live log: `kubectl logs -f` on a truncated container goes quiet until 
 its last 0 to 6 days of history. After a clean pass it posts the gauge `log_retention_last_success_timestamp_seconds`
 to Alloy; Grafana rule `LogRetentionStale` (group `log-retention`, applied like the memory rules below, `api PUT
 /api/v1/provisioning/folder/platform/rule-groups/log-retention grafana/log-retention.rules.json`) mails the owner when it is
-over 3 hours old or absent (it fires until the first run after the first apply).
+over 3 hours old or absent (it fires until the first run after the first apply). Per node since INFRA-171 (the Hetzner
+DaemonSet labels its heartbeat `instance=<node>`; the Lightsail CronJob's has no `instance`).
 
 Check, read-only: `kubectl -n observability get cronjob log-retention`, `kubectl -n observability logs
 job/<latest>` (one line per file emptied or deleted), and for any pod `kubectl logs --timestamps <pod> -c <c> | head -1`
@@ -668,7 +669,7 @@ on 2026-10-05, because the working set leaves out inactive page cache.
 | `NodeMemoryCritical` | available under 10% for 5 min | critical, every 4 h |
 | `NodeMemoryPressure` | available under 200Mi at one evaluation (the kubelet sets MemoryPressure and evicts at 100Mi) | critical, every 4 h |
 | `NodeOOMKill` | the kernel OOM-killed any process in the last 10 min (`node_vmstat_oom_kill`, containers and k3s alike) | critical, every 4 h |
-| `NodeMetricsAbsent` | the `node` or `cadvisor` scrape is not up for 10 min (Alloy down, node down): the alerts above are blind | warning, daily |
+| `NodeMetricsAbsent` | a node's `node` or `cadvisor` scrape is not up for 10 min (Alloy down, node down), per node seen in the last day: the alerts above are blind for it | warning, daily |
 
 The thresholds are ratios, so they follow an upsize. When the cAdvisor series stop, the memory rules keep their last
 state (no "resolved" mail while memory is still low) and `NodeMetricsAbsent` reports the gap. Trend: dashboard
@@ -693,6 +694,47 @@ unset T
 Each call prints the JSON Grafana returns; an error prints its reason. Then delete the service account. A fresh
 stack first needs the folder (`POST /api/folders` with `{"uid":"platform","title":"Platform"}`) and the contact point
 once (`POST /api/v1/provisioning/contact-points`).
+
+### Synthetic uptime
+
+Grafana Cloud Synthetic Monitoring (INFRA-172) probes `https://app.thebetterdecision.com/health/dependencies` and
+`https://app.ziftbook.com/api/healthz` (the backend's readiness path) from the outside, expecting 200, and replaces the
+Route 53 health check. Rule `ProdEndpointDown` (group `synthetic-uptime`, folder Platform) emails `owner-email` when
+`probe_success` averages under 0.5 over 6 minutes for 2 minutes (both probes failing). No data fires only when both checks report nothing; one check disappearing resolves its own series silently, then every 4 h.
+Payloads: [`grafana/synthetic-*.json`](../grafana/).
+
+Free tier: 100,000 test executions a month; one HTTP check run from one probe is one execution. Every 2 minutes is
+21,600 runs in a 30-day month (22,320 in 31 days) per check per probe; 2 checks x 2 probes = 89,280, inside the limit
+with 10% to spare. Every minute would be 178,560 and bill. Adding a third probe or check needs a slower frequency.
+Verify the limit in the stack's Synthetic Monitoring usage page before applying.
+
+Apply (once, then on every payload change). Token: Grafana > Testing & synthetics > Synthetics > Config > Access
+tokens > Generate (the SM access token, not a Grafana service account); the API URL is on the same Config page
+(`https://synthetic-monitoring-api-<region>.grafana.net`). From the repo root, in bash or zsh, with `jq`:
+
+```bash
+read -rs T; S=https://synthetic-monitoring-api-<region>.grafana.net
+sm() { curl -sS --fail-with-body -H @<(printf 'Authorization: Bearer %s\n' "$T") -H 'Content-Type: application/json' "$@"; }
+sm "$S/api/v1/probe/list" | jq -r '.[] | select(.public) | [.id, .name, .region, .public, .online] | @tsv'
+```
+
+Pick two EU probes in different countries from that list (for example Frankfurt and Amsterdam), then:
+
+```bash
+P='[<id1>,<id2>]'
+for f in grafana/synthetic-*.check.json; do
+  jq --argjson p "$P" '.probes = $p' "$f" | sm -X POST "$S/api/v1/check/add" --data-binary @- && echo
+done
+```
+
+`check/add` is not idempotent: a second run fails on the duplicate job and target. To change a check, list it
+(`GET /api/v1/check/list`), then `POST /api/v1/check/update` with the same body plus its `id` and `tenantId`. Then
+apply the rule with the Grafana API as under [Memory alerts](#memory-alerts):
+`api PUT /api/v1/provisioning/folder/platform/rule-groups/synthetic-uptime grafana/synthetic-uptime.rules.json`.
+Check: the checks show Up in Synthetics, and `probe_success{job="tbd-prod-health"}` returns 1 in Explore. To test the
+alert, edit one check's target in the UI to a 404 path for about 10 minutes (both probes fail), expect the mail, then
+restore it: re-run `check/update` with the original payload (the UI edit is not in git). Finally revoke the token and
+clear it: `sm -X DELETE "$S/api/v1/token/delete"; unset T`.
 
 ### Upsize: snapshot to a larger bundle
 
@@ -879,3 +921,139 @@ platform-node-ip --instance-name platform-node` before starting it (its firewall
 Terraform in a follow-up PR (import `platform-node` back, `removed` for `node_2`). Never revert the step 6 PR: with
 `node_2` gone from the configuration, Terraform plans to destroy `platform-node-2`. Writes made on the new node after
 step 8 are lost on rollback unless dumped first (a Job from `cronjob/db-backup` under a new name, then RESTORE.md step 6 on the old node).
+
+## Hetzner cluster bootstrap
+
+One time, for the new cluster (INFRA-171, epic INFRA-164): `clusters/hetzner/` is its Flux path (final, never moved),
+reconciled from `main` like `clusters/platform`. Three k3s servers: node-1 and node-2 (`role=app`), db-1 (`role=db`,
+taint `role=db:NoSchedule`, local-path storage on the Hetzner volume). No Traefik: ingress is the Cloudflare Tunnel
+`hetzner-k3s` (`terraform/cloudflare/tunnel.tf`). App environments move later, one ticket each (INFRA-173, INFRA-181,
+INFRA-175). Steps marked **owner** need the owner's accounts or the offline age key; key material only ever passes
+through `read -rs`, a pipe or `ssh` stdin, never the screen, argv or a plaintext file. Run everything from the repo
+root on `main` at the merged SHA, in bash or zsh.
+
+What is in the tree and why:
+
+- **Copied byte for byte** (SOPS files are bound to the age key, not to a path, so a copy decrypts): `sops-smoke`,
+  `observability/grafana-cloud` (write-only token; per-node series via `instance`), `data/mysql`, `data/postgres`,
+  `data/postgres-ziftbook-prod` (the same passwords keep the app Secrets valid when each environment moves with its
+  dump), `data/backup-s3` (the put-only uploader key). **Not copied**: the NetBird setup key (single-use, spent on
+  `platform-node`), the `ghcr-pull` and app Secrets (they move with their environment), Valkey (removed by INFRA-122
+  before `tbd-prod` moves), Traefik and its certificates (no Traefik here).
+- `data/db-backup` is suspended with `DUMP_SETS` empty: the set prefixes are shared with `clusters/platform`, so
+  nothing may upload from here before its data moves. Each move ticket adds its set here, removes it from
+  `clusters/platform`'s `DUMP_SETS` in the same PR, and sets `suspend: false` on the first one.
+- `observability/log-retention` is a DaemonSet on every node (db-1 included), and its heartbeat carries the node name.
+
+**1. k3s (lead).** `ansible/README.md`, First bootstrap. Then `N1=<node-1 public IPv4>` in this shell and
+`ssh -i ~/.ssh/fjc-hetzner-deploy root@$N1 k3s kubectl get nodes -L role` lists node-1, node-2, db-1 Ready with their
+roles. Every `ssh` below uses that key (`ssh-add ~/.ssh/fjc-hetzner-deploy` once, or add `-i` to each).
+
+**2. `sops-age` (owner).** The same private key as the old cluster (`.sops.yaml` has one recipient):
+
+```bash
+ssh root@$N1 k3s kubectl create namespace flux-system
+# Wait for the prompt, then paste the AGE-SECRET-KEY line (74 chars); anything else changes nothing.
+read -rsp 'Paste the key line, then Enter: ' K; K=${K%$'\r'}; echo; if [ ${#K} -eq 74 ]; then printf '%s\n' "$K" | ssh root@$N1 k3s kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=/dev/stdin; else echo "got ${#K} chars, expected 74: nothing changed"; fi; unset K
+```
+
+**3. Tunnel token (owner, after the `cloudflare` workspace applied `tunnel.tf`).** The output is sensitive and the
+state is remote, so `terraform output` cannot read it locally: read it from the HCP Terraform API with the token
+`terraform login` stored, straight into a SOPS file:
+
+```bash
+F=clusters/hetzner/cloudflared/cloudflared-token.secret.yaml
+T=$(jq -r '.credentials["app.terraform.io"].token' ~/.terraform.d/credentials.tfrc.json)
+tfc() { printf 'Authorization: Bearer %s\n' "$T" | curl -sSf -H @- "https://app.terraform.io/api/v2$1"; }
+WS=$(tfc /organizations/FlamaCorp/workspaces/cloudflare | jq -r .data.id)
+OUT=$(tfc "/workspaces/$WS/current-state-version-outputs" | jq -r '.data[] | select(.attributes.name == "hetzner_tunnel_token") | .id')
+[ -n "$OUT" ] && tfc "/state-version-outputs/$OUT" | jq -j '.data.attributes.value // empty' \
+  | kubectl create secret generic cloudflared-token -n cloudflared --from-file=TUNNEL_TOKEN=/dev/stdin --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
+unset T OUT
+grep -c 'TUNNEL_TOKEN: ENC\[AES256' "$F"   # 1. 0 or "No such file": rm -f "$F", check the apply ran, run again
+```
+
+Commit the file in a PR and merge (no kustomization lists it: Flux picks up every file under `clusters/hetzner`).
+
+**4. NetBird (owner).** At https://app.netbird.io (the account from `clusters/platform/netbird/README.md` section 1; its
+`Default` policy is already off):
+
+1. Setup Keys -> Create Setup Key: name `hetzner-k3s`, Reusable off, Ephemeral off, auto-assigned group `k3s-hetzner`,
+   expiry 7 days. Encrypt it from the clipboard (nothing is shown):
+
+   ```bash
+   F=clusters/hetzner/netbird/setup-key.secret.yaml
+   read -rs NB_KEY   # paste the setup key, press Enter
+   [ -n "$NB_KEY" ] && printf 'NB_SETUP_KEY=%s\n' "$NB_KEY" \
+     | kubectl create secret generic netbird-setup-key -n netbird --from-env-file=/dev/stdin --dry-run=client -o yaml \
+     | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"
+   unset NB_KEY
+   grep -c 'NB_SETUP_KEY: ENC\[AES256' "$F"   # 1, else git checkout or rm the file and run again
+   ```
+
+   Commit in a PR and merge. The key is spent at enrolment (step 5); the peer identity then lives on the
+   `netbird-state` volume.
+2. After step 5, once peer `hetzner-k3s` shows Connected: turn off its login expiration. Networks -> Add Network
+   `hetzner-k3s`; add resources `node-1` `10.0.1.11/32`, `node-2` `10.0.1.12/32`, `db-1` `10.0.1.21/32`, all in a new
+   group `hetzner-k3s-api`; routing peer: `hetzner-k3s`, masquerade on.
+3. Access Control -> Policies -> Add Policy `owner-to-hetzner-k3s-api`: source `owner-devices`, destination group
+   `hetzner-k3s-api`, protocol TCP, port `6443`, one way. That is the only policy that names these resources, and no
+   policy names group `k3s-hetzner`, so nothing else on the nodes is reachable over NetBird.
+
+**5. Flux (lead).** Same version and components as `clusters/platform` (v2.9.6, source and kustomize controllers);
+applied once by hand, then Flux manages itself (the memory patch in `flux-system/kustomization.yaml` lands on its first
+apply). Not `apply -k`: the encrypted Secrets in the folder fail kubectl validation.
+
+```bash
+ssh root@$N1 k3s kubectl apply -f - < clusters/hetzner/flux-system/gotk-components.yaml
+ssh root@$N1 k3s kubectl -n flux-system wait --for=condition=Available deploy --all --timeout=5m
+ssh root@$N1 k3s kubectl apply -f - < clusters/hetzner/flux-system/gotk-sync.yaml
+```
+
+**6. kubeconfig over NetBird (owner).** The CA comes from the admin kubeconfig Ansible fetched; the token is
+`netbird/owner-admin` (90 days, revocable as in the NetBird README section 5). `ssh` writes it straight into a 0600
+file that the kubeconfig names as `tokenFile` (kubectl reads it on every call), so it never sits in a variable or
+argv. Renewing is that one `ssh` line again. The server is a private IP in the k3s certificate (Ansible's `tls-san`), so no
+`tls-server-name` is needed; `10.0.1.12` or `10.0.1.21` work too if node-1 is down.
+
+```bash
+export KUBECONFIG=~/.kube/hetzner
+kubectl config view --raw --kubeconfig ~/.kube/fjc-hetzner.yaml -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
+  | base64 -d > ~/.kube/hetzner-ca.crt && grep -c 'BEGIN CERTIFICATE' ~/.kube/hetzner-ca.crt   # 1
+kubectl config set-cluster hetzner --server=https://10.0.1.11:6443 --certificate-authority="$HOME/.kube/hetzner-ca.crt" --embed-certs
+(umask 077; ssh root@$N1 k3s kubectl -n netbird create token owner-admin --duration=2160h > ~/.kube/hetzner-token)
+wc -c < ~/.kube/hetzner-token   # several hundred bytes; 0 means the ssh failed: run it again
+kubectl config set-credentials owner-admin && kubectl config set users.owner-admin.tokenFile "$HOME/.kube/hetzner-token"
+kubectl config set-context hetzner --cluster=hetzner --user=owner-admin && kubectl config use-context hetzner
+chmod 600 ~/.kube/hetzner
+for ip in 10.0.1.11 10.0.1.12 10.0.1.21; do for p in 6443 10250 22; do nc -z -G 3 $ip $p && echo "$ip:$p open" || echo "$ip:$p closed"; done; done
+# expect 6443 open on all three, 10250 and 22 closed (22 is reachable only from the owner CIDR on the public IP)
+```
+
+**7. Checks (lead).** With `KUBECONFIG=~/.kube/hetzner`:
+
+```bash
+flux get sources git; flux get kustomizations   # main@sha1:<merge commit>, READY True
+kubectl get nodes -L role                       # 3 Ready
+kubectl -n cloudflared get pods -o wide         # 2/2 Running, one on node-1, one on node-2
+kubectl -n cloudflared logs -l app=cloudflared --prefix | grep 'Registered tunnel connection' | cut -d' ' -f1 | sort | uniq -c   # 4 per pod
+kubectl -n observability get pods -o wide       # alloy and log-retention: one each per node, db-1 included
+kubectl -n data get pods,jobs -o wide           # mysql-0 and postgres-0 Running on db-1; both bootstrap Jobs Complete
+kubectl -n data get cronjob db-backup           # SUSPEND True
+kubectl get pv -o custom-columns=NAME:.metadata.name,CLAIM:.spec.claimRef.name,NODE:.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0],PATH:.spec.hostPath.path
+# data-mysql-0 and data-postgres-0 on db-1 under /var/lib/rancher/k3s/storage; netbird-state on an app node
+ssh root@<db-1 public IPv4> findmnt -no SOURCE /var/lib/rancher/k3s/storage   # /dev/sdb, the volume
+```
+
+Cloudflare: Zero Trust -> Networks -> Tunnels -> `hetzner-k3s` is HEALTHY with 2 connectors. Grafana Cloud, Explore:
+`sum by (instance) (up{job=~"node|cadvisor"} == 1)` is 2 for each of node-1, node-2, db-1;
+`container_fs_limit_bytes{instance="db-1", id="/"}` has a `/dev/sdb` series (the volume) next to the root disk;
+`log_retention_last_success_timestamp_seconds` has one series per node.
+
+**8. Alert rules (owner or lead, once, after this PR merges).** `NodeMetricsAbsent` (rule group `node-memory`) and
+`LogRetentionStale` (`log-retention`) are per node since INFRA-171; apply both files as in [Memory alerts](#memory-alerts)
+(`api PUT .../rule-groups/node-memory grafana/node-memory.rules.json` and `.../rule-groups/log-retention
+grafana/log-retention.rules.json`). The memory rules were already `by (instance)`. A node retired on purpose (the
+Lightsail node at the end of INFRA-164) keeps `NodeMetricsAbsent` firing for a day and `LogRetentionStale` for up to 7
+days: silence them then.

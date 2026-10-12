@@ -1,0 +1,19 @@
+{
+  "job": "tbd-prod-health",
+  "target": "https://app.thebetterdecision.com/health/dependencies",
+  "frequency": 120000,
+  "timeout": 10000,
+  "enabled": true,
+  "alertSensitivity": "none",
+  "basicMetricsOnly": true,
+  "settings": {
+    "http": {
+      "method": "GET",
+      "ipVersion": "V4",
+      "validStatusCodes": [200],
+      "failIfNotSSL": true
+    }
+  },
+  "probes": [],
+  "labels": [{"name": "app", "value": "tbd"}]
+}
