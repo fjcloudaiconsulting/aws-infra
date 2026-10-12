@@ -61,12 +61,14 @@ is merged last):
 The first bootstrap runs the three servers as one batch, because the collection's own check waits until every server
 has joined, which a one-host batch can never satisfy on an empty cluster. Every later run is `serial: 1`.
 
-The collection restarts k3s on every server on every run, one at a time. Expect a short API blip per node.
+The collection restarts k3s on every server it runs on, one at a time (a short API blip per node), so the play runs it
+only for a bootstrap, a server without etcd data (new or rebuilt) or `-e k3s_reconfigure=true`. Any other run skips k3s
+and restarts nothing.
 
-Quorum guard: before restarting a server that has etcd data, the play checks that every server is in the run (none
+Quorum guard: before such a run restarts a server that has etcd data, the play checks that every server is in the run (none
 failed or was unreachable in an earlier play, none left out by `--limit`) and that `kubectl get nodes` shows every
 server Ready. Otherwise it stops before any restart, since restarting one member while another is down leaves etcd
-at 1 of 3. So steady-state runs always cover all three servers; only a rebuilt node (no etcd data yet) runs alone.
+at 1 of 3. So a `k3s_reconfigure` run covers all three servers; only a rebuilt node (no etcd data yet) runs alone.
 After each restart it waits for that node's own `/readyz/etcd`, then for the node to be Ready.
 
 ## First bootstrap
@@ -114,8 +116,9 @@ rejoins as a stale member, and the rebuilt node then hits a node-password confli
 5. `ssh-keygen -R <public ip>`, accept the new host key, then `ansible-playbook site.yml --limit <name>` (never with
    `k3s_bootstrap`). The rebuilt node has no etcd data, so the quorum guard lets it run alone; it joins a live peer.
 
-If that run fails after k3s started on the new node, the node now has etcd data and the quorum guard would refuse a
-plain rerun on it. Reset it instead:
+If that run fails after k3s started on the new node, the node now has etcd data: a plain rerun skips k3s on it and
+then times out (about 8 min) waiting for its etcd and Ready, and a `k3s_reconfigure` rerun is refused by the quorum
+guard. Reset it instead:
 
 1. db-1 only, FIRST: `systemctl stop k3s && /usr/local/bin/k3s-killall.sh && umount /var/lib/rancher/k3s/storage`,
    and check `findmnt /var/lib/rancher/k3s/storage` prints nothing. `k3s-uninstall.sh` deletes everything under the

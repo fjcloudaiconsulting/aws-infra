@@ -158,8 +158,8 @@
         force: true
 
   roles:
+    # prereq (forwarding sysctls, packages) never restarts k3s, so it runs every time and corrects drift.
     - role: k3s.orchestration.prereq
-      when: k3s_apply | bool
     # The role passes the token through task arguments and set_fact results; -v would print them.
     # -e k3s_no_log=false to debug a failing role (and then never share the output).
     - role: k3s.orchestration.k3s_server
