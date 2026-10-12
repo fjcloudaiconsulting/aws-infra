@@ -65,9 +65,10 @@ locals {
   access_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
   if g.name == "Access: Apps and Policies Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
-  # Same lookup for the dashboard's "Cloudflare Tunnel: Edit" (INFRA-165), which the API calls "Cloudflare Tunnel Write".
+  # Same lookup for "Cloudflare One Connector: cloudflared Write" (INFRA-165): create a tunnel, write its config, read its
+  # token. Narrower than the legacy "Cloudflare Tunnel Write", which Cloudflare docs list as equivalent for those calls.
   tunnel_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
-  if g.name == "Cloudflare Tunnel Write" && contains(g.scopes, "com.cloudflare.api.account")]
+  if g.name == "Cloudflare One Connector: cloudflared Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
   # object with two keys at one level can come back in another order and fail the apply. Keep one key per level:
