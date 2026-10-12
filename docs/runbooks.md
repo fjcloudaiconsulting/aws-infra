@@ -63,7 +63,7 @@ Every push to `main` that changes `clusters/*/tbd-prod/`, `clusters/*/tbd-stagin
 **Post-deploy Smoke** workflow (INFRA-114) for the namespaces it touched. It runs on GitHub, outside the cluster, and
 reaches the apps through Cloudflare like a user. Per namespace:
 
-1. **Converge:** reads the backend tag from `clusters/platform/<namespace>/backend.yaml` and polls the public version
+1. **Converge:** reads the backend tag from `clusters/<cluster>/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
    `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
@@ -528,8 +528,8 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   alert at 85 to 90%. The kubelet's own `/metrics` is not scraped (about 58,000 control-plane series on k3s, which tripled
   Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics or traces to `http://alloy.observability.svc:4318` (set
-  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only `tbd-prod`
-  and `ziftbook-staging` may reach the port. Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only the app namespaces
+  may reach the port (Lightsail: `tbd-prod`, `ziftbook-prod`; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
   `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
   from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
@@ -764,7 +764,7 @@ cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node
 kubectl -n tbd-prod scale deploy --all --replicas=0
-kubectl -n ziftbook-staging scale deploy --all --replicas=0   # and every other app namespace listed above
+kubectl -n ziftbook-prod scale deploy --all --replicas=0   # and every other app namespace listed above
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
 kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer

@@ -188,7 +188,7 @@ resource "cloudflare_zone_setting" "app" {
 # reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
 # custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
 # the cluster, ping below answers 526 under strict; merge only with the secret files in.
-# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47, below).
+# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47; app.ziftbook.com today, below).
 resource "cloudflare_zone_setting" "tbd_ssl" {
   zone_id    = cloudflare_zone.tbd.id
   setting_id = "ssl"
@@ -218,8 +218,8 @@ resource "cloudflare_dns_record" "ziftbook_dev" {
   proxied = true
 }
 
-# Ziftbook production (INFRA-82): app.ziftbook.com, same node, the zone's strict mode and the same wildcard Origin CA
-# cert and origin pull as dev. above. Merge the ziftbook-prod manifests (clusters/platform/ziftbook-prod) first: until
+# Ziftbook production (INFRA-82): app.ziftbook.com, on the node: the zone's strict mode, the wildcard Origin CA cert
+# and origin pull (dev. goes through the Hetzner tunnel since INFRA-173). Merge the ziftbook-prod manifests (clusters/platform/ziftbook-prod) first: until
 # its pods are up the host answers 502.
 resource "cloudflare_dns_record" "ziftbook_app" {
   zone_id = data.cloudflare_zone.ziftbook.id

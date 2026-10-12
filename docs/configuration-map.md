@@ -320,8 +320,8 @@ Rules:
   per-Worker Editor deploys an existing Worker only while the deploy does not add, change or remove a route or
   custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook stopped declaring them in ziftbook#181 (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
-  code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `dev.ziftbook.com`
-  (staging); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
+  code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `app.ziftbook.com`
+  (production) and `dev.ziftbook.com` (staging, through the tunnel); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
   token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
   narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is

@@ -7,8 +7,8 @@ carries the table count and the SHA256 of the dump and grants files.
 | prefix | database | written by |
 |---|---|---|
 | `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
-| `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` |
-| `ziftbook-postgres/` | Postgres `ziftbook` (Ziftbook staging) | `data/db-backup` |
+| `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` on the Hetzner cluster (INFRA-173) |
+| `ziftbook-postgres/` | Postgres `ziftbook` (Ziftbook staging) | `data/db-backup` on the Hetzner cluster (INFRA-173) |
 | `ziftbook-prod-postgres/` | Postgres `ziftbook_prod` (Ziftbook production, INFRA-82) | `data/db-backup` |
 
 Only an account admin (root, or the Identity Center `AdministratorAccess` user) can read the dumps: the uploaders
@@ -26,7 +26,7 @@ There are two targets:
 
 ```bash
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
-export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc
+export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc   # ~/.kube/hetzner for tbd-staging-mysql and ziftbook-postgres
 B=tbd-mysql-backups-884686184019
 PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, ziftbook-prod-postgres
 # Ziftbook only: the database, the app namespace and the bootstrap Job that go with the set.
