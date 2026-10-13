@@ -43,6 +43,8 @@ data:
     VERSION_KEY=mysql_version MARKER='^-- Dump completed on ' TABLE_RE='^CREATE TABLE '
     . /scripts/common.sh
     q() { mysql -h mysql -u tbd_backup -N -B -e "$1"; }
+    # A new pod is refused for about a second until the NetworkPolicy admits it (INFRA-175): the first container hit it.
+    for _ in $(seq 30); do mysqladmin -h mysql -u tbd_backup --connect-timeout=2 ping >/dev/null 2>&1 && break; sleep 1; done
     TABLES=$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE'")
     VERSION=$(q "SELECT VERSION()")
     mysqldump -h mysql -u tbd_backup --single-transaction --routines --triggers --events --quick --hex-blob "$DB" | gzip >"$DUMP"
