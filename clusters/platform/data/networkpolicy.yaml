@@ -72,9 +72,6 @@ spec:
         # Role bootstrap Job; the label is set by the Job controller.
         - podSelector:
             matchLabels:
-              batch.kubernetes.io/job-name: ziftbook-bootstrap
-        - podSelector:
-            matchLabels:
               batch.kubernetes.io/job-name: ziftbook-prod-bootstrap
       ports:
         - port: 5432
