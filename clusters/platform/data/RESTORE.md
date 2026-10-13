@@ -79,7 +79,7 @@ metadata:
 spec:
   containers:
     - name: postgres
-      image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+      image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
       env:
         - name: POSTGRES_PASSWORD
           valueFrom: {secretKeyRef: {name: root, key: password}}
@@ -91,7 +91,7 @@ until kubectl -n "$NS" exec mysql -- mysqladmin ping -h127.0.0.1 --silent 2>/dev
 until kubectl -n "$NS" exec postgres -- pg_isready -qh 127.0.0.1 2>/dev/null; do sleep 5; done
 ```
 
-The images are the ones `mysql.yaml`, `postgres.yaml` and `db-backup.yaml` pin. Renovate bumps those manifests, not this file: if they differ, use the image from the manifest.
+The images are the ones `mysql.yaml`, `db-backup.yaml` and [`clusters/hetzner/data/postgres.yaml`](../../hetzner/data/postgres.yaml) pin. Renovate bumps those manifests, not this file: if they differ, use the image from the manifest.
 
 ## 3. Copy and check the files
 
@@ -201,7 +201,7 @@ volume). A MySQL dump replaces every table it contains (`DROP TABLE IF EXISTS`).
    ```
 
    Then scale the app Deployments in `tbd-prod`, `tbd-staging` (both use MySQL) or `$ZNS` (Ziftbook) to 0.
-2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`).
+2. Steps 1 and 3 with `NS=data` and `POD=mysql-0` (or `postgres-0`, on the Hetzner cluster: `KUBECONFIG=~/.kube/hetzner`).
 3. Gate: step 5's table-count query (the first statement of the `my` or `pg -d "$ZDB"` block) must
    print `0`. Anything else: stop and decide; never drop a database on reflex.
 4. Postgres only: the entrypoint (`ziftbook`) or the bootstrap Job (`ziftbook_prod`) created an empty `$ZDB` that the dump's `CREATE DATABASE`

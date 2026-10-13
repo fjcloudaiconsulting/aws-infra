@@ -124,7 +124,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `tbd-staging` | TBD staging (`dev.thebetterdecision.com`); on the Hetzner cluster since INFRA-173 | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
 | `ziftbook-staging` | Ziftbook staging (`dev.ziftbook.com`); on the Hetzner cluster since INFRA-173 | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82); on the Hetzner cluster since INFRA-181 | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
-| `data` | MySQL, Postgres (Hetzner), Valkey (Lightsail), backups | 1Gi / 1536Mi | Excluded from Flux pruning |
+| `data` | MySQL, Postgres (Hetzner), Valkey (Lightsail), backups | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 | `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
