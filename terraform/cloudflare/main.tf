@@ -29,8 +29,7 @@ variable "account_id" {
 
 # thebetterdecision.com moves here from Route 53 in the old AWS account (INFRA-15).
 # Every record below is a 1:1 copy of the Route 53 export taken 2026-10-01 and DNS-only
-# (proxied = false), except `app`, proxied to the k3s node since the cutover (INFRA-48), `dev` (INFRA-67), proxied like
-# `app`, and `www`, proxied for its redirect (INFRA-61).
+# (proxied = false), except `app` (INFRA-48) and `dev` (INFRA-67), proxied through the Hetzner tunnel since INFRA-175 and INFRA-173, and `www`, proxied for its redirect (INFRA-61).
 # The apex is the Worker `tbd-landing` since INFRA-61: a custom domain attached by hand, whose own read-only
 # record is not managed here (docs/configuration-map.md, Worker and Snippet access).
 resource "cloudflare_zone" "tbd" {
@@ -51,9 +50,9 @@ locals {
 
     google_verification = { name = "thebetterdecision.com", type = "TXT", content = "\"google-site-verification=n5V8oSnk53Vi4UraYvoNiWv6FrBVeYkSGDAD9VsMTPY\"", ttl = 60 }
 
-    # TBD on the k3s node (INFRA-48): proxied, so clients see Cloudflare and Cloudflare reaches the node through
-    # ping's address (node_static_ip, kept in one record). Staying a CNAME keeps this an in-place update.
-    app = { name = "app.thebetterdecision.com", type = "CNAME", content = "ping.thebetterdecision.com", ttl = 1, proxied = true }
+    # TBD production (INFRA-48). On the Hetzner cluster since INFRA-175: the Cloudflare Tunnel (tunnel.tf), which needs
+    # the proxied CNAME to <tunnel id>.cfargotunnel.com. Staying a CNAME keeps this an in-place update.
+    app = { name = "app.thebetterdecision.com", type = "CNAME", content = "${cloudflare_zero_trust_tunnel_cloudflared.hetzner_k3s.id}.cfargotunnel.com", ttl = 1, proxied = true }
     # TBD staging (INFRA-67), hostname per the 2026-10-03 ruling (staging = dev.<domain>). On the Hetzner cluster since
     # INFRA-173: the Cloudflare Tunnel (tunnel.tf), which needs the proxied CNAME to <tunnel id>.cfargotunnel.com.
     dev = { name = "dev.thebetterdecision.com", type = "CNAME", content = "${cloudflare_zero_trust_tunnel_cloudflared.hetzner_k3s.id}.cfargotunnel.com", ttl = 1, proxied = true }
@@ -138,8 +137,8 @@ resource "cloudflare_ruleset" "ziftbook_redirects" {
 }
 
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com (dev, app, apex and www), thebetterdecision.com (ping, `app` since the INFRA-48 cutover, `dev` since
-# INFRA-67, apex and www since INFRA-61).
+# hostnames: ziftbook.com (dev, app, apex and www), thebetterdecision.com (ping, `app` and `dev` since
+# INFRA-48 and INFRA-67, apex and www since INFRA-61).
 # ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
   filter = { name = "ziftbook.com", account = { id = var.account_id } }
@@ -197,7 +196,7 @@ resource "cloudflare_zone_setting" "tbd_ssl" {
 
 # Traefik answers /ping here itself: the end-to-end check through Cloudflare to the node, and
 # the target of the external uptime check (INFRA-26). Content is the platform workspace's
-# node_static_ip output. `app` is a CNAME to this record: changing it moves TBD production too.
+# node_static_ip output. Since INFRA-175 nothing else points here (`app` goes through the tunnel); INFRA-176 retires it.
 resource "cloudflare_dns_record" "tbd_ping" {
   zone_id = cloudflare_zone.tbd.id
   name    = "ping.thebetterdecision.com"

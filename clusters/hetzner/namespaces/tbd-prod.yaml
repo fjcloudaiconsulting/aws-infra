@@ -1,3 +1,4 @@
+# TBD production (INFRA-43, on Hetzner since INFRA-175). No priority class: it never yields to staging.
 apiVersion: v1
 kind: Namespace
 metadata:

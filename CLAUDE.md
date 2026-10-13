@@ -14,16 +14,18 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 
 - One AWS Lightsail `medium_3_0` (4 GB) in eu-central-1, single-node k3s. No EKS, no RDS, no ALB/NAT: cost
   ceiling is ~$26/mo against limited AWS credits.
-- MySQL 8.4 (TBD), Postgres 18 (Ziftbook), Valkey 8 (TBD sessions) run in-cluster as StatefulSets; nightly
-  dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
-- Cloudflare proxies all app traffic to Traefik (Origin CA cert, Full strict); the node only accepts 443
+- MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets, on both clusters during the move
+  (Lightsail keeps only MySQL and Valkey, unused, as a rollback copy; Valkey is gone from the app since tbd 0.296.0); nightly
+  dumps, all from Hetzner since INFRA-175, go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
+- Cloudflare proxies all app traffic to the Hetzner Cloudflare Tunnel. On Lightsail only `ping.thebetterdecision.com`
+  is left, via Traefik (Origin CA cert, Full strict); the node only accepts 443
   from Cloudflare ranges, and Traefik's `TLSOption default` requires our zone-level Authenticated Origin Pulls client
   cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
-- Namespaces: `tbd-prod`, `data`, `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
+- Namespaces on Lightsail: `data` (MySQL, Valkey), `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
   `clusters/platform/netbird/README.md`). On the Hetzner cluster (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging`
-  (INFRA-173) and `ziftbook-prod` (INFRA-181), behind `cloudflared` (Cloudflare Tunnel connectors, its only ingress).
+  (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), behind `cloudflared` (Cloudflare Tunnel connectors, its only ingress).
 
 ## Layout and commands
 

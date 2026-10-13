@@ -22,9 +22,6 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tbd-prod
         # INFRA-30 dump job.
         - podSelector:
             matchLabels:
@@ -41,11 +38,5 @@ spec:
   podSelector:
     matchLabels:
       app: valkey
+  # No clients since tbd-prod moved to Hetzner (INFRA-175); Valkey stays until the removal PR.
   policyTypes: [Ingress]
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tbd-prod
-      ports:
-        - port: 6379

@@ -4,13 +4,13 @@
 # version cannot work under Flux (immutable pod template, no ordering before Deployments). Only this pod migrates;
 # alembic env.py takes a MySQL GET_LOCK (INFRA-83), so a second migrator would wait, then find the work done.
 # Images track vX.Y.Z only. Production bumps arrive as PRs and never automerge (renovate.json: the staging
-# automerge rule matches ziftbook-staging paths only). Tag v0.0.0 is a placeholder: before the cutover it becomes
-# the first tbd release that carries both INFRA-42 (tbd#823) and INFRA-83 (tbd#824); bump backend, migrations,
-# scheduler and frontend together.
+# automerge rule matches ziftbook-staging paths only). Bump backend, migrations, scheduler and frontend together.
+# On the Hetzner cluster since INFRA-175. Sessions and rate limits are in MySQL since tbd 0.296.0 (INFRA-122), so no
+# Valkey: Secret tbd (tbd.secret.yaml) keeps its unused redis-url key until the next rotation, as on tbd-staging.
 # The scheduler loop is disabled here: it runs in scheduler.yaml (exactly one pod).
 # PFV_RUNTIME is deliberately unset. CLIENT_IP_HEADER=cf-connecting-ip: Cloudflare overwrites that
-# header, and Traefik requires our zone's Authenticated Origin Pulls cert (INFRA-93), so only our zone reaches the
-# origin and get_client_ip reads the visitor from it (INFRA-83). frontend.yaml sets the same value (INFRA-97).
+# header, and the origin is reachable only through the Cloudflare Tunnel (no public port, no Traefik; same-node host traffic bypasses NetworkPolicy, see data/networkpolicy.yaml), so
+# get_client_ip reads the visitor from it (INFRA-83). frontend.yaml sets the same value (INFRA-97).
 apiVersion: v1
 kind: Service
 metadata:
@@ -49,7 +49,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.294.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/migrations:v0.296.1
           env:
             - name: APP_ENV
               value: production
@@ -58,11 +58,6 @@ spec:
                 secretKeyRef:
                   name: tbd
                   key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: redis-url
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -89,7 +84,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.294.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.296.1
           ports:
             - containerPort: 8000
           env:
@@ -146,11 +141,6 @@ spec:
                 secretKeyRef:
                   name: tbd
                   key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: redis-url
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
