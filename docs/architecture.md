@@ -106,7 +106,7 @@ so the rule covers every proxied host of the zone. Each app keeps its own per-ac
 
 One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s (since INFRA-175 only the platform pieces: Flux, Traefik, NetBird and observability), with daily
 snapshots at 03:00 UTC. It has `prevent_destroy` and ignores `user_data` changes, because
-replacing it destroys the databases. There is no EKS, RDS, ALB or NAT; the cost ceiling is about
+replacing it once destroyed the databases (since INFRA-175 it holds none; INFRA-176 removes it). There is no EKS, RDS, ALB or NAT; the cost ceiling is about
 $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](../terraform/platform/README.md).
 
 ## Namespaces and quotas
@@ -127,13 +127,12 @@ ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
 
 ## Data stores
 
-All run in `data` as StatefulSets on local-path volumes, images pinned by digest.
+All run in `data` on the Hetzner cluster as StatefulSets on local-path volumes, images pinned by digest.
 
 | Store | For | Key settings |
 |---|---|---|
 | MySQL 8.4 | TBD production (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
-| Valkey 8 | Nothing since tbd 0.296.0 (INFRA-122); removed from Lightsail | 64mb, noeviction, AOF on |
 
 A NetworkPolicy denies ingress to `data` by default, on each cluster for the namespaces it hosts: MySQL accepts `tbd-prod`
 and `tbd-staging`, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and

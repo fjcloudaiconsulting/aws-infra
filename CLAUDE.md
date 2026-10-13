@@ -52,8 +52,8 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 - The `thebetterdecision.com` registration (Route 53 Domains) lives in an older, separate
   AWS account we have no credentials for; the owner acts there. The TBD apex is the Worker `tbd-landing`. DNS for the domain is served by Cloudflare
   (`terraform/cloudflare`) since 2026-10-01; the old Route 53 zone is kept only until INFRA-58 deletes it.
-- Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, since replacing it destroys the
-  databases.
+- Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, kept until INFRA-176 removes
+  the instance (it holds no database since INFRA-175).
 - AWS calls go through the aws-mcp server; it runs against `884686184019`.
 
 ## Docs

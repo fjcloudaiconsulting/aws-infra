@@ -739,6 +739,8 @@ clear it: `sm -X DELETE "$S/api/v1/token/delete"; unset T`.
 
 ### Upsize: snapshot to a larger bundle
 
+**Obsolete since INFRA-175**: Lightsail runs no app or database any more and INFRA-176 removes it; the steps below are kept for history only.
+
 Lightsail cannot resize an instance: the path is a snapshot and a new instance from it on a larger bundle. The disk
 moves whole (databases, k3s datastore, the SOPS key in `flux-system`, NetBird's peer identity on its volume), so
 nothing re-enrols, and the static IP moves, so Cloudflare's origin, the DNS records and the uptime check keep their
