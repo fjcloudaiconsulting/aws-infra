@@ -53,22 +53,6 @@ data:
     } | gzip >"$GRANTS"
     [ "$(count "$GRANTS" '^CREATE USER IF NOT EXISTS `'"$APP_USER"'`@')" -ge 1 ] || die "grants lack $APP_USER"
     publish
-  pg-dump.sh: |
-    # One set per database; the container's env names it (default: Ziftbook staging).
-    SET=${SET:-ziftbook-postgres} DB=${DB:-ziftbook} VERSION_KEY=postgres_version
-    MARKER='^-- PostgreSQL database dump complete' TABLE_RE='^CREATE (UNLOGGED )?TABLE '
-    . /scripts/common.sh
-    q() { psql -d "$DB" -XAtc "$1"; }
-    # Extension-owned tables are recreated by CREATE EXTENSION, not dumped.
-    TABLES=$(q "SELECT count(*) FROM pg_tables t WHERE schemaname NOT IN ('pg_catalog','information_schema') AND NOT EXISTS
-      (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.deptype = 'e'
-        AND d.objid = format('%I.%I', t.schemaname, t.tablename)::regclass)")
-    VERSION=$(q "SHOW server_version")
-    # --create carries the database's own ACLs and settings; globals carry the roles and their hashes.
-    pg_dump --create "$DB" | gzip >"$DUMP"
-    pg_dumpall --globals-only | gzip >"$GRANTS"
-    [ "$(count "$GRANTS" '^-- PostgreSQL database cluster dump complete')" -eq 1 ] || die "globals have no completion marker"
-    publish
   # One PUT per object: multipart needs kms:Decrypt (denied). The uploader's policy requires both SSE
   # headers. CLI 2.37 sends a CRC64NVME checksum by default; SHA256 is what the manifests record.
   upload.sh: |
@@ -114,7 +98,7 @@ spec:
       template:
         metadata:
           labels:
-            app: db-backup # admitted by the mysql and postgres NetworkPolicies
+            app: db-backup # admitted by the mysql NetworkPolicy
         spec:
           restartPolicy: Never
           securityContext:

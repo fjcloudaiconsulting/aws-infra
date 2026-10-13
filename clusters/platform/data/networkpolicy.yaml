@@ -49,26 +49,3 @@ spec:
               kubernetes.io/metadata.name: tbd-prod
       ports:
         - port: 6379
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: postgres
-  namespace: data
-spec:
-  podSelector:
-    matchLabels:
-      app: postgres
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        # INFRA-30 dump job.
-        - podSelector:
-            matchLabels:
-              app: db-backup
-        # Role bootstrap Job; the label is set by the Job controller.
-        - podSelector:
-            matchLabels:
-              batch.kubernetes.io/job-name: ziftbook-prod-bootstrap
-      ports:
-        - port: 5432
