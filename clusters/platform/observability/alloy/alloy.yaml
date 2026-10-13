@@ -168,9 +168,6 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: tbd-prod
         # The log-retention CronJob's heartbeat (INFRA-130).
         - podSelector:
             matchLabels:

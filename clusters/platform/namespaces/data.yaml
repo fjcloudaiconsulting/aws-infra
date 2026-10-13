@@ -1,4 +1,4 @@
-# MySQL (TBD), Valkey (TBD sessions) and the backup job. Ziftbook's Postgres is on the Hetzner cluster since INFRA-181.
+# MySQL (TBD), Valkey (TBD sessions) (no backup job since INFRA-175; the unused backup-s3 Secret goes with the removal PR). Ziftbook's Postgres is on the Hetzner cluster since INFRA-181.
 apiVersion: v1
 kind: Namespace
 metadata:

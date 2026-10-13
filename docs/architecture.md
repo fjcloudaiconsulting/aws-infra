@@ -18,27 +18,23 @@ flowchart LR
     fw["Lightsail firewall<br/>443 from Cloudflare only"]
     subgraph node["Lightsail node platform-node, k3s"]
       traefik["Traefik + Origin CA cert<br/>(clusters/platform/traefik)"]
-      subgraph ns_tbd["tbd-prod"]
-        tbdapp["TBD production (since INFRA-48)"]
-      end
       subgraph ns_data["data (clusters/platform/data)"]
-        mysql[("MySQL 8.4")]
-        valkey[("Valkey 8")]
-        backup["CronJob db-backup 02:00 UTC"]
+        mysql[("MySQL 8.4, rollback copy")]
+        valkey[("Valkey 8, unused")]
       end
       flux["Flux (clusters/platform/flux-system)"]
       netbird["NetBird peer (clusters/platform/netbird)"]
     end
     alarms["Lightsail alarms, budget, CloudTrail"]
   end
-  cf -->|"proxied hosts: ping and app (TBD)"| fw --> traefik
-  traefik --> tbdapp
-  tbdapp --> mysql & valkey
-  backup --> mysql
+  cf -->|"proxied host: ping"| fw --> traefik
 
   subgraph hetzner["Hetzner nbg1 (terraform/hetzner, ansible/)"]
     subgraph hk3s["3 x CAX21 ARM64, k3s HA (clusters/hetzner)"]
       cfd["cloudflared: Cloudflare Tunnel, the only ingress"]
+      subgraph ns_tbdp["tbd-prod"]
+        tbdprod["TBD production (INFRA-48, here since INFRA-175)"]
+      end
       subgraph ns_tbds["tbd-staging"]
         tbdstg["TBD staging (INFRA-67, here since INFRA-173)"]
       end
@@ -55,15 +51,15 @@ flowchart LR
       end
     end
   end
-  cf -->|"tunnel: dev (TBD), dev and app (ziftbook.com)"| cfd --> tbdstg & zifapp & zifprod
-  tbdstg --> hmysql
+  cf -->|"tunnel: app and dev (TBD), dev and app (ziftbook.com)"| cfd --> tbdprod & tbdstg & zifapp & zifprod
+  tbdprod & tbdstg --> hmysql
   zifapp & zifprod --> hpostgres
   hbackup --> hmysql & hpostgres
 
   subgraph aws_backups["AWS (terraform/tbd-backups)"]
     bucket[("S3 Object Lock bucket + KMS")]
   end
-  backup & hbackup -->|"put-only key"| bucket
+  hbackup -->|"put-only key"| bucket
   probe -->|"list-only role"| bucket
 
   subgraph useast["AWS us-east-1 (terraform/platform)"]
@@ -85,16 +81,17 @@ flowchart LR
 
 ## Ingress
 
-Proxied hostnames go through Cloudflare to the node's static IP: `ping.thebetterdecision.com` and, since the
-INFRA-48 cutover, `app.thebetterdecision.com` (TBD production, a proxied CNAME to `ping`). The thebetterdecision.com zone is in Full
-(strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. ziftbook.com is in Full
-(strict) too, with nothing left on the node: `dev.ziftbook.com` (staging, since INFRA-173) and `app.ziftbook.com`
-(production, since INFRA-181) go through the Hetzner cluster's Cloudflare Tunnel. An Origin CA
+Only `ping.thebetterdecision.com` still goes through Cloudflare to the Lightsail node's static IP (INFRA-176
+decommissions it). The thebetterdecision.com zone is in Full
+(strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. Every app host goes through the
+Hetzner cluster's Cloudflare Tunnel: `dev.thebetterdecision.com` (staging, since INFRA-173) and
+`app.thebetterdecision.com` (TBD production, since INFRA-175, proxied CNAMEs to the tunnel), `dev.ziftbook.com`
+(staging, since INFRA-173) and `app.ziftbook.com` (production, since INFRA-181). An Origin CA
 certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the
 default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
 [runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
 the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
-endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
+endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`, through the tunnel since INFRA-175). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
 thebetterdecision.com apex is the Worker `tbd-landing`; their code and deploys live in the app repos, and their custom
 domains are attached by hand ([configuration-map.md](configuration-map.md#worker-and-snippet-access-infra-98)).
 `www.thebetterdecision.com` is a proxied record that a redirect rule in `terraform/cloudflare` sends to the apex (301).
@@ -111,7 +108,7 @@ so the rule covers every proxied host of the zone. Each app keeps its own per-ac
 
 ## Node and k3s
 
-One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s, with daily
+One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s (since INFRA-175 only the data stores, MySQL and Valkey, as a rollback copy until they are removed), with daily
 snapshots at 03:00 UTC. It has `prevent_destroy` and ignores `user_data` changes, because
 replacing it destroys the databases. There is no EKS, RDS, ALB or NAT; the cost ceiling is about
 $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](../terraform/platform/README.md).
@@ -120,17 +117,17 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 
 | Namespace | Holds | Memory quota (requests / limits) | Notes |
 |---|---|---|---|
-| `tbd-prod` | TBD | 640Mi / 1Gi | Pod Security restricted; TBD production since the INFRA-48 cutover (scheduler: exactly one pod) |
+| `tbd-prod` | TBD production (`app.thebetterdecision.com`, INFRA-48); on the Hetzner cluster since INFRA-175 | 640Mi / 1Gi | Pod Security restricted; no priority class (scheduler: exactly one pod) |
 | `tbd-staging` | TBD staging (`dev.thebetterdecision.com`); on the Hetzner cluster since INFRA-173 | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
 | `ziftbook-staging` | Ziftbook staging (`dev.ziftbook.com`); on the Hetzner cluster since INFRA-173 | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82); on the Hetzner cluster since INFRA-181 | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
-| `data` | MySQL, Postgres (Hetzner), Valkey (Lightsail), backups | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
+| `data` | MySQL and Postgres with the backups (Hetzner); MySQL and Valkey (Lightsail, no clients or backups since INFRA-175) | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 | `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
 The app namespaces enforce Pod Security restricted, `data` baseline. Every app namespace has a LimitRange with default memory limits, and its `default`
 ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
-[`clusters/platform/namespaces/`](../clusters/platform/namespaces/).
+[`clusters/hetzner/namespaces/`](../clusters/hetzner/namespaces/).
 
 ## Data stores
 
@@ -138,12 +135,12 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 
 | Store | For | Key settings |
 |---|---|---|
-| MySQL 8.4 | TBD (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
+| MySQL 8.4 | TBD production (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
-| Valkey 8 | TBD only: sessions, auth nonces, rate limits, locks (the exception in [Jobs, locks, sessions and rate limits](#jobs-locks-sessions-and-rate-limits)) | 64mb, noeviction, AOF on (not migrated at cutover) |
+| Valkey 8 | Nothing since tbd 0.296.0 (INFRA-122); runs idle on Lightsail until a removal PR | 64mb, noeviction, AOF on |
 
 A NetworkPolicy denies ingress to `data` by default, on each cluster for the namespaces it hosts: MySQL accepts `tbd-prod`
-and `tbd-staging`, Valkey `tbd-prod` only, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and
+and `tbd-staging` on Hetzner (nothing on Lightsail since INFRA-175: no dump job is left there; its `backup-s3` Secret is unused and goes with the Lightsail MySQL/Valkey removal PR), Valkey nobody, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and
 `ziftbook-prod`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
@@ -196,12 +193,12 @@ by one. Database rules (`db=<id>`) exist only from Valkey 9.1.0
 instance-wide: `maxmemory` with `noeviction`, the single command thread, AOF rewrites. One app filling
 the store fails the other app's writes, and TBD's sessions fail closed, so its logins go down.
 
-**The exception: TBD.** TBD keeps Valkey (sessions with Lua rotation and reuse detection, MFA nonces,
-rate limits and throttles, locks, dedupe keys, one cache) until it moves:
+**The exception: TBD (ended).** TBD kept Valkey until tbd 0.296.0 (sessions with Lua rotation and reuse detection, MFA nonces,
+rate limits and throttles, locks, dedupe keys, one cache) and moved:
 
 1. INFRA-121: rate limits move to MySQL first, so they no longer fail open.
-2. INFRA-122: sessions and the remaining keys move to MySQL, then Valkey is removed in prod and
-   staging. About 3 to 5 days; no fixed sprint.
+2. INFRA-122: sessions and the remaining keys moved to MySQL (0.296.0). The Valkey StatefulSet on Lightsail is
+   removed with the Lightsail data stores.
 
 A new app that wants Valkey needs a measured reason in its PR (for example invalidation that must
 reach every replica), and then gets one per environment, never shared.
@@ -209,7 +206,7 @@ reach every replica), and then gets one per environment, never shared.
 ## Backups and restore
 
 - Nightly at 02:00 UTC, CronJob `db-backup` dumps MySQL then Postgres and uploads each set (dump,
-  grants, manifest last) to the Object Lock bucket under `tbd-mysql/`, `tbd-staging-mysql/`, `ziftbook-postgres/` (Ziftbook staging) and `ziftbook-prod-postgres/`.
+  grants, manifest last) to the Object Lock bucket under `tbd-mysql/`, `tbd-staging-mysql/`, `ziftbook-postgres/` (Ziftbook staging) and `ziftbook-prod-postgres/`, all from the Hetzner cluster since INFRA-175.
   It uses a put-only IAM user (`k3s-backup-uploader`), SSE-KMS and a SHA256 checksum. Objects are
   locked for 7 days (GOVERNANCE).
 - A GitHub Actions probe at 04:17 UTC checks each backup prefix, each with its own size floor, and
@@ -218,7 +215,7 @@ reach every replica), and then gets one per environment, never shared.
 - Restore: [`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md), restore drill (steps 1-5) passed 2026-10-02 (INFRA-31).
 
 Bucket, KMS, IAM boundaries and owner steps: [`terraform/tbd-backups/README.md`](../terraform/tbd-backups/README.md).
-Job: [`clusters/platform/data/db-backup.yaml`](../clusters/platform/data/db-backup.yaml).
+Job: [`clusters/hetzner/data/db-backup.yaml`](../clusters/hetzner/data/db-backup.yaml).
 
 ## Access
 

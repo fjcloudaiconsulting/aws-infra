@@ -1,6 +1,6 @@
 # TBD web (Next.js standalone) in production (INFRA-43). Serves app.thebetterdecision.com since the INFRA-48 cutover.
 # Config is runtime-only since INFRA-40 (lib/runtime-config.ts reads TBD_* per request); the values below are the
-# frontend's runtime config. Image tag v0.0.0 is a placeholder (see backend.yaml); production bumps
+# frontend's runtime config. Production bumps
 # arrive as Renovate PRs and never automerge (renovate.json).
 apiVersion: v1
 kind: Service
@@ -39,17 +39,17 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.294.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/frontend:v0.296.1
           ports:
             - containerPort: 3000
           env:
             - name: HOSTNAME
               value: 0.0.0.0
-            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through Traefik.
+            # Server-side (RSC) fetches reach the backend directly; browsers use relative URLs through the Cloudflare Tunnel.
             - name: BACKEND_INTERNAL_URL
               value: http://backend:8000
-            # Access-log client IP, same rule and value as backend.yaml (INFRA-97). Trustworthy because Traefik requires
-            # our zone's Authenticated Origin Pulls cert (INFRA-93). Images before the INFRA-97 tbd release ignore it.
+            # Access-log client IP, same rule and value as backend.yaml (INFRA-97). Trustworthy because the origin has no public port,
+            # the Cloudflare Tunnel sets cf-connecting-ip (same-node host traffic bypasses NetworkPolicy, see data/networkpolicy.yaml). Images before the INFRA-97 tbd release ignore it.
             - name: CLIENT_IP_HEADER
               value: cf-connecting-ip
             # Exactly "true" shows "Sign in with Google" on /login and /register.

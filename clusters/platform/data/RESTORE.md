@@ -6,7 +6,7 @@ carries the table count and the SHA256 of the dump and grants files.
 
 | prefix | database | written by |
 |---|---|---|
-| `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` |
+| `tbd-mysql/` | MySQL `tbd` (TBD; sets from before INFRA-73 are empty and named `pfv2`) | `data/db-backup` on the Hetzner cluster (INFRA-175) |
 | `tbd-staging-mysql/` | MySQL `tbd_staging` (TBD staging, INFRA-67) | `data/db-backup` on the Hetzner cluster (INFRA-173) |
 | `ziftbook-postgres/` | Postgres `ziftbook` (Ziftbook staging) | `data/db-backup` on the Hetzner cluster (INFRA-173) |
 | `ziftbook-prod-postgres/` | Postgres `ziftbook_prod` (Ziftbook production, INFRA-82) | `data/db-backup` on the Hetzner cluster (INFRA-181) |
@@ -26,7 +26,7 @@ There are two targets:
 
 ```bash
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
-export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc   # ~/.kube/hetzner for every set but tbd-mysql
+export KUBECONFIG=~/.kube/hetzner AWS_PROFILE=fjc   # every set lives on Hetzner; Lightsail's MySQL is only a rollback copy since INFRA-175
 B=tbd-mysql-backups-884686184019
 PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, ziftbook-prod-postgres
 # Ziftbook only: the database, the app namespace and the bootstrap Job that go with the set.
@@ -91,7 +91,7 @@ until kubectl -n "$NS" exec mysql -- mysqladmin ping -h127.0.0.1 --silent 2>/dev
 until kubectl -n "$NS" exec postgres -- pg_isready -qh 127.0.0.1 2>/dev/null; do sleep 5; done
 ```
 
-The images are the ones `mysql.yaml`, `db-backup.yaml` and [`clusters/hetzner/data/postgres.yaml`](../../hetzner/data/postgres.yaml) pin. Renovate bumps those manifests, not this file: if they differ, use the image from the manifest.
+The images are the ones `mysql.yaml`, [`clusters/hetzner/data/db-backup.yaml`](../../hetzner/data/db-backup.yaml) and [`clusters/hetzner/data/postgres.yaml`](../../hetzner/data/postgres.yaml) pin. Renovate bumps those manifests, not this file: if they differ, use the image from the manifest.
 
 ## 3. Copy and check the files
 

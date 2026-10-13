@@ -1,6 +1,6 @@
 # TBD scheduler in production (INFRA-43): the backend image with SCHEDULER_ENABLED=true, no Service. The loop runs
 # inside the app process (app.main lifespan), so this pod also serves the API port, which nothing routes to.
-# Exactly one pod: Recreate and replicas capped at 1 (the loop also takes a Redis lock, scheduler_lock_ttl_seconds,
+# Exactly one pod: Recreate and replicas capped at 1 (the loop also takes a lock, scheduler_lock_ttl_seconds,
 # as a second line of defence). It does not migrate (backend.yaml does). No CLIENT_IP_HEADER (INFRA-83): the pod listens on the
 # API port, but no Service or route reaches it, so it never resolves a visitor IP.
 apiVersion: apps/v1
@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: scheduler
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.294.0
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.296.1
           env:
             - name: APP_ENV
               value: "production"
@@ -82,11 +82,6 @@ spec:
                 secretKeyRef:
                   name: tbd
                   key: database-url
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: tbd
-                  key: redis-url
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:

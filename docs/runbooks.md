@@ -29,7 +29,8 @@ flux logs --level=error --since=1h
 flux tree kustomization flux-system
 
 # Rollouts: Flux only applies the manifest; it does not wait for pods (no healthChecks), so READY True can hide a
-# crashing pod. Check the workload itself.
+# crashing pod. Check the workload itself. tbd-prod runs on the Hetzner cluster since INFRA-175: use
+# KUBECONFIG=~/.kube/hetzner for the kubectl lines below (and flux's `--context` there).
 kubectl -n tbd-prod rollout status deploy/backend --timeout=5m
 kubectl -n tbd-prod get deploy,pods                       # READY 1/1, RESTARTS 0
 kubectl -n tbd-prod get events --sort-by=.lastTimestamp | tail -20
@@ -316,8 +317,8 @@ entry of `FOUNDER_COUNT_EXCLUDE_USERNAMES`, so it is not counted as a founder.
 
 The credentials live in these places, kept equal:
 
-- `tbd-prod/tbd-smoke` (`clusters/platform/tbd-prod/tbd-smoke.secret.yaml`, SOPS), keys `username` and `password`. Anyone
-  with cluster access reads them for a manual run:
+- `tbd-prod/tbd-smoke` (`clusters/hetzner/tbd-prod/tbd-smoke.secret.yaml`, SOPS), keys `username` and `password`. Anyone
+  with cluster access reads them for a manual run (`KUBECONFIG=~/.kube/hetzner`):
 
   ```bash
   SU=$(kubectl -n tbd-prod get secret tbd-smoke -o jsonpath='{.data.username}' | base64 -d)
@@ -410,7 +411,8 @@ The Lightsail firewall admits every Cloudflare IP, so any Cloudflare zone could 
 Authenticated Origin Pulls closes that (INFRA-93): Cloudflare presents our own client certificate when it connects to
 the origin for thebetterdecision.com and ziftbook.com, and Traefik's `TLSOption default`
 ([`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)) fails the TLS handshake of any
-client without a certificate signed by our CA.
+client without a certificate signed by our CA. Since INFRA-175 only `ping.thebetterdecision.com` is served by Traefik
+(INFRA-176 retires the node); every app host goes through the Cloudflare Tunnel and needs no origin certificate.
 
 Certificates come in **generations** (1, 2, ...): one CA and one leaf each, shared by both zones.
 
@@ -528,7 +530,7 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics or traces to `http://alloy.observability.svc:4318` (set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only the app namespaces
-  may reach the port (Lightsail: `tbd-prod`; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  may reach the port (Lightsail: none since INFRA-175; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
   `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
   from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
@@ -576,16 +578,16 @@ for a new high-cardinality series in the app metrics before raising it.
 ## Uptime alarm emails during a TBD deploy
 
 The Route 53 uptime check reads `https://app.thebetterdecision.com/health/dependencies` (INFRA-48), not Traefik's
-`/ping`. That is deliberate: a down app, MySQL or Valkey now alarms. The trade is that planned outages alarm too.
+`/ping`. That is deliberate: a down app or MySQL now alarms (through the Hetzner tunnel since INFRA-175). The trade is that planned outages alarm too.
 `platform-ping-unhealthy` fires after about 3 to 4 minutes of failures (the checkers need about 90 s, then the alarm
 two 1-minute periods), so an outage longer than that sends an ALARM email and then an OK email:
 
 - a slow TBD release (the Deployments use `Recreate`, and the backend's migrate init container runs first; a normal
   30 to 60 s release does not alarm),
-- a MySQL or Valkey restart that takes that long (a version bump, a node reboot).
+- a MySQL restart that takes that long (a version bump, a node reboot).
 
 `/ping` never did that. An ALARM followed by OK within minutes of a merge in `tbd-prod` or `data` is expected. An
-ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` and `curl -s https://app.thebetterdecision.com/health/dependencies`
+ALARM without an OK is an outage: check `kubectl -n tbd-prod get pods` (Hetzner kubeconfig) and `curl -s https://app.thebetterdecision.com/health/dependencies`
 (it names the failing dependency).
 
 ## Node memory and the upsize
@@ -762,7 +764,8 @@ export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc
 cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node
-kubectl -n tbd-prod scale deploy --all --replicas=0   # and every other app namespace listed above
+# No app namespace is left on this node (tbd-prod moved in INFRA-175): MySQL and Valkey have no clients.
+# OBSOLETE since INFRA-175: no db-backup CronJob on Lightsail (INFRA-176 retires the node); dump with RESTORE.md instead.
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
 kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer
@@ -888,14 +891,14 @@ Anything but `identical`: do not hand back; roll back (below) or restore per RES
 
 ```bash
 flux resume kustomization flux-system   # re-applies git, Deployments back to their replicas
-kubectl -n tbd-prod wait --for=condition=Available deploy --all --timeout=5m   # each app namespace
-curl -s -o /dev/null -w '%{http_code}\n' https://app.thebetterdecision.com/health/dependencies   # 200
+kubectl -n data rollout status sts/mysql --timeout=5m
+curl -s -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping   # 200
 ```
 
-Then the [TBD smoke account](#tbd-smoke-account) run, and the check above: `availableMi` should have grown by about
+Then the check above: `availableMi` should have grown by about
 4 GB. The uptime alarm sent an ALARM during the window; expect its OK now.
 
-**9. The next morning.** RESTORE.md step 1 again: a nightly set from the new node, dated today, `tables` above 0.
+**9. The next morning.** (Obsolete since INFRA-175: Lightsail uploads no set; INFRA-176 retires the node.) RESTORE.md step 1 again: a nightly set from the new node, dated today, `tables` above 0.
 
 **10. Retire the old instance (owner, one-way door), after 7 days without a rollback.** It is billed while stopped
 ($24 a month, prorated). Its automatic snapshots are deleted with it; the manual `$SNAP` is not (about $0.05 per GB
@@ -910,7 +913,7 @@ and its firewall never left it), then step 8. After the apply: also `aws lightsa
 platform-node-ip --instance-name platform-node` before starting it (its firewall rules are intact), and reconcile
 Terraform in a follow-up PR (import `platform-node` back, `removed` for `node_2`). Never revert the step 6 PR: with
 `node_2` gone from the configuration, Terraform plans to destroy `platform-node-2`. Writes made on the new node after
-step 8 are lost on rollback unless dumped first (a Job from `cronjob/db-backup` under a new name, then RESTORE.md step 6 on the old node).
+step 8 are lost on rollback unless dumped first (obsolete since INFRA-175, Lightsail has no `db-backup` CronJob: dump by hand per RESTORE.md; was a Job from `cronjob/db-backup` under a new name, then RESTORE.md step 6 on the old node).
 
 ## Hetzner cluster bootstrap
 
