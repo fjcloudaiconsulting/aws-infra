@@ -65,7 +65,7 @@ reaches the apps through Cloudflare like a user. Per namespace:
 
 1. **Converge:** reads the backend tag from `clusters/<cluster>/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
-   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90; red until the app.ziftbook.com DNS record is applied; after the apply, run the workflow by hand for `ziftbook-prod` to close the issue), which goes through the frontend to the backend. The Deployments use `Recreate`
+   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90), which goes through the frontend to the backend. The Deployments use `Recreate`
    with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
 2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that. `tbd-staging` sits behind [Cloudflare Access](#cloudflare-access-on-tbd-staging) and checks `GET /robots.txt` (the frontend serves it, Access bypasses it) without following redirects, since a followed login redirect is a 200 page.
@@ -136,11 +136,11 @@ set -euo pipefail
 PM=$(openssl rand -hex 32); PA=$(openssl rand -hex 32); H=postgres.data.svc.cluster.local
 enc() { sops encrypt --filename-override "$1" --input-type yaml --output-type yaml /dev/stdin > "$1.tmp" && mv "$1.tmp" "$1"; }
 printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: postgres-ziftbook-prod\n  namespace: data\ntype: Opaque\nstringData:\n  migrate-password: %s\n  app-password: %s\n' "$PM" "$PA" \
-  | enc clusters/platform/data/postgres-ziftbook-prod.secret.yaml
+  | enc clusters/hetzner/data/postgres-ziftbook-prod.secret.yaml
 printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: ziftbook\n  namespace: ziftbook-prod\ntype: Opaque\nstringData:\n  database-url: postgresql+psycopg://ziftbook_prod_app:%s@%s:5432/ziftbook_prod\n  migrate-database-url: postgresql+psycopg://ziftbook_prod_migrate:%s@%s:5432/ziftbook_prod\n' "$PA" "$H" "$PM" "$H" \
-  | enc clusters/platform/ziftbook-prod/ziftbook.secret.yaml
+  | enc clusters/hetzner/ziftbook-prod/ziftbook.secret.yaml
 unset PM PA
-grep -c 'ENC\[' clusters/platform/data/postgres-ziftbook-prod.secret.yaml clusters/platform/ziftbook-prod/ziftbook.secret.yaml
+grep -c 'ENC\[' clusters/hetzner/data/postgres-ziftbook-prod.secret.yaml clusters/hetzner/ziftbook-prod/ziftbook.secret.yaml
 ```
 
 To rotate, run it again and commit both files; Flux does not rerun the bootstrap Job for a Secret change: delete it
@@ -153,7 +153,7 @@ staging file (owner, needs `SOPS_AGE_KEY_FILE`); it prints `1`:
 ```sh
 set -euo pipefail
 export SOPS_AGE_KEY_FILE=<path to the key file>
-G=clusters/platform/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
+G=clusters/hetzner/namespaces/ziftbook-prod-ghcr-pull.secret.yaml
 sops -d clusters/hetzner/namespaces/ziftbook-staging-ghcr-pull.secret.yaml \
   | sed -E 's#^( *namespace:) ziftbook-staging$#\1 ziftbook-prod#' \
   | sops encrypt --filename-override "$G" --input-type yaml --output-type yaml /dev/stdin > "$G.tmp" && mv "$G.tmp" "$G"
@@ -472,10 +472,9 @@ openssl x509 -in terraform/cloudflare/origin-pull/$G.crt -noout -enddate   # the
 
 ```sh
 export KUBECONFIG=~/.kube/platform
-curl -sSL -o /dev/null -w '%{http_code}\n' https://app.ziftbook.com/                 # 200: our zones pass
-curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the thebetterdecision.com zone passes too
+curl -sS -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping    # 200: the zone passes (no ziftbook.com host is on the node since INFRA-181)
 kubectl -n default run aop-probe --rm -i --restart=Never --quiet --image=curlimages/curl:8.17.0 -- \
-  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to app.ziftbook.com:443:traefik.kube-system.svc.cluster.local:443 https://app.ziftbook.com/
+  curl -ksS -o /dev/null -w '%{http_code}\n' --connect-to ping.thebetterdecision.com:443:traefik.kube-system.svc.cluster.local:443 https://ping.thebetterdecision.com/ping
 # 000 and a "curl: (56)" error (handshake refused; the verify-result text is about the server cert): enforced.
 # Any HTTP code (307, 200, 404) means the origin accepts clients without our certificate.
 ```
@@ -529,7 +528,7 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   Alloy's memory).
 - **Apps:** whatever an app sends as OTLP/HTTP metrics or traces to `http://alloy.observability.svc:4318` (set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to that; adoption is INFRA-105 for TBD and INFRA-106 for Ziftbook). Only the app namespaces
-  may reach the port (Lightsail: `tbd-prod`, `ziftbook-prod`; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
+  may reach the port (Lightsail: `tbd-prod`; Hetzner: `tbd-prod`, `ziftbook-staging`, `ziftbook-prod`). Alloy deletes `url.*`, `http.request.header.*`, `client.address`,
   `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
   from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
@@ -763,8 +762,7 @@ export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc
 cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node
-kubectl -n tbd-prod scale deploy --all --replicas=0
-kubectl -n ziftbook-prod scale deploy --all --replicas=0   # and every other app namespace listed above
+kubectl -n tbd-prod scale deploy --all --replicas=0   # and every other app namespace listed above
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
 kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer

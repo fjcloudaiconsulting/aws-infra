@@ -1,3 +1,4 @@
+# Ziftbook production (INFRA-82, on Hetzner since INFRA-181). No priority class: it never yields to staging.
 apiVersion: v1
 kind: Namespace
 metadata:

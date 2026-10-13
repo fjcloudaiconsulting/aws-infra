@@ -21,9 +21,9 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
   cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
-- Namespaces: `tbd-prod`, `tbd-staging`, `ziftbook-staging`, `data`, `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
-  `clusters/platform/netbird/README.md`), and on the Hetzner cluster (`clusters/hetzner/`) `cloudflared` (Cloudflare
-  Tunnel connectors, its only ingress).
+- Namespaces: `tbd-prod`, `data`, `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
+  `clusters/platform/netbird/README.md`). On the Hetzner cluster (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging`
+  (INFRA-173) and `ziftbook-prod` (INFRA-181), behind `cloudflared` (Cloudflare Tunnel connectors, its only ingress).
 
 ## Layout and commands
 
