@@ -747,7 +747,7 @@ values. Plan about 1 to 1.5 hours of downtime in a scheduled window. Run by the 
 Two traps this order avoids:
 
 - **Node name.** k3s names the node after the hostname, Lightsail derives the hostname from the private IP, and the
-  new instance gets a new private IP. Every local-path volume (`data-mysql-0`, `data-postgres-0`, `data-valkey-0`,
+  new instance gets a new private IP. Every local-path volume (`data-mysql-0`, `data-valkey-0`,
   `netbird-state`) is pinned to the node name, so under a new name the databases stay Pending. Step 2 pins the name.
 - **Two live copies.** Never run the old and the new instance at the same time: both are the same NetBird peer and
   both would write the nightly backup. The old one stays stopped unless you roll back.
@@ -769,30 +769,22 @@ kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # t
 ```
 
 Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1, without its `cd` line (stay in this directory),
-for `tbd-mysql` (then `mv manifest.json tbd.json`) and `ziftbook-postgres` (then `mv manifest.json zif.json`), plus
-any prefix the cluster has gained since: each `date` must be after the Job's start
+for `tbd-mysql` (then `mv manifest.json tbd.json`), the only set this node uploads since INFRA-181: each `date` must be after the Job's start
 (both UTC, as a stamp `20261004-120000` and as `2026-10-04T12:00:00Z`) and `tables` above 0. Record the row count per
 table with the `NS=data` versions of RESTORE.md's helpers (read-only queries, counts only):
 
 ```bash
 NS=data
 my() { kubectl -n "$NS" exec -i mysql-0 -- sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB "$@"' sh "$@"; }
-pg() { kubectl -n "$NS" exec -i postgres-0 -- psql -U postgres -XAtq -v ON_ERROR_STOP=1 "$@"; }
 counts() (   # a subshell: pipefail and exit stay inside
   set -o pipefail
   my <<'SQL' | my || exit 1
 SELECT CONCAT('SELECT ''', table_name, ''', COUNT(*) FROM tbd.`', table_name, '`;')
 FROM information_schema.tables WHERE table_schema = 'tbd' AND table_type = 'BASE TABLE' ORDER BY table_name;
 SQL
-  pg -d ziftbook <<'SQL' | pg -d ziftbook || exit 1
-SELECT format('SELECT %L, count(*) FROM %I.%I;', schemaname || '.' || tablename, schemaname, tablename)
-FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1;
-SQL
 )
-# MySQL lines are tab-separated, Postgres lines use |. Both must cover at least the dump's tables, or nothing was
-# counted. Extend counts() for any database added since.
-counts > before.txt && [ "$(grep -c "$(printf '\t')" before.txt)" -ge "$(jq .tables tbd.json)" ] \
-  && [ "$(grep -c '|' before.txt)" -ge "$(jq .tables zif.json)" ] && echo complete
+# Tab-separated lines; they must cover at least the dump's tables, or nothing was counted.
+counts > before.txt && [ "$(grep -c "$(printf '\t')" before.txt)" -ge "$(jq .tables tbd.json)" ] && echo complete
 ```
 
 **2. Pin the node name.** Lightsail console > `platform-node` > Connect using SSH:
@@ -884,7 +876,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://ping.thebetterdecision.com/ping
 ```
 
 **7. Restore check.** Writes stopped before the dumps, so the moved databases must match step 1 exactly. In the same
-shell (or define `my`, `pg` and `counts` again in that directory):
+shell (or define `my` and `counts` again in that directory):
 
 ```bash
 counts > after.txt && diff before.txt after.txt && echo identical
