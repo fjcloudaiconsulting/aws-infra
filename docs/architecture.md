@@ -23,7 +23,6 @@ flowchart LR
     end
     alarms["Lightsail alarms, budget, CloudTrail"]
   end
-  cf -->|"proxied host: ping"| fw --> traefik
 
   subgraph hetzner["Hetzner nbg1 (terraform/hetzner, ansible/)"]
     subgraph hk3s["3 x CAX21 ARM64, k3s HA (clusters/hetzner)"]
@@ -77,17 +76,13 @@ flowchart LR
 
 ## Ingress
 
-Only `ping.thebetterdecision.com` still goes through Cloudflare to the Lightsail node's static IP (INFRA-176
-decommissions it). The thebetterdecision.com zone is in Full
-(strict), so Cloudflare only accepts a Cloudflare Origin CA certificate from Traefik. Every app host goes through the
-Hetzner cluster's Cloudflare Tunnel: `dev.thebetterdecision.com` (staging, since INFRA-173) and
+Every app host goes through the Hetzner cluster's Cloudflare Tunnel: `dev.thebetterdecision.com` (staging, since INFRA-173) and
 `app.thebetterdecision.com` (TBD production, since INFRA-175, proxied CNAMEs to the tunnel), `dev.ziftbook.com`
 (staging, since INFRA-173) and `app.ziftbook.com` (production, since INFRA-181). An Origin CA
 certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the
 default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
 [runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
-the origin cannot be reached directly. `ping.thebetterdecision.com/ping` is a proxied health
-endpoint served by Traefik itself (the uptime check's target before INFRA-48; now `app.../health/dependencies`, through the tunnel since INFRA-175). The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
+the origin cannot be reached directly. The uptime check's target is `app.../health/dependencies`, through the tunnel since INFRA-175. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
 thebetterdecision.com apex is the Worker `tbd-landing`; their code and deploys live in the app repos, and their custom
 domains are attached by hand ([configuration-map.md](configuration-map.md#worker-and-snippet-access-infra-98)).
 `www.thebetterdecision.com` is a proxied record that a redirect rule in `terraform/cloudflare` sends to the apex (301).

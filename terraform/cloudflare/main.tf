@@ -137,7 +137,7 @@ resource "cloudflare_ruleset" "ziftbook_redirects" {
 }
 
 # Baseline security for zones that serve apps (INFRA-14). Zone settings act only on proxied
-# hostnames: ziftbook.com (dev, app, apex and www), thebetterdecision.com (ping, `app` and `dev` since
+# hostnames: ziftbook.com (dev, app, apex and www), thebetterdecision.com (`app` and `dev` since
 # INFRA-48 and INFRA-67, apex and www since INFRA-61).
 # ziftbook.com's zone is read here, not managed.
 data "cloudflare_zone" "ziftbook" {
@@ -181,29 +181,13 @@ resource "cloudflare_zone_setting" "app" {
   value      = local.app_zone_settings[each.value.setting]
 }
 
-# The k3s node behind Cloudflare (INFRA-25). Traefik serves a Cloudflare Origin CA certificate (since INFRA-47 it should cover both zones, see docs/configuration-map.md)
-# for thebetterdecision.com and *.thebetterdecision.com, so this zone runs in Full (strict).
-# Safe to flip now: no other record in the zone is proxied, and a DNS-only record never
-# reaches this setting. The zone's SSL/TLS mode is already Custom (ssl_automatic_mode =
-# custom, read 2026-10-02), so this value does not drift. Until origin-cert.secret.yaml is in
-# the cluster, ping below answers 526 under strict; merge only with the secret files in.
-# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47); since INFRA-181 none is left there.
+# The TBD zone runs in Full (strict) (INFRA-25). A DNS-only record never reaches this setting. The zone's SSL/TLS
+# mode is already Custom (ssl_automatic_mode = custom, read 2026-10-02), so this value does not drift.
+# ziftbook.com moved to strict with its first proxied hostname on the node (INFRA-47).
 resource "cloudflare_zone_setting" "tbd_ssl" {
   zone_id    = cloudflare_zone.tbd.id
   setting_id = "ssl"
   value      = "strict"
-}
-
-# Traefik answers /ping here itself: the end-to-end check through Cloudflare to the node, and
-# the target of the external uptime check (INFRA-26). Content is the platform workspace's
-# node_static_ip output. Since INFRA-175 nothing else points here (`app` goes through the tunnel); INFRA-176 retires it.
-resource "cloudflare_dns_record" "tbd_ping" {
-  zone_id = cloudflare_zone.tbd.id
-  name    = "ping.thebetterdecision.com"
-  type    = "A"
-  content = "52.57.109.122"
-  ttl     = 1 # automatic, required for proxied records
-  proxied = true
 }
 
 # Ziftbook staging (INFRA-47), hostname per the 2026-10-03 ruling (staging = dev.<domain>). On the Hetzner cluster

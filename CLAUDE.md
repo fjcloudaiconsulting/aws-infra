@@ -16,10 +16,8 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
   ceiling is ~$26/mo against limited AWS credits.
 - MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets on the Hetzner cluster (only there since
   INFRA-175; Valkey is gone, the app dropped it in tbd 0.296.0); nightly dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
-- Cloudflare proxies all app traffic to the Hetzner Cloudflare Tunnel. On Lightsail only `ping.thebetterdecision.com`
-  is left, via Traefik (Origin CA cert, Full strict); the node only accepts 443
-  from Cloudflare ranges, and Traefik's `TLSOption default` requires our zone-level Authenticated Origin Pulls client
-  cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
+- Cloudflare proxies all app traffic to the Hetzner Cloudflare Tunnel; nothing on Lightsail is proxied any more
+  (INFRA-176 removed `ping` and the Authenticated Origin Pulls config).
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
 - Namespaces on Lightsail: an empty `data` (until its old volumes are deleted), `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
@@ -61,7 +59,7 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, origin pull certificates, following Flux and rollouts, the post-deploy smoke, node memory and the upsize, metrics to Grafana Cloud, Cloudflare API tokens); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, following Flux and rollouts, the post-deploy smoke, node memory and the upsize, metrics to Grafana Cloud, Cloudflare API tokens); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
