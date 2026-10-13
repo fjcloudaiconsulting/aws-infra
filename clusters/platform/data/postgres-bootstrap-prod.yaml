@@ -1,5 +1,5 @@
-# Ziftbook production database (INFRA-82): the same bootstrap as ziftbook-bootstrap (postgres-bootstrap.yaml, same
-# pinned bootstrap.sql), run against its own database `ziftbook_prod`, created here first (CREATE DATABASE has no IF NOT
+# Ziftbook production database (INFRA-82): the same bootstrap as ziftbook-bootstrap (clusters/hetzner/data/postgres-bootstrap.yaml
+# since staging moved there in INFRA-173, same pinned bootstrap.sql), run against its own database `ziftbook_prod`, created here first (CREATE DATABASE has no IF NOT
 # EXISTS, so the check is a query). The Ziftbook migrations hardcode the role names ziftbook_app and ziftbook_migrate,
 # and roles are cluster-wide, so bootstrap.sql reuses staging's two roles (the same postgres Secret keys: its ALTER ROLE
 # changes nothing). Production's applications do not log in as them. Two login roles of its own, ziftbook_prod_app and
@@ -9,8 +9,9 @@
 # ziftbook_prod is taken from PUBLIC and the shared roles and given to the two login roles only, and PUBLIC loses CONNECT
 # on staging's `ziftbook`: staging's credentials cannot open production, and production's cannot open staging.
 # Ordering: Flux applies everything in one batch. The production backend and worker retry their migrate init container
-# until this Job has created the database and roles, so no ordering between them is needed. Rotation and failure notes:
-# see postgres-bootstrap.yaml.
+# until this Job has created the database and roles, so no ordering between them is needed. Failure notes: see
+# clusters/hetzner/data/postgres-bootstrap.yaml. On this cluster nobody logs in as ziftbook_app or ziftbook_migrate since
+# INFRA-173, so a rotation of their keys needs no app Secret change here.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -87,7 +88,9 @@ spec:
               GRANT CONNECT ON DATABASE :"DBNAME" TO ziftbook_prod_app, ziftbook_prod_migrate;
 
               -- Production's login roles reach nothing of staging's: PUBLIC could connect to every database.
-              REVOKE CONNECT ON DATABASE ziftbook FROM PUBLIC;
+              -- Staging's `ziftbook` is gone from this cluster since INFRA-173, so only while it exists.
+              SELECT 'REVOKE CONNECT ON DATABASE ziftbook FROM PUBLIC'
+              WHERE EXISTS (SELECT FROM pg_database WHERE datname = 'ziftbook') \gexec
 
               SQL
           env:
