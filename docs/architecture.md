@@ -143,11 +143,12 @@ All run in `data` as StatefulSets on local-path volumes, images pinned by digest
 | Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
 | Valkey 8 | TBD only: sessions, auth nonces, rate limits, locks (the exception in [Jobs, locks, sessions and rate limits](#jobs-locks-sessions-and-rate-limits)) | 64mb, noeviction, AOF on (not migrated at cutover) |
 
-A NetworkPolicy denies ingress to `data` by default: MySQL accepts `tbd-prod` and `tbd-staging`, Valkey `tbd-prod` only, Postgres
-accepts `ziftbook-staging` and `ziftbook-prod`, and the backup and bootstrap pods reach their databases inside `data`.
+A NetworkPolicy denies ingress to `data` by default, on each cluster for the namespaces it hosts: MySQL accepts `tbd-prod`
+and `tbd-staging`, Valkey `tbd-prod` only, Postgres `ziftbook-staging` and `ziftbook-prod` (Hetzner; on Lightsail it admits
+no app since INFRA-181 and stays only as the rollback copy), and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
-Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/).
+Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/), [`clusters/hetzner/data/`](../clusters/hetzner/data/).
 
 ## Jobs, locks, sessions and rate limits
 
