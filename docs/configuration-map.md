@@ -33,7 +33,6 @@ in the same PR or right after.
 | Ziftbook staging sends no mail (once ZIF-151 ships) | Secret `ziftbook-mailgun` (key `api-key`) missing (the worker starts without it), or the Mailgun domain is not verified | `kubectl -n ziftbook-staging logs deploy/worker`, Mailgun domain status | Write `ziftbook-mailgun.secret.yaml` (INFRA-47 guide, part D), then `kubectl -n ziftbook-staging rollout restart deploy/worker` (env is read at pod start), or fix the DNS records until Mailgun shows the domain verified |
 | `cloudflare` plan fails with Cloudflare `Authentication error` | Token `tf: cloudflare workspace` was deleted, rolled in the dashboard, or the variable was overwritten by hand | Workspace `cloudflare-tokens` | A deleted token: plan and apply there, it is recreated and the variable rewritten. Rolled, or the variable overwritten: neither shows in a plan, so start a run with Replace resources = `cloudflare_account_token.cloudflare_workspace`. Change token scopes only in `terraform/cloudflare-tokens` |
 | Cloudflare 526 on a proxied host | Traefik serves the wrong cert: the zone's Secret (`kube-system/origin-cert` for thebetterdecision.com, `origin-cert-ziftbook` for ziftbook.com) is missing or its Origin CA cert expired | `clusters/platform/traefik/` (applied to namespace `kube-system`), Cloudflare SSL/TLS > Origin Server of that zone | Issue a new Origin CA cert in that zone, re-encrypt its `*.secret.yaml` |
-| Every proxied host on the node fails at once (Cloudflare 525, or 520), right after an origin-pull change | Traefik requires our client certificate (`TLSOption default`) and Cloudflare did not present it: zone-level Authenticated Origin Pulls off or its certificate not `active`, the leaf not signed by a CA in `kube-system/origin-pull-ca-<gen>`, or a listed Secret missing (Traefik then fails closed for every host) | Cloudflare SSL/TLS > Origin Server > Authenticated Origin Pulls of each zone; `kubectl -n kube-system logs deploy/traefik` | [Runbook rollback](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | Cloudflare 429 page (error 1015) on sign-in, sign-up, password reset, MFA or an invite link | The edge rate limit (INFRA-123): more than 20 requests in 10 s from one IP to the zone's auth paths, which on ziftbook.com include `GET /api/session`. Blocks last 10 s. Many users behind one NAT share the counter | `terraform/cloudflare/rate_limit.tf`, Cloudflare Security > Analytics of the zone | Wait 10 s. If real users trip it, raise `requests_per_period` or drop a chatty path in a PR |
 | `thebetterdecision.com` does not resolve, or `www.thebetterdecision.com` 301s to an apex that does not answer | The apex custom domain was detached from `tbd-landing` (its DNS record goes with it), or the Worker was deleted | Workers & Pages > `tbd-landing` > Settings > Domains & Routes; [Worker and Snippet access](#worker-and-snippet-access-infra-98) | Re-attach `thebetterdecision.com` to `tbd-landing` (API or dashboard, same section). A deleted Worker: re-run tbd's `Deploy Apex Landing` workflow first |
 | A PR has no `Terraform Cloud/FlamaCorp/<ws>` check | Workspace missing, or its trigger path was not touched. Re-running GitHub checks does not trigger a plan | HCP Terraform workspace | An absent check is not a pass. Push a change under the stack's directory |
@@ -198,7 +197,7 @@ name is pinned in an AWS trust policy: never rename it.
 | Workspace | Stack | Auth |
 |---|---|---|
 | `aws-platform` | `terraform/platform` | OIDC: env vars `TFC_AWS_PROVIDER_AUTH=true`, `TFC_AWS_PLAN_ROLE_ARN`, `TFC_AWS_APPLY_ROLE_ARN`. Optional variable `ssh_allowed_cidrs` is unset: port 22 is reachable only from the Lightsail browser console |
-| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN`, written by `cloudflare-tokens` (token `tf: cloudflare workspace`; its scopes are `cloudflare_account_token.cloudflare_workspace` there, never edit them in the dashboard); variable `account_id`; variable `origin_pull_private_key_<gen>` per certificate generation (**sensitive**; otherwise only in this workspace's state and at Cloudflare, so remote state sharing stays off) |
+| `cloudflare` | `terraform/cloudflare` | Sensitive env var `CLOUDFLARE_API_TOKEN`, written by `cloudflare-tokens` (token `tf: cloudflare workspace`; its scopes are `cloudflare_account_token.cloudflare_workspace` there, never edit them in the dashboard); variable `account_id` |
 | `cloudflare-tokens` (INFRA-133) | `terraform/cloudflare-tokens` | Env `CLOUDFLARE_API_TOKEN` (**sensitive**): the bootstrap token, the one hand-made Cloudflare token (account-owned, Account API Tokens: Edit only, stored by the owner with a script that checks it first). It can mint any token, so treat it as account admin: only this workspace holds it, and the workspace does not manage it. Env `TFE_TOKEN` (**sensitive**): token of team `cloudflare-tokens`, custom access on workspace `cloudflare` only (variables write, runs read). Its state holds the value of every token it creates: remote state sharing off, destroy plans off, auto-apply off. Any in-repo branch whose PR touches `terraform/cloudflare-tokens/**` plans with these credentials (a `data "external"` there could read them), so only the owner and his agents push there, and Renovate needs dashboard approval for it; HCP Terraform never plans fork PRs |
 | `tbd-backups` | `terraform/tbd-backups` | OIDC, two roles (plan, provisioner); variable `aws_account_id` |
 | `hetzner` (INFRA-169) | `terraform/hetzner` | Env `HCLOUD_TOKEN` (**sensitive**): Hetzner project `fj-platform` token `tfc-hetzner` (Read & Write), held only here. Variables `ssh_allowed_cidrs` (HCL list of IPv4 CIDRs allowed on port 22) and `deploy_ssh_public_key` (`ssh-ed25519 ...`, not sensitive). Both have no default, so a plan without them fails. The Hetzner project and a second token `claude-readonly` (Read; owner's local hcloud context `fj-platform-ro`) are also hand-made |
@@ -229,7 +228,7 @@ own role.
 ## Cloudflare
 
 - `thebetterdecision.com`: managed by `terraform/cloudflare`, SSL mode Full (strict), HSTS one year. Proxied to the
-  node: `ping` and `app` (TBD production since INFRA-48, a CNAME to `ping`). The apex is the Worker `tbd-landing`
+  node: none since INFRA-176 (`app` is TBD production, through the tunnel). The apex is the Worker `tbd-landing`
   (custom domain attached by hand, INFRA-61, [below](#worker-and-snippet-access-infra-98)); `www` is proxied only so the
   Terraform redirect rule `tbd_redirects` can 301 it to the apex. The rest is DNS-only.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
@@ -247,12 +246,6 @@ own role.
   `ZIF_MAILGUN_REGION`, `ZIF_MAILGUN_API_KEY`; the Ziftbook code that reads them is ZIF-151.
 - Shared-domain webhooks: Mailgun delivers every dev app's events to every webhook URL registered on `m.fjconsulting.dev`,
   so an app must ignore events for messages it did not send (apps tag their messages; handled in the ZIF tickets).
-- Origin pulls (INFRA-93): zone-level Authenticated Origin Pulls is on for thebetterdecision.com and ziftbook.com
-  (`terraform/cloudflare/origin_pull.tf`), with one leaf certificate of our own per generation for both zones.
-  Traefik's `TLSOption default` accepts only clients with a certificate signed by a CA in `kube-system/origin-pull-ca-<gen>`,
-  so the node serves no one but our zones: a direct connection, or another Cloudflare account's zone pointed at the
-  node, fails the TLS handshake. The Route 53 health check is unaffected because it resolves a proxied hostname, so
-  it goes through Cloudflare. The CA key was discarded after signing. Procedures: [runbooks.md](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls).
 - Rate limit (INFRA-123, `terraform/cloudflare/rate_limit.tf`): a new sign-in or token endpoint in either app needs its
   path added there. The zone allows one such rule (Free), managed only in Terraform. The path match relies on the
   zone's URL normalization staying on (type Cloudflare, scope incoming; a dashboard setting, not in Terraform; read
@@ -267,11 +260,10 @@ own role.
 
 ### Worker and Snippet access (INFRA-98)
 
-AOP proves the zone, not the code. A Worker or Snippet that runs on thebetterdecision.com or ziftbook.com can set
+Cloudflare proves the zone, not the code. A Worker or Snippet that runs on thebetterdecision.com or ziftbook.com can set
 `x-real-ip` on a subrequest to a hostname of the **same zone**, and Cloudflare forwards it to the node as
 `CF-Connecting-IP`, which TBD trusts (rate limiting, `audit_events.ip_address`). A Worker on another zone or on
-workers.dev cannot: Cloudflare replaces the value on cross-zone subrequests. Node hostnames (proxied to the node's
-static IP): `ping.thebetterdecision.com` only since INFRA-175. The Hetzner tunnel hostnames
+workers.dev cannot: Cloudflare replaces the value on cross-zone subrequests. The Hetzner tunnel hostnames
 (`dev.thebetterdecision.com`, `dev.ziftbook.com`, INFRA-173; `app.ziftbook.com`, INFRA-181; `app.thebetterdecision.com`, INFRA-175) get the same header from
 Cloudflare, so the same applies.
 
@@ -382,7 +374,6 @@ commit body only.
 | `ghcr-pull` credentials | with their token | Cluster section |
 | NetBird `owner-admin` token | about 2026-12-31 | NetBird runbook |
 | Origin CA certificates (one per zone: thebetterdecision.com, ziftbook.com) | see Cloudflare dashboard of each zone | Issue, re-encrypt `origin-cert.secret.yaml` or `origin-cert-ziftbook.secret.yaml` (namespace `kube-system`), push |
-| Origin pull client certificate, generation 1 (one leaf for both zones) and its CA (INFRA-93) | leaf 2036-10-01, CA 10 days later (`openssl x509 -in terraform/cloudflare/origin-pull/1.crt -noout -enddate`). Cloudflare emails 30 and 14 days before (`cloudflare_notification_policy.origin_pull_expiry`) | New CA and leaf, Traefik trusts both during the swap: [runbook](runbooks.md#origin-pull-client-certificate-authenticated-origin-pulls) |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | Grafana Cloud token `alloy-platform-node` | no expiry, rotate on suspicion | Grafana Cloud section |
 | Cloudflare account-owned tokens (all managed by `cloudflare-tokens`) | per token; `expires_on` in `terraform/cloudflare-tokens` | [runbook](runbooks.md#cloudflare-api-tokens). A token Terraform made gets a replace run, its consumer is rewritten in the same apply; an imported one needs its consumer wired in Terraform first |
