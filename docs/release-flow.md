@@ -8,7 +8,7 @@ The settings each step depends on, and what to check when one breaks, are in
 
 1. **Build once.** Every merge to an app's `main` builds images tagged `sha-<7>`. A release never rebuilds: it adds
    the tag `vX.Y.Z` to the image that was already built and tested.
-2. **A release is not a deploy.** Deploying means changing an image tag in this repo (`clusters/platform/<app>-<env>/`).
+2. **A release is not a deploy.** Deploying means changing an image tag in this repo (`clusters/<cluster>/<app>-<env>/`).
    Flux applies whatever `main` of cloud-infra says, so git is the record of what runs where (Flux in Argo CD terms:
    [runbooks.md, Follow Flux and rollouts](runbooks.md#follow-flux-and-rollouts)).
 3. **Staging follows releases on its own.** Renovate sees the new tag and moves the staging manifests to it, with no PR
@@ -33,11 +33,11 @@ flowchart TD
     F --> G["Renovate sees vX.Y.Z on GHCR"]
 
     subgraph infra["cloud-infra"]
-        G --> H["Branch renovate/&lt;app&gt;-staging-*<br/>bumps clusters/platform/&lt;app&gt;-staging"]
+        G --> H["Branch renovate/&lt;app&gt;-staging-*<br/>bumps clusters/&lt;cluster&gt;/&lt;app&gt;-staging"]
         H --> I{"CI green<br/>on the branch?"}
         I -- yes --> J["Renovate merges the branch into main<br/>(no PR)"]
         I -- no --> H2["Branch waits; fix forward<br/>with a new release"]
-        G --> K["PR renovate/ziftbook-prod-*<br/>(TBD: renovate/tbd-images)<br/>bumps clusters/platform/&lt;app&gt;-prod<br/>(automerge off)"]
+        G --> K["PR renovate/ziftbook-prod-*<br/>(TBD: renovate/tbd-images)<br/>bumps clusters/&lt;cluster&gt;/&lt;app&gt;-prod<br/>(automerge off)"]
         K --> L{"prod tags not ahead of staging?<br/>(check-prod-tags.py)"}
         L -- "red: staging still older" --> W["PR waits"]
         J -. "staging bump lands on main;<br/>Renovate rebases the prod PR" .-> L
@@ -144,7 +144,7 @@ health endpoint and the post-deploy smoke cover that (the smoke runs for `tbd-pr
 | Renovate rules (staging automerge, production PR) | [`renovate.json`](../renovate.json) |
 | Staging-first check | [`.github/scripts/check-prod-tags.py`](../.github/scripts/check-prod-tags.py) |
 | Post-deploy smoke | [`.github/workflows/post-deploy-smoke.yml`](../.github/workflows/post-deploy-smoke.yml), [runbook](runbooks.md#post-deploy-smoke) |
-| Manifests per environment | `clusters/platform/<app>-staging/`, `clusters/platform/<app>-prod/` |
+| Manifests per environment | `clusters/<cluster>/<app>-staging/`, `clusters/<cluster>/<app>-prod/` |
 | Promotion step by step (TBD) | [runbooks.md, Promote a TBD release](runbooks.md#promote-a-tbd-release-staging-then-production) |
 | Settings per step and symptoms | [configuration-map.md](configuration-map.md#release-and-deploy-chain) |
 

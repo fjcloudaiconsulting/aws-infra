@@ -1,6 +1,6 @@
 # Ziftbook web (Next.js standalone) in production (INFRA-82). It proxies /api/* to the backend and passes the visitor IP
-# from cf-connecting-ip: every request reaches the node through Cloudflare (the firewall opens 443 to Cloudflare only).
-# Traefik routes to it from ingress.yaml (app.ziftbook.com).
+# from cf-connecting-ip: every request arrives through the Cloudflare Tunnel (INFRA-181), which routes app.ziftbook.com
+# here (terraform/cloudflare/tunnel.tf); networkpolicy.yaml admits only the cloudflared pods.
 apiVersion: v1
 kind: Service
 metadata:
@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/frontend:v0.24.0
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/frontend:v0.24.1
           ports:
             - containerPort: 3000
           env:

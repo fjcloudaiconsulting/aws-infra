@@ -234,7 +234,7 @@ own role.
   Terraform redirect rule `tbd_redirects` can 301 it to the apex. The rest is DNS-only.
   Traefik must serve the Cloudflare **Origin CA** certificate for every proxied hostname.
 - `ziftbook.com`: the zone itself is read, not created, by Terraform, but its settings (HSTS one year,
-  minimum TLS 1.2, SSL Full strict) and the proxied records `dev.ziftbook.com` (staging) and `app.ziftbook.com` (production, INFRA-82) are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI; the Terraform rule `ziftbook_redirects` 301s www to the apex before the Worker (INFRA-131).
+  minimum TLS 1.2, SSL Full strict) and the proxied records `dev.ziftbook.com` (staging) and `app.ziftbook.com` (production, INFRA-82; both CNAMEs to the Hetzner tunnel, INFRA-173 and INFRA-181) are managed there. Apex and www are the Worker `ziftbook-landing`, deployed by Ziftbook CI; the Terraform rule `ziftbook_redirects` 301s www to the apex before the Worker (INFRA-131).
 - Hostnames (owner ruling 2026-10-03): staging `dev.<domain>`, production `app.<domain>`, other services
   by the same pattern (`docs.`, `blog.`). Ziftbook staging is `dev.ziftbook.com` (INFRA-47).
 - The Origin CA certificate must list `thebetterdecision.com`, `*.thebetterdecision.com`, `ziftbook.com` and
@@ -271,8 +271,9 @@ AOP proves the zone, not the code. A Worker or Snippet that runs on thebetterdec
 `x-real-ip` on a subrequest to a hostname of the **same zone**, and Cloudflare forwards it to the node as
 `CF-Connecting-IP`, which TBD trusts (rate limiting, `audit_events.ip_address`). A Worker on another zone or on
 workers.dev cannot: Cloudflare replaces the value on cross-zone subrequests. Node hostnames (proxied to the node's
-static IP): `ping.thebetterdecision.com`, `app.thebetterdecision.com`, `app.ziftbook.com`. The Hetzner tunnel hostnames
-(`dev.thebetterdecision.com`, `dev.ziftbook.com`, INFRA-173) get the same header from Cloudflare, so the same applies.
+static IP): `ping.thebetterdecision.com`, `app.thebetterdecision.com`. The Hetzner tunnel hostnames
+(`dev.thebetterdecision.com`, `dev.ziftbook.com`, INFRA-173; `app.ziftbook.com`, INFRA-181) get the same header from
+Cloudflare, so the same applies.
 
 Read 2026-10-04 (API, read-only), all four zones of the account (thebetterdecision.com, ziftbook.com,
 fjconsulting.dev, yetanothergrower.com): no Workers routes, no Snippets, no snippet rules. Workers custom domains:
@@ -321,7 +322,7 @@ Rules:
   custom domain, and Custom Domains do not support per-Worker roles yet. Ziftbook stopped declaring them in ziftbook#181 (INFRA-113).
 - Residual, which no token narrowing removes: a landing Worker attached to an app zone runs in that zone, so its
   code can spoof `CF-Connecting-IP` towards that zone's node hostnames. Today `ziftbook-landing` -> `app.ziftbook.com`
-  (production) and `dev.ziftbook.com` (staging, through the tunnel); today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
+  (production) and `dev.ziftbook.com` (staging), both through the tunnel; today `tbd-landing` (apex) -> `app.thebetterdecision.com` (production). Who can change
   that code: whoever merges to the app repo's `main`, or holds its deploy token (an environment secret limited to `main`). Impact: a forged IP in TBD's audit log and rate-limit buckets; the same
   token could already serve any page on the apex, which is the bigger risk. Owner decision on INFRA-98, 2026-10-06:
   narrow, do not accept. Worker deploy token narrowing is complete for account-owned tokens (user-owned tokens are unreadable by agents: 9109; rules above, no consumer needs more than its own Worker); what is
@@ -361,7 +362,7 @@ Made by hand by the owner (INFRA-85); the cluster side is `clusters/platform/obs
 | TBD app secret | `tbd-prod/tbd`, `clusters/platform/tbd-prod/tbd.secret.yaml` (INFRA-48) | Values were carried over from the old hosting at the INFRA-48 cutover (same values, or logins and encrypted columns break); `database-url` and `redis-url` are built from the `data/mysql` and `data/valkey` Secrets. Keys: the `secretKeyRef` entries in `tbd-prod/backend.yaml` (`ai-credential-encryption-key-prev` is optional). A whole new file each time, so only the public key is needed. A rotated MySQL app or Valkey password must be written here too |
 | TBD smoke account | `tbd-prod/tbd-smoke`, `clusters/platform/tbd-prod/tbd-smoke.secret.yaml` (INFRA-48), cloud-infra environment `tbd-prod` secrets `SMOKE_USERNAME` / `SMOKE_PASSWORD` (the post-deploy smoke, INFRA-114) | Production user for `scripts/smoke-test.sh`: active, email verified, no MFA (TBD-371). Every store must hold the same values; the cluster copy is the readable one. Rotation and manual run: [runbooks.md](runbooks.md#tbd-smoke-account). Rotated 2026-10-04 |
 | Mailgun domain `m.fjconsulting.dev` (EU, shared by all dev environments) | Mailgun dashboard > Sending > Domains; DNS in `terraform/cloudflare`; one sending key per environment (`ziftbook-staging`, `tbd-staging`) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/hetzner/ziftbook-staging/ziftbook-mailgun.secret.yaml`, a whole new file each time, so only the public SOPS key is needed); the worker reads it as optional. Rotate: create a new key in Mailgun, regenerate the file, restart `deploy/worker`, delete the old key |
-| Mailgun domain `m.ziftbook.com` (EU, Ziftbook production) | Mailgun dashboard > Sending > Domains (created 2026-10-06 by API); DNS `ziftbook_mail` in `terraform/cloudflare`; sending key `ziftbook-prod` (send-only, this domain) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/platform/ziftbook-prod/ziftbook-mailgun.secret.yaml`, INFRA-139); the worker reads it as optional. Rotate as for the dev domain, then restart `deploy/worker` in `ziftbook-prod` |
+| Mailgun domain `m.ziftbook.com` (EU, Ziftbook production) | Mailgun dashboard > Sending > Domains (created 2026-10-06 by API); DNS `ziftbook_mail` in `terraform/cloudflare`; sending key `ziftbook-prod` (send-only, this domain) | Key `api-key` of Secret `ziftbook-mailgun` (`clusters/hetzner/ziftbook-prod/ziftbook-mailgun.secret.yaml`, INFRA-139); the worker reads it as optional. Rotate as for the dev domain, then restart `deploy/worker` in `ziftbook-prod` |
 | k3s node name (after an upsize) | `node-name:` in `/etc/rancher/k3s/config.yaml` on the node, added by hand in [the upsize runbook](runbooks.md#upsize-snapshot-to-a-larger-bundle) step 2; `node-init.sh.tftpl` does not write it | Keeps the old name (`ip-172-26-3-190`) on a new instance, since every local-path volume is pinned to it. Configuration management (INFRA-64) must keep it |
 | k3s `GOGC=50` | `GOGC=50` in `/etc/systemd/system/k3s.service.env` on the node, set by hand 2026-10-04 (INFRA-80); `node-init.sh.tftpl` does not write it | Lowers the k3s process from about 846Mi to about 625Mi RSS for a little CPU. It survives k3s restarts and the snapshot upsize (same disk). A k3s upgrade by re-running the install script rewrites that file and drops it, and a node rebuilt from the launch script never has it: set it again after either. Check: `kubectl get --raw /metrics \| grep '^go_gc_gogc_percent'` shows 50. On the Hetzner nodes Ansible sets it (`extra_service_envs` in `ansible/group_vars/all.yml`, INFRA-64) and restores it on every run, upgrades included |
 | Flux | GitRepository `flux-system`, public GitHub over HTTPS, no deploy key | Interval 1 minute, Kustomization 10 minutes, `prune: true`, no health checks |

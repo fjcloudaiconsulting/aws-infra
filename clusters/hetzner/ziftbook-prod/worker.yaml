@@ -1,46 +1,36 @@
-# Ziftbook API in production (INFRA-82). Only the frontend talks to it (networkpolicy.yaml); no IngressRoute (ingress.yaml routes the frontend only).
-# The migrate init container runs `alembic upgrade head` before every start (no-op at head, advisory-locked), so
-# a new version never serves on an old schema. The worker runs the same init container.
-# Images track vX.Y.Z only; Renovate bumps all three in one PR that is never automerged: merging it is the deploy (renovate.json).
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend
-  namespace: ziftbook-prod
-spec:
-  selector:
-    app: backend
-  ports:
-    - port: 8000
----
+# Ziftbook background worker in production (INFRA-82): the backend image, polling Postgres for jobs.
+# 90s grace lets in-flight jobs finish on SIGTERM (compose stop_grace_period). Mail goes out through the Mailgun
+# HTTP API (INFRA-47 wiring, ZIF-151 code); the key is in its own Secret ziftbook-mailgun (api-key), so it can be
+# written with the public SOPS key alone and rotated without touching the ziftbook Secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend
+  name: worker
   namespace: ziftbook-prod
 spec:
   replicas: 1
-  # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
+  # One worker at a time, and no surge over the quota.
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: backend
+      app: worker
   template:
     metadata:
       labels:
-        app: backend
+        app: worker
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
       securityContext:
-        runAsUser: 10001 # app in the image; runAsNonRoot cannot check a named user
+        runAsUser: 10001
         runAsGroup: 10001
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.24.0
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.24.1
           envFrom:
             - configMapRef:
                 name: otel # otel.yaml
@@ -65,33 +55,35 @@ spec:
             - name: tmp
               mountPath: /tmp
       containers:
-        - name: backend
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.24.0
-          ports:
-            - containerPort: 8000
+        - name: worker
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.24.1
+          command: [python, -m, app.worker]
           envFrom:
             - configMapRef:
                 name: otel # otel.yaml
           env:
-            # The migrate role's credentials stay in the init container.
             - name: ZIF_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: ziftbook
                   key: database-url
-            # X-Forwarded-For is believed only from pods: the frontend sets it from cf-connecting-ip, and
-            # networkpolicy.yaml admits only the frontend. Cluster CIDR, not the node's podCIDR, which changes
-            # if the node re-registers. Node-local traffic (source 10.42.0.1) is owner-only (NetBird).
-            - name: ZIF_TRUSTED_PROXIES
-              value: 10.42.0.0/16
-          readinessProbe:
-            httpGet:
-              path: /api/healthz
-              port: 8000
-            timeoutSeconds: 5
+            - name: ZIF_APP_URL # only used in email links
+              value: https://app.ziftbook.com
+            # Mailgun HTTP API like TBD: EU region, production sending domain m.ziftbook.com (own sending key; domain and key are made by hand, runbooks.md "Mail"). Only the worker sends mail. optional: the worker keeps
+            # running before the owner adds the key.
+            - name: ZIF_MAILGUN_DOMAIN
+              value: m.ziftbook.com
+            - name: ZIF_MAILGUN_REGION
+              value: eu
+            - name: ZIF_MAILGUN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-mailgun
+                  key: api-key
+                  optional: true
           resources:
             requests:
-              cpu: 50m
+              cpu: 20m
               memory: 128Mi
             limits:
               memory: 256Mi

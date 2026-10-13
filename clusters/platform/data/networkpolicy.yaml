@@ -62,9 +62,6 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ziftbook-prod
         # INFRA-30 dump job.
         - podSelector:
             matchLabels:

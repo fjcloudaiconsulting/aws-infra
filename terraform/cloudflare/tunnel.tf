@@ -18,6 +18,8 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "hetzner_k3s" {
       { hostname = "dev.thebetterdecision.com", service = "http://frontend.tbd-staging.svc.cluster.local:3000" },
       # Ziftbook staging (INFRA-173): everything to the frontend, which proxies /api/* to the backend (as the old IngressRoute).
       { hostname = "dev.ziftbook.com", service = "http://frontend.ziftbook-staging.svc.cluster.local:3000" },
+      # Ziftbook production (INFRA-181): the same, to ziftbook-prod.
+      { hostname = "app.ziftbook.com", service = "http://frontend.ziftbook-prod.svc.cluster.local:3000" },
       { service = "http_status:404" },
     ]
   }

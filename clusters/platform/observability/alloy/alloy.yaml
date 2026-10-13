@@ -171,9 +171,6 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: tbd-prod
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ziftbook-prod
         # The log-retention CronJob's heartbeat (INFRA-130).
         - podSelector:
             matchLabels:

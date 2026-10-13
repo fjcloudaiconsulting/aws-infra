@@ -1,5 +1,5 @@
-# Nightly dumps of TBD MySQL production and Ziftbook Postgres production (INFRA-82) to the Object Lock bucket
-# (terraform/tbd-backups). The staging sets are dumped on the Hetzner cluster since INFRA-173.
+# Nightly dumps of TBD MySQL production to the Object Lock bucket (terraform/tbd-backups). The staging sets are dumped
+# on the Hetzner cluster since INFRA-173, Ziftbook production since INFRA-181.
 # Each dump init container exits 0 and writes <set>.ok (its upload list) only when its dump verifies;
 # upload sends each verified set dump, grants, manifest (manifest last, so the probe sees only complete
 # nights) and fails the Job if a set is missing. Run now: kubectl -n data create job --from=cronjob/db-backup db-backup-manual
@@ -151,45 +151,6 @@ spec:
                   mountPath: /backup
                 - name: scripts
                   mountPath: /scripts
-            # Ziftbook production (INFRA-82): same script, its own set, under a timeout so a hung
-            # dump cannot run out the Job's deadline before the uploads. Never fails the pod.
-            - name: pg-dump-prod
-              image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
-              command: [bash, -c, 'timeout 600 bash /scripts/pg-dump.sh || echo "!! postgres production dump failed" >&2; exit 0']
-              env:
-                - name: SET
-                  value: ziftbook-prod-postgres
-                - name: DB
-                  value: ziftbook_prod
-                # Production migrates on every backend start, so an empty database means something broke (merge this
-                # after the production pods have started once, or the first night fails the set).
-                - name: MIN_TABLES
-                  value: "1"
-                - name: PGHOST
-                  value: postgres
-                - name: PGUSER
-                  value: postgres
-                - name: PGPASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: postgres
-                      key: admin-password
-              securityContext:
-                runAsUser: 999
-                allowPrivilegeEscalation: false
-                capabilities:
-                  drop: [ALL]
-              resources:
-                requests:
-                  cpu: 50m
-                  memory: 128Mi
-                limits:
-                  memory: 256Mi
-              volumeMounts:
-                - name: backup
-                  mountPath: /backup
-                - name: scripts
-                  mountPath: /scripts
           containers:
             - name: upload
               image: amazon/aws-cli:2.37.12@sha256:ce44b800602264c12298bbf3399055a4cefdb9ed4a098abe564afe26e7071bce
@@ -198,7 +159,7 @@ spec:
                 - name: HOME
                   value: /tmp
                 - name: DUMP_SETS
-                  value: tbd-mysql ziftbook-prod-postgres
+                  value: tbd-mysql
                 - name: BUCKET
                   value: tbd-mysql-backups-884686184019
                 - name: KMS_KEY_ARN
