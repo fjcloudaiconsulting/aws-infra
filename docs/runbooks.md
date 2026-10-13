@@ -6,7 +6,7 @@ Step-by-step procedures for the recurring changes. Why things are built this way
 (`~/.kube/platform`, over NetBird) and never prints a secret value.
 
 Database restores are
-[`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md).
+[`clusters/hetzner/data/RESTORE.md`](../clusters/hetzner/data/RESTORE.md).
 
 ## Follow Flux and rollouts
 
@@ -739,6 +739,8 @@ clear it: `sm -X DELETE "$S/api/v1/token/delete"; unset T`.
 
 ### Upsize: snapshot to a larger bundle
 
+**Obsolete since INFRA-175**: Lightsail runs no app or database any more and INFRA-176 removes it; the steps below are kept for history only.
+
 Lightsail cannot resize an instance: the path is a snapshot and a new instance from it on a larger bundle. The disk
 moves whole (databases, k3s datastore, the SOPS key in `flux-system`, NetBird's peer identity on its volume), so
 nothing re-enrols, and the static IP moves, so Cloudflare's origin, the DNS records and the uptime check keep their
@@ -749,8 +751,7 @@ values. Plan about 1 to 1.5 hours of downtime in a scheduled window. Run by the 
 Two traps this order avoids:
 
 - **Node name.** k3s names the node after the hostname, Lightsail derives the hostname from the private IP, and the
-  new instance gets a new private IP. Every local-path volume (`data-mysql-0`, `data-valkey-0`,
-  `netbird-state`) is pinned to the node name, so under a new name the databases stay Pending. Step 2 pins the name.
+  new instance gets a new private IP. Every local-path volume (`netbird-state`, and the old `data-mysql-0` and `data-valkey-0` until deleted) is pinned to the node name, so under a new name the databases stay Pending. Step 2 pins the name.
 - **Two live copies.** Never run the old and the new instance at the same time: both are the same NetBird peer and
   both would write the nightly backup. The old one stays stopped unless you roll back.
 
@@ -764,14 +765,14 @@ export KUBECONFIG=~/.kube/platform AWS_PROFILE=fjc
 cd "$(mktemp -d)"   # everything below that writes a file writes it here
 flux suspend kustomization flux-system   # keeps the replicas at 0 until step 8
 kubectl get deploy -A | grep -vE '^(kube-system|flux-system|netbird) '   # every app namespace on the node
-# No app namespace is left on this node (tbd-prod moved in INFRA-175): MySQL and Valkey have no clients.
+# No app namespace is left on this node (tbd-prod moved in INFRA-175): the Lightsail MySQL and Valkey are gone.
 # OBSOLETE since INFRA-175: no db-backup CronJob on Lightsail (INFRA-176 retires the node); dump with RESTORE.md instead.
 kubectl -n data create job --from=cronjob/db-backup pre-upsize
 kubectl -n data wait --for=condition=complete job/pre-upsize --timeout=30m   # a failed Job also waits it out: kubectl -n data get job
 kubectl -n data get job pre-upsize -o jsonpath='{.status.startTime}{"\n"}'   # the dumps below must be newer
 ```
 
-Then [RESTORE.md](../clusters/platform/data/RESTORE.md) step 1, without its `cd` line (stay in this directory),
+Then [RESTORE.md](../clusters/hetzner/data/RESTORE.md) step 1, without its `cd` line (stay in this directory),
 for `tbd-mysql` (then `mv manifest.json tbd.json`), the only set this node uploads since INFRA-181: each `date` must be after the Job's start
 (both UTC, as a stamp `20261004-120000` and as `2026-10-04T12:00:00Z`) and `tables` above 0. Record the row count per
 table with the `NS=data` versions of RESTORE.md's helpers (read-only queries, counts only):

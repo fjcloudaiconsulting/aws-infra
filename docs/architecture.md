@@ -18,10 +18,6 @@ flowchart LR
     fw["Lightsail firewall<br/>443 from Cloudflare only"]
     subgraph node["Lightsail node platform-node, k3s"]
       traefik["Traefik + Origin CA cert<br/>(clusters/platform/traefik)"]
-      subgraph ns_data["data (clusters/platform/data)"]
-        mysql[("MySQL 8.4, rollback copy")]
-        valkey[("Valkey 8, unused")]
-      end
       flux["Flux (clusters/platform/flux-system)"]
       netbird["NetBird peer (clusters/platform/netbird)"]
     end
@@ -108,9 +104,9 @@ so the rule covers every proxied host of the zone. Each app keeps its own per-ac
 
 ## Node and k3s
 
-One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s (since INFRA-175 only the data stores, MySQL and Valkey, as a rollback copy until they are removed), with daily
+One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s (since INFRA-175 only the platform pieces: Flux, Traefik, NetBird and observability), with daily
 snapshots at 03:00 UTC. It has `prevent_destroy` and ignores `user_data` changes, because
-replacing it destroys the databases. There is no EKS, RDS, ALB or NAT; the cost ceiling is about
+replacing it once destroyed the databases (since INFRA-175 it holds none; INFRA-176 removes it). There is no EKS, RDS, ALB or NAT; the cost ceiling is about
 $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](../terraform/platform/README.md).
 
 ## Namespaces and quotas
@@ -121,7 +117,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `tbd-staging` | TBD staging (`dev.thebetterdecision.com`); on the Hetzner cluster since INFRA-173 | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
 | `ziftbook-staging` | Ziftbook staging (`dev.ziftbook.com`); on the Hetzner cluster since INFRA-173 | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82); on the Hetzner cluster since INFRA-181 | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
-| `data` | MySQL and Postgres with the backups (Hetzner); MySQL and Valkey (Lightsail, no clients or backups since INFRA-175) | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
+| `data` | MySQL and Postgres with the backups (Hetzner only; empty on Lightsail since INFRA-175) | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 | `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
@@ -131,16 +127,15 @@ ServiceAccount pulls from GHCR through `ghcr-pull`. Manifests:
 
 ## Data stores
 
-All run in `data` as StatefulSets on local-path volumes, images pinned by digest.
+All run in `data` on the Hetzner cluster as StatefulSets on local-path volumes, images pinned by digest.
 
 | Store | For | Key settings |
 |---|---|---|
 | MySQL 8.4 | TBD production (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
-| Valkey 8 | Nothing since tbd 0.296.0 (INFRA-122); runs idle on Lightsail until a removal PR | 64mb, noeviction, AOF on |
 
 A NetworkPolicy denies ingress to `data` by default, on each cluster for the namespaces it hosts: MySQL accepts `tbd-prod`
-and `tbd-staging` on Hetzner (nothing on Lightsail since INFRA-175: no dump job is left there; its `backup-s3` Secret is unused and goes with the Lightsail MySQL/Valkey removal PR), Valkey nobody, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and
+and `tbd-staging`, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and
 `ziftbook-prod`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
@@ -184,7 +179,7 @@ Costs, accepted:
   replicas x pool stays under the server's `max_connections` before HPA (INFRA-100).
 - After a real restore, delete every session row and every single-use link (Ziftbook `email_tokens` and
   invite links): sessions signed out and links used or revoked after the dump would otherwise come back
-  ([RESTORE.md](../clusters/platform/data/RESTORE.md#6-real-restore-into-data)).
+  ([RESTORE.md](../clusters/hetzner/data/RESTORE.md#6-real-restore-into-data)).
 
 **A shared Valkey is not an option.** Valkey 8 ACL key patterns (`~tbd:*`) can confine
 reads and writes, but `KEYS`, `SCAN`, `FLUSHDB` and `FLUSHALL` take no key argument and must be denied one
@@ -197,8 +192,8 @@ the store fails the other app's writes, and TBD's sessions fail closed, so its l
 rate limits and throttles, locks, dedupe keys, one cache) and moved:
 
 1. INFRA-121: rate limits move to MySQL first, so they no longer fail open.
-2. INFRA-122: sessions and the remaining keys moved to MySQL (0.296.0). The Valkey StatefulSet on Lightsail is
-   removed with the Lightsail data stores.
+2. INFRA-122: sessions and the remaining keys moved to MySQL (0.296.0). The Valkey StatefulSet on Lightsail was
+   removed with the Lightsail data stores (INFRA-175).
 
 A new app that wants Valkey needs a measured reason in its PR (for example invalidation that must
 reach every replica), and then gets one per environment, never shared.
@@ -212,7 +207,7 @@ reach every replica), and then gets one per environment, never shared.
 - A GitHub Actions probe at 04:17 UTC checks each backup prefix, each with its own size floor, and
   opens a `[backup-stale]` issue when one is stale.
 - Lightsail snapshots at 03:00 UTC cover the whole node.
-- Restore: [`clusters/platform/data/RESTORE.md`](../clusters/platform/data/RESTORE.md), restore drill (steps 1-5) passed 2026-10-02 (INFRA-31).
+- Restore: [`clusters/hetzner/data/RESTORE.md`](../clusters/hetzner/data/RESTORE.md), restore drill (steps 1-5) passed 2026-10-02 (INFRA-31).
 
 Bucket, KMS, IAM boundaries and owner steps: [`terraform/tbd-backups/README.md`](../terraform/tbd-backups/README.md).
 Job: [`clusters/hetzner/data/db-backup.yaml`](../clusters/hetzner/data/db-backup.yaml).

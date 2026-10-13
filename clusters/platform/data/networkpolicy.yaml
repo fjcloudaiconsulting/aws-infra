@@ -1,4 +1,4 @@
-# Ingress to `data` is deny-by-default; egress stays open (bootstrap fetches from GitHub, backups go to S3).
+# Ingress to `data` is deny-by-default (nothing runs here since INFRA-175).
 # kube-router accepts anything from the node itself first (kubelet probes, but also hostNetwork pods
 # such as netbird and host processes), so that path is guarded by DB auth and the NetBird ACL, not here.
 apiVersion: networking.k8s.io/v1
@@ -8,35 +8,4 @@ metadata:
   namespace: data
 spec:
   podSelector: {}
-  policyTypes: [Ingress]
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: mysql
-  namespace: data
-spec:
-  podSelector:
-    matchLabels:
-      app: mysql
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        # INFRA-30 dump job.
-        - podSelector:
-            matchLabels:
-              app: db-backup
-      ports:
-        - port: 3306
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: valkey
-  namespace: data
-spec:
-  podSelector:
-    matchLabels:
-      app: valkey
-  # No clients since tbd-prod moved to Hetzner (INFRA-175); Valkey stays until the removal PR.
   policyTypes: [Ingress]

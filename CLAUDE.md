@@ -14,16 +14,15 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 
 - One AWS Lightsail `medium_3_0` (4 GB) in eu-central-1, single-node k3s. No EKS, no RDS, no ALB/NAT: cost
   ceiling is ~$26/mo against limited AWS credits.
-- MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets, on both clusters during the move
-  (Lightsail keeps only MySQL and Valkey, unused, as a rollback copy; Valkey is gone from the app since tbd 0.296.0); nightly
-  dumps, all from Hetzner since INFRA-175, go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
+- MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets on the Hetzner cluster (only there since
+  INFRA-175; Valkey is gone, the app dropped it in tbd 0.296.0); nightly dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
 - Cloudflare proxies all app traffic to the Hetzner Cloudflare Tunnel. On Lightsail only `ping.thebetterdecision.com`
   is left, via Traefik (Origin CA cert, Full strict); the node only accepts 443
   from Cloudflare ranges, and Traefik's `TLSOption default` requires our zone-level Authenticated Origin Pulls client
   cert (INFRA-93). It fails closed: a missing `kube-system/origin-pull-ca-<gen>` Secret takes every host down.
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/`. Secrets are SOPS + age.
-- Namespaces on Lightsail: `data` (MySQL, Valkey), `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
+- Namespaces on Lightsail: an empty `data` (until its old volumes are deleted), `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
   `clusters/platform/netbird/README.md`). On the Hetzner cluster (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging`
   (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), behind `cloudflared` (Cloudflare Tunnel connectors, its only ingress).
 
@@ -53,8 +52,8 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 - The `thebetterdecision.com` registration (Route 53 Domains) lives in an older, separate
   AWS account we have no credentials for; the owner acts there. The TBD apex is the Worker `tbd-landing`. DNS for the domain is served by Cloudflare
   (`terraform/cloudflare`) since 2026-10-01; the old Route 53 zone is kept only until INFRA-58 deletes it.
-- Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, since replacing it destroys the
-  databases.
+- Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, kept until INFRA-176 removes
+  the instance (it holds no database since INFRA-175).
 - AWS calls go through the aws-mcp server; it runs against `884686184019`.
 
 ## Docs

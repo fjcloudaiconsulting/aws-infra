@@ -203,13 +203,13 @@ aws iam simulate-principal-policy --profile fjc \
 # 3. Mint the key straight into a SOPS-encrypted Secret. It is never displayed
 #    and never written in plaintext.
 set -o pipefail
-mkdir -p clusters/platform/data
+mkdir -p clusters/hetzner/data
 aws iam create-access-key --profile fjc --user-name k3s-backup-uploader --output json \
   | python3 -c 'import json,sys; k=json.load(sys.stdin)["AccessKey"]; print(json.dumps({"apiVersion":"v1","kind":"Secret","metadata":{"name":"backup-s3","namespace":"data"},"type":"Opaque","stringData":{"AWS_ACCESS_KEY_ID":k["AccessKeyId"],"AWS_SECRET_ACCESS_KEY":k["SecretAccessKey"]}}))' \
-  | sops encrypt --filename-override clusters/platform/data/backup-s3.secret.yaml \
+  | sops encrypt --filename-override clusters/hetzner/data/backup-s3.secret.yaml \
       --input-type yaml --output-type yaml /dev/stdin \
-  > clusters/platform/data/backup-s3.secret.yaml
-grep -c 'ENC\[AES256' clusters/platform/data/backup-s3.secret.yaml   # 3: two values + the MAC
+  > clusters/hetzner/data/backup-s3.secret.yaml
+grep -c 'ENC\[AES256' clusters/hetzner/data/backup-s3.secret.yaml   # 3: two values + the MAC
 ```
 
 If the pipeline fails after `create-access-key`, the key exists but nobody holds

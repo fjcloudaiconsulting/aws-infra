@@ -26,7 +26,7 @@ There are two targets:
 
 ```bash
 cd "$(mktemp -d)"   # keeps manifest.json out of the repo
-export KUBECONFIG=~/.kube/hetzner AWS_PROFILE=fjc   # every set lives on Hetzner; Lightsail's MySQL is only a rollback copy since INFRA-175
+export KUBECONFIG=~/.kube/hetzner AWS_PROFILE=fjc   # every set lives on Hetzner
 B=tbd-mysql-backups-884686184019
 PREFIX=tbd-mysql   # or tbd-staging-mysql, ziftbook-postgres, ziftbook-prod-postgres
 # Ziftbook only: the database, the app namespace and the bootstrap Job that go with the set.

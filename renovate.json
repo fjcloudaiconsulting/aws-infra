@@ -21,7 +21,7 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Database majors are one-way data-dir upgrades: never proposed. Upgrade by hand after a fresh dump (clusters/platform/data/RESTORE.md).",
+      "description": "Database majors are one-way data-dir upgrades: never proposed. Upgrade by hand after a fresh dump (clusters/hetzner/data/RESTORE.md).",
       "matchPackageNames": ["mysql", "postgres", "valkey/valkey"],
       "matchUpdateTypes": ["major"],
       "enabled": false
