@@ -109,106 +109,54 @@ resource "aws_budgets_budget" "monthly" {
 # Management-events trail, all regions: the first copy of management events is free, and a
 # compromised key is most often used in a region nobody watches. Event history covers 90 days;
 # the bucket keeps a year.
-resource "aws_s3_bucket" "trail" {
-  bucket = "fjc-platform-cloudtrail-${local.account_id}"
+# The trail's log bucket stays when the stack is destroyed (INFRA-176: buckets and roles stay); its lifecycle rule
+# keeps expiring logs after a year, and its policy only lets CloudTrail write, which stops with the trail.
+locals {
+  trail_bucket = "fjc-platform-cloudtrail-${local.account_id}"
 }
 
-resource "aws_s3_bucket_public_access_block" "trail" {
-  bucket                  = aws_s3_bucket.trail.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "trail" {
-  bucket = aws_s3_bucket.trail.id
-
-  rule {
-    id     = "expire-after-a-year"
-    status = "Enabled"
-    filter {}
-    expiration {
-      days = 365
-    }
+removed {
+  from = aws_s3_bucket.trail
+  lifecycle {
+    destroy = false
   }
 }
 
-data "aws_iam_policy_document" "trail_bucket" {
-  statement {
-    sid       = "CloudTrailAclCheck"
-    actions   = ["s3:GetBucketAcl"]
-    resources = [aws_s3_bucket.trail.arn]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudtrail.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceArn"
-      values   = ["arn:aws:cloudtrail:eu-central-1:${local.account_id}:trail/platform-management"]
-    }
-  }
-  statement {
-    sid       = "CloudTrailWrite"
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.trail.arn}/AWSLogs/${local.account_id}/*"]
-    principals {
-      type        = "Service"
-      identifiers = ["cloudtrail.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceArn"
-      values   = ["arn:aws:cloudtrail:eu-central-1:${local.account_id}:trail/platform-management"]
-    }
-  }
-  statement {
-    sid       = "DenyInsecureTransport"
-    effect    = "Deny"
-    actions   = ["s3:*"]
-    resources = [aws_s3_bucket.trail.arn, "${aws_s3_bucket.trail.arn}/*"]
-    principals {
-      type        = "*"
-      identifiers = ["*"]
-    }
-    condition {
-      test     = "Bool"
-      variable = "aws:SecureTransport"
-      values   = ["false"]
-    }
+removed {
+  from = aws_s3_bucket_public_access_block.trail
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "aws_s3_bucket_policy" "trail" {
-  bucket = aws_s3_bucket.trail.id
-  policy = data.aws_iam_policy_document.trail_bucket.json
+removed {
+  from = aws_s3_bucket_lifecycle_configuration.trail
+  lifecycle {
+    destroy = false
+  }
+}
 
-  depends_on = [aws_s3_bucket_public_access_block.trail]
+removed {
+  from = aws_s3_bucket_policy.trail
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "aws_cloudtrail" "platform" {
   name                          = "platform-management"
-  s3_bucket_name                = aws_s3_bucket.trail.id
+  s3_bucket_name                = local.trail_bucket
   is_multi_region_trail         = true
   include_global_service_events = true
   enable_log_file_validation    = true
-
-  depends_on = [aws_s3_bucket_policy.trail]
 }
 
-# The single k3s node (INFRA-21/22). Replacing it destroys the in-cluster databases, hence
-# prevent_destroy, and user_data (the launch script) is ignored after the first boot.
+# The single k3s node (INFRA-21/22). user_data (the launch script) is ignored after the first boot. prevent_destroy
+# guarded the in-cluster databases; it went once they moved to Hetzner (INFRA-175), so INFRA-176 can destroy the stack.
 variable "k3s_version" {
   description = "k3s release installed at first boot. Upgrading a running node is a separate, manual step."
   type        = string
   default     = "v1.36.5+k3s1"
-}
-
-variable "ssh_allowed_cidrs" {
-  description = "Extra IPv4 CIDRs allowed on port 22 (the owner's address, as a TFC workspace variable). The Lightsail console's browser SSH works without it."
-  type        = list(string)
-  default     = []
 }
 
 resource "aws_lightsail_instance" "node" {
@@ -226,8 +174,7 @@ resource "aws_lightsail_instance" "node" {
   }
 
   lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [user_data]
+    ignore_changes = [user_data]
   }
 }
 
@@ -238,22 +185,6 @@ resource "aws_lightsail_static_ip" "node" {
 resource "aws_lightsail_static_ip_attachment" "node" {
   static_ip_name = aws_lightsail_static_ip.node.name
   instance_name  = aws_lightsail_instance.node.name
-}
-
-# Cloudflare publishes its edge ranges here. A failed fetch, an empty body or anything that is
-# not a CIDR (say, a challenge page) fails the plan rather than closing 443 to the proxy.
-data "http" "cloudflare_ips" {
-  for_each = toset(["ips-v4"])
-  url      = "https://www.cloudflare.com/${each.key}"
-
-  lifecycle {
-    postcondition {
-      condition = self.status_code == 200 && length(compact([for c in split("\n", self.response_body) : trimspace(c)])) > 0 && alltrue([
-        for c in compact([for l in split("\n", self.response_body) : trimspace(l)]) : can(cidrhost(c, 0))
-      ])
-      error_message = "Could not read Cloudflare's IP ranges from ${self.url}."
-    }
-  }
 }
 
 # Replaces the instance's default rules (22 and 80 open to all). 443 only from Cloudflare,
@@ -272,29 +203,12 @@ removed {
   }
 }
 
-resource "aws_lightsail_instance_public_ports" "firewall" {
-  instance_name = aws_lightsail_instance.node.name
-  depends_on    = [aws_lightsail_static_ip_attachment.node] # one change at a time on the instance
-
-  # A port_info change would plan destroy+create and hang on Close; fail the plan instead and use
-  # the new-address pattern above.
+# The firewall (443 from Cloudflare, 22 for Lightsail connect) is released, not destroyed (INFRA-176): its delete calls
+# CloseInstancePublicPorts, the call that hung on 2026-10-01 (above). The rules go with the instance.
+removed {
+  from = aws_lightsail_instance_public_ports.firewall
   lifecycle {
-    prevent_destroy = true
-  }
-
-  port_info {
-    protocol  = "tcp"
-    from_port = 443
-    to_port   = 443
-    cidrs     = compact([for c in split("\n", data.http.cloudflare_ips["ips-v4"].response_body) : trimspace(c)])
-  }
-
-  port_info {
-    protocol          = "tcp"
-    from_port         = 22
-    to_port           = 22
-    cidrs             = var.ssh_allowed_cidrs
-    cidr_list_aliases = ["lightsail-connect"]
+    destroy = false
   }
 }
 
