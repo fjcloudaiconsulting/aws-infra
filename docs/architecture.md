@@ -23,7 +23,7 @@ flowchart LR
         tbdprod["TBD production (INFRA-48, here since INFRA-175)"]
       end
       subgraph ns_tbds["tbd-staging"]
-        tbdstg["TBD staging (INFRA-67, here since INFRA-173)"]
+        tbdstg["TBD staging + MCP server (INFRA-67, here since INFRA-173; MCP INFRA-147)"]
       end
       subgraph ns_zif["ziftbook-staging"]
         zifapp["Ziftbook staging (INFRA-7, here since INFRA-173)"]
@@ -87,7 +87,7 @@ Three Hetzner CAX21 ARM64 servers in nbg1 run k3s HA (`terraform/hetzner`, host 
 | Namespace | Holds | Memory quota (requests / limits) | Notes |
 |---|---|---|---|
 | `tbd-prod` | TBD production (`app.thebetterdecision.com`, INFRA-48); on the Hetzner cluster since INFRA-175 | 640Mi / 1Gi | Pod Security restricted; no priority class (scheduler: exactly one pod) |
-| `tbd-staging` | TBD staging (`dev.thebetterdecision.com`); on the Hetzner cluster since INFRA-173 | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
+| `tbd-staging` | TBD staging (`dev.thebetterdecision.com`) and the MCP server (`/mcp`, INFRA-147); on the Hetzner cluster since INFRA-173 | 384Mi / 960Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117), except the smoke paths and the MCP client's OAuth paths (INFRA-147) |
 | `ziftbook-staging` | Ziftbook staging (`dev.ziftbook.com`); on the Hetzner cluster since INFRA-173 | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82); on the Hetzner cluster since INFRA-181 | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
 | `data` | MySQL and Postgres with the backups  | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
