@@ -1,5 +1,5 @@
 # Request-log retention (INFRA-130): deletes container log content older than 6 days from every node, hourly, so the
-# privacy policy's "up to 7 days" holds. A DaemonSet (clusters/platform runs a CronJob on its one node): logs live on
+# privacy policy's "up to 7 days" holds. A DaemonSet: logs live on
 # each node's own /var/log/pods, so each node needs its own pass, db-1 included (it tolerates role=db). Script and rules:
 # log-retention.sh; the heartbeat carries the node name, so Grafana sees a stale node even while the others report.
 # Root, because the log files are root-owned; no capabilities needed (owner access). Only /var/log/pods is mounted.

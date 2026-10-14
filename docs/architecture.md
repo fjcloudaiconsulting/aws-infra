@@ -14,19 +14,11 @@ flowchart LR
   worker["Workers ziftbook-landing, tbd-landing<br/>ziftbook.com apex and www, thebetterdecision.com apex<br/>(code in the app repos)"]
   cf --> worker
 
-  subgraph aws_platform["AWS eu-central-1 (terraform/platform)"]
-    fw["Lightsail firewall<br/>443 from Cloudflare only"]
-    subgraph node["Lightsail node platform-node, k3s"]
-      traefik["Traefik + Origin CA cert<br/>(clusters/platform/traefik)"]
-      flux["Flux (clusters/platform/flux-system)"]
-      netbird["NetBird peer (clusters/platform/netbird)"]
-    end
-    alarms["Lightsail alarms, budget, CloudTrail"]
-  end
-
   subgraph hetzner["Hetzner nbg1 (terraform/hetzner, ansible/)"]
     subgraph hk3s["3 x CAX21 ARM64, k3s HA (clusters/hetzner)"]
       cfd["cloudflared: Cloudflare Tunnel, the only ingress"]
+      flux["Flux (clusters/hetzner/flux-system)"]
+      netbird["NetBird peer (clusters/hetzner/netbird)"]
       subgraph ns_tbdp["tbd-prod"]
         tbdprod["TBD production (INFRA-48, here since INFRA-175)"]
       end
@@ -57,20 +49,15 @@ flowchart LR
   hbackup -->|"put-only key"| bucket
   probe -->|"list-only role"| bucket
 
-  subgraph useast["AWS us-east-1 (terraform/platform)"]
-    hc["Route 53 health check<br/>app.thebetterdecision.com/health/dependencies"]
-  end
-  hc --> cf
-
   subgraph control["Control plane"]
     gh["GitHub fjcloudaiconsulting/cloud-infra"]
     tfc["HCP Terraform (org FlamaCorp)<br/>AWS via OIDC roles, Cloudflare via API token"]
     ghcr["GHCR images"]
     probe["Freshness probe (GitHub Actions)"]
   end
-  gh --> tfc --> aws_platform & aws_backups & cloudflare
+  gh --> tfc --> aws_backups & cloudflare
   gh -->|"main"| flux
-  ghcr -->|"ghcr-pull secret"| node
+  ghcr -->|"ghcr-pull secret"| hk3s
   owner([Owner Mac]) -->|"NetBird, TCP 6443 only"| netbird
 ```
 
@@ -78,11 +65,7 @@ flowchart LR
 
 Every app host goes through the Hetzner cluster's Cloudflare Tunnel: `dev.thebetterdecision.com` (staging, since INFRA-173) and
 `app.thebetterdecision.com` (TBD production, since INFRA-175, proxied CNAMEs to the tunnel), `dev.ziftbook.com`
-(staging, since INFRA-173) and `app.ziftbook.com` (production, since INFRA-181). An Origin CA
-certificate covers one zone, so `TLSStore default` holds one per zone (`origin-cert` for thebetterdecision.com as the
-default, `origin-cert-ziftbook` for ziftbook.com) and Traefik picks by SNI; adding a host or zone:
-[runbooks.md](runbooks.md#add-a-public-hostname-for-an-app). The Lightsail firewall allows 443 from the Cloudflare IPv4 ranges only, so
-the origin cannot be reached directly. The uptime check's target is `app.../health/dependencies`, through the tunnel since INFRA-175. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
+(staging, since INFRA-173) and `app.ziftbook.com` (production, since INFRA-181). The uptime check's target is `app.../health/dependencies`, through the tunnel since INFRA-175. The ziftbook.com apex and www are a Cloudflare Worker (`ziftbook-landing`), and since INFRA-61 the
 thebetterdecision.com apex is the Worker `tbd-landing`; their code and deploys live in the app repos, and their custom
 domains are attached by hand ([configuration-map.md](configuration-map.md#worker-and-snippet-access-infra-98)).
 `www.thebetterdecision.com` is a proxied record that a redirect rule in `terraform/cloudflare` sends to the apex (301).
@@ -93,16 +76,11 @@ address can send to them. The zones are on the Free plan, which allows one such 
 so the rule covers every proxied host of the zone. Each app keeps its own per-account and per-address limits behind it.
 
 - Terraform: [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf), rate limit in
-  [`terraform/cloudflare/rate_limit.tf`](../terraform/cloudflare/rate_limit.tf), firewall in
-  [`terraform/platform/main.tf`](../terraform/platform/main.tf)
-- Traefik: [`clusters/platform/traefik/traefik.yaml`](../clusters/platform/traefik/traefik.yaml)
+  [`terraform/cloudflare/rate_limit.tf`](../terraform/cloudflare/rate_limit.tf)
 
 ## Node and k3s
 
-One Lightsail `medium_3_0` (4 GB, 2 GB swap) in eu-central-1 runs single-node k3s (since INFRA-175 only the platform pieces: Flux, Traefik, NetBird and observability), with daily
-snapshots at 03:00 UTC. It has `prevent_destroy` and ignores `user_data` changes, because
-replacing it once destroyed the databases (since INFRA-175 it holds none; INFRA-176 removes it). There is no EKS, RDS, ALB or NAT; the cost ceiling is about
-$26/month on credits. Details and owner steps: [`terraform/platform/README.md`](../terraform/platform/README.md).
+Three Hetzner CAX21 ARM64 servers in nbg1 run k3s HA (`terraform/hetzner`, host config in `ansible/`). There is no EKS, RDS, ALB or NAT. The Lightsail node was decommissioned on 2026-10-14 (INFRA-176).
 
 ## Namespaces and quotas
 
@@ -112,7 +90,7 @@ $26/month on credits. Details and owner steps: [`terraform/platform/README.md`](
 | `tbd-staging` | TBD staging (`dev.thebetterdecision.com`); on the Hetzner cluster since INFRA-173 | 320Mi / 768Mi | PriorityClass `staging`, enforced by a quota; no scheduler pod (INFRA-67); behind Cloudflare Access, owner login only (INFRA-117) |
 | `ziftbook-staging` | Ziftbook staging (`dev.ziftbook.com`); on the Hetzner cluster since INFRA-173 | 512Mi / 1Gi | PriorityClass `staging` (-100, never preempts), enforced by a quota |
 | `ziftbook-prod` | Ziftbook production (`app.ziftbook.com`, INFRA-82); on the Hetzner cluster since INFRA-181 | 512Mi / 1Gi | Pod Security restricted; no priority class; image bumps are a PR, never automerged |
-| `data` | MySQL and Postgres with the backups (Hetzner only; empty on Lightsail since INFRA-175) | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
+| `data` | MySQL and Postgres with the backups  | 1Gi / 1536Mi | The Namespace object is excluded from Flux pruning (its contents are not) |
 | `netbird` | NetBird peer, `owner-admin` | none | Pod Security privileged (hostNetwork) |
 | `observability` | Grafana Alloy (metrics to Grafana Cloud, INFRA-85) | none (request 128Mi, limit 256Mi) | Pod Security privileged (read-only hostPath for node metrics) |
 
@@ -129,12 +107,12 @@ All run in `data` on the Hetzner cluster as StatefulSets on local-path volumes, 
 | MySQL 8.4 | TBD production (`tbd`, users `tbd_app`, `tbd_backup`); TBD staging (`tbd_staging`, user `tbd_staging`, grants on its own database only, 20 connections at most) | buffer pool 128M, performance_schema off, binlog off |
 | Postgres 18 | Ziftbook staging (`ziftbook`) and production (`ziftbook_prod`); the two roles are shared and created by Ziftbook's pinned `bootstrap.sql`, run as a Job per database | shared_buffers 64MB, no parallel workers |
 
-A NetworkPolicy denies ingress to `data` by default, on each cluster for the namespaces it hosts: MySQL accepts `tbd-prod`
+A NetworkPolicy denies ingress to `data` by default, for the namespaces it hosts: MySQL accepts `tbd-prod`
 and `tbd-staging`, Postgres (Hetzner only since INFRA-181) `ziftbook-staging` and
 `ziftbook-prod`, and the backup and bootstrap pods reach their databases inside `data`.
 Traffic from the node itself (kubelet probes, hostNetwork pods) bypasses the policy; database auth
 and the NetBird ACL guard that path.
-Manifests and comments: [`clusters/platform/data/`](../clusters/platform/data/), [`clusters/hetzner/data/`](../clusters/hetzner/data/).
+Manifests and comments: [`clusters/hetzner/data/`](../clusters/hetzner/data/).
 
 ## Jobs, locks, sessions and rate limits
 
@@ -160,7 +138,7 @@ Why the database and not Valkey:
   turned every TBD auth endpoint into a 500). A limiter in the database fails together with the user
   lookup, so it never has to choose between failing open and failing closed (INFRA-121).
 - **Backups.** The nightly dump covers the database. Valkey is not dumped: its state lives only in
-  its AOF and the node snapshot.
+  its AOF.
 - **Memory and pods.** No extra pod per app and environment. A shared Valkey is not safe (below), so
   every environment would need its own, as tbd-staging will (INFRA-67).
 - **Both engines.** Every row in the table works on MySQL 8.4 and Postgres 18; the column on the right
@@ -187,8 +165,8 @@ the store fails the other app's writes, and TBD's sessions fail closed, so its l
 rate limits and throttles, locks, dedupe keys, one cache) and moved:
 
 1. INFRA-121: rate limits move to MySQL first, so they no longer fail open.
-2. INFRA-122: sessions and the remaining keys moved to MySQL (0.296.0). The Valkey StatefulSet on Lightsail was
-   removed with the Lightsail data stores (INFRA-175).
+2. INFRA-122: sessions and the remaining keys moved to MySQL (0.296.0). The Valkey StatefulSet was
+   removed with the old data stores (INFRA-175).
 
 A new app that wants Valkey needs a measured reason in its PR (for example invalidation that must
 reach every replica), and then gets one per environment, never shared.
@@ -201,7 +179,6 @@ reach every replica), and then gets one per environment, never shared.
   locked for 7 days (GOVERNANCE).
 - A GitHub Actions probe at 04:17 UTC checks each backup prefix, each with its own size floor, and
   opens a `[backup-stale]` issue when one is stale.
-- Lightsail snapshots at 03:00 UTC cover the whole node.
 - Restore: [`clusters/hetzner/data/RESTORE.md`](../clusters/hetzner/data/RESTORE.md), restore drill (steps 1-5) passed 2026-10-02 (INFRA-31).
 
 Bucket, KMS, IAM boundaries and owner steps: [`terraform/tbd-backups/README.md`](../terraform/tbd-backups/README.md).
@@ -209,13 +186,11 @@ Job: [`clusters/hetzner/data/db-backup.yaml`](../clusters/hetzner/data/db-backup
 
 ## Access
 
-kubectl and the flux CLI reach the node over NetBird only (Flux in the cluster pulls from public
-GitHub over HTTPS). The node is a NetBird peer, and the NetBird
+kubectl and the flux CLI reach the cluster over NetBird only (Flux in the cluster pulls from public
+GitHub over HTTPS). A node is the NetBird peer, and the NetBird
 policy allows owner devices to reach TCP 6443 and nothing else. Authentication uses tokens of the
-ServiceAccount `netbird/owner-admin`. Runbook (setup, new device, renew, revoke):
-[`clusters/platform/netbird/README.md`](../clusters/platform/netbird/README.md). SSO through
-NetBird's API server proxy is being evaluated (INFRA-71). SSH to the node goes through the
-Lightsail browser console.
+ServiceAccount `netbird/owner-admin`. Manifest: [`clusters/hetzner/netbird/`](../clusters/hetzner/netbird/). SSO through
+NetBird's API server proxy is being evaluated (INFRA-71).
 
 ## Mail
 
@@ -277,7 +252,7 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 
 Traces are a per-environment switch, not an app setting: the app ships the capability and exports only when
 `OTEL_TRACES_EXPORTER=otlp`, and the namespace's `otel` ConfigMap holds the value. To investigate a production issue,
-set it to `otlp` in `clusters/platform/<app>-prod/otel.yaml` (optionally `OTEL_TRACES_SAMPLER=parentbased_traceidratio`
+set it to `otlp` in `clusters/hetzner/<app>-prod/otel.yaml` (optionally `OTEL_TRACES_SAMPLER=parentbased_traceidratio`
 with `OTEL_TRACES_SAMPLER_ARG`), merge, restart the backend and worker; set it back to `none` afterwards.
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
@@ -313,11 +288,10 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 ## Infrastructure as code
 
 - **Terraform:** every `terraform/<stack>/` is an HCP Terraform workspace with VCS flow: plan on
-  the PR, apply on merge after approval in the TFC UI. The stacks are `platform` (node, alarms,
-  budget, CloudTrail, uptime check), `cloudflare` (DNS, zone settings), `tbd-backups` (backup
-  chain). `platform` and `tbd-backups` assume OIDC roles whose policies root mints once from [`aws/bootstrap/`](../aws/bootstrap/), so those
-  workspaces never manage their own roles. `cloudflare` uses an API token.
-- **Kubernetes:** Flux (source and kustomize controllers) applies `clusters/platform` from `main`.
+  the PR, apply on merge after approval in the TFC UI. The stacks are `hetzner` (servers), `cloudflare` (DNS, zone settings), `tbd-backups` (backup
+  chain) and `netbird`, among others. `tbd-backups` assumes OIDC roles whose policies root mints once from [`aws/bootstrap/`](../aws/bootstrap/), so that
+  workspace never manages its own roles. `cloudflare` uses an API token.
+- **Kubernetes:** Flux (source and kustomize controllers) applies `clusters/hetzner` from `main`.
 - **CI** ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)): `terraform fmt` and validate,
   tflint, the tbd-backups fences check, kubeconform, the SOPS check and the Python tests.
 
@@ -325,17 +299,10 @@ sensitive HCP Terraform variables. Procedures never display secret values: see
 
 | Signal | Source | Goes to |
 |---|---|---|
-| CPU burst credits low, status check failed | Lightsail alarms | email (Lightsail contact) |
-| Public endpoint down | Route 53 health check, alarm in us-east-1 | SNS `platform-alerts-use1`, email |
-| Spend | AWS budget `platform-monthly` | SNS `platform-alerts`, email |
 | Stale backup | freshness probe | GitHub issue `[backup-stale]` |
 
-There is no in-cluster observability stack yet; INFRA-85 adds the Alloy collector from [Telemetry](#telemetry).
+Node memory and log-retention alerts are Grafana Cloud rules (`grafana/`, [runbooks.md](runbooks.md)); INFRA-85 added the Alloy collector from [Telemetry](#telemetry).
 
 ## Cost
 
-About $24/month for the Lightsail node, about $2.75/month for the HTTPS health check, about
-$1/month for the backup KMS key, and small amounts for S3 (backups, CloudTrail) and SNS. These are
-expected to draw on AWS credits; whether credits apply to Lightsail is not confirmed. Credit
-balances:
-[README.md, AWS credits](../README.md#aws-credits-account-884686184019).
+AWS spend is the backup KMS key (about $1/month), S3 (backups, CloudTrail logs) and small amounts elsewhere. The servers are billed by Hetzner.

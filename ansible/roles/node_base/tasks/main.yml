@@ -1,5 +1,5 @@
 ---
-# Ported from terraform/platform/node-init.sh.tftpl (the Lightsail node's first-boot script).
+# Ported from the first-boot script of the old Lightsail node (INFRA-80).
 
 # 2 GB swap. Under kubelet's default NoSwap behaviour pods do not use it; it absorbs memory
 # pressure from k3s itself and the OS, so the kernel does not OOM-kill the control plane.

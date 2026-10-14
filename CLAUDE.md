@@ -4,25 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-Single home for the infrastructure of FJ Consulting apps (AWS today, migrating to Hetzner, epic INFRA-164; AWS keeps the backup chain and account-level resources): TBD (`fjcloudaiconsulting/tbd`, in prod on this
+Single home for the infrastructure of FJ Consulting apps (Hetzner, epic INFRA-164; AWS keeps the backup chain and account-level resources): TBD (`fjcloudaiconsulting/tbd`, in prod on this
 cluster since the 2026-10-04 cutover) and Ziftbook (`fjcloudaiconsulting/ziftbook`, pre-launch). App repos keep
 app code, Dockerfiles and CI; this repo owns where and how they run. Work is tracked in Jira `INFRA`.
 
 ## Target architecture (decided 2026-10-01)
 
-The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster below is still live.
+The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-platform` stack were removed in INFRA-176.
 
-- One AWS Lightsail `medium_3_0` (4 GB) in eu-central-1, single-node k3s. No EKS, no RDS, no ALB/NAT: cost
-  ceiling is ~$26/mo against limited AWS credits.
-- MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets on the Hetzner cluster (only there since
-  INFRA-175; Valkey is gone, the app dropped it in tbd 0.296.0); nightly dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
-- Cloudflare proxies all app traffic to the Hetzner Cloudflare Tunnel; nothing on Lightsail is proxied any more
-  (INFRA-176 removed `ping` and the Authenticated Origin Pulls config).
+- Three Hetzner CAX21 (ARM64) servers in nbg1 (`terraform/hetzner`), k3s HA configured by `ansible/`. No EKS, no RDS, no ALB/NAT.
+- MySQL 8.4 (TBD), Postgres 18 (Ziftbook) run in-cluster as StatefulSets; nightly dumps go to the existing Object Lock bucket `tbd-mysql-backups-884686184019`.
+- Cloudflare proxies all app traffic to the Cloudflare Tunnel (`cloudflared`, the cluster's only ingress).
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
-  `clusters/`. Secrets are SOPS + age.
-- Namespaces on Lightsail: an empty `data` (until its old volumes are deleted), `observability` (Grafana Alloy, metrics to Grafana Cloud), plus `netbird` (owner kubectl access over NetBird, runbook
-  `clusters/platform/netbird/README.md`). On the Hetzner cluster (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging`
-  (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), behind `cloudflared` (Cloudflare Tunnel connectors, its only ingress).
+  `clusters/hetzner/`. Secrets are SOPS + age.
+- Namespaces (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging` (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), `observability` (Grafana Alloy, metrics to Grafana Cloud), and `netbird` (owner kubectl access over NetBird).
 
 ## Layout and commands
 
@@ -50,8 +45,6 @@ The Hetzner migration is tracked in Jira epic INFRA-164; the Lightsail cluster b
 - The `thebetterdecision.com` registration (Route 53 Domains) lives in an older, separate
   AWS account we have no credentials for; the owner acts there. The TBD apex is the Worker `tbd-landing`. DNS for the domain is served by Cloudflare
   (`terraform/cloudflare`) since 2026-10-01; the old Route 53 zone is kept only until INFRA-58 deletes it.
-- Lightsail instance: `prevent_destroy` and `ignore_changes = [user_data]`, kept until INFRA-176 removes
-  the instance (it holds no database since INFRA-175).
 - AWS calls go through the aws-mcp server; it runs against `884686184019`.
 
 ## Docs
