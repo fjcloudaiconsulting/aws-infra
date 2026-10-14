@@ -56,7 +56,7 @@
         "component": "node"
       },
       "annotations": {
-        "summary": "Log retention on node {{ $labels.instance }} has not reported success for 3 hours (no instance: clusters/platform's single node; no data at all: no node ever has). Container logs reach the privacy policy's 7-day limit about 21 hours after the last success. See the Request log retention runbook.",
+        "summary": "Log retention on node {{ $labels.instance }} has not reported success for 3 hours (no data at all: no node ever has). Container logs reach the privacy policy's 7-day limit about 21 hours after the last success. See the Request log retention runbook.",
         "runbook_url": "https://github.com/fjcloudaiconsulting/cloud-infra/blob/main/docs/runbooks.md#request-log-retention"
       },
       "notification_settings": {

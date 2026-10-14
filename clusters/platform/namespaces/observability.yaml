@@ -1,9 +1,0 @@
-# Grafana Alloy, the one telemetry collector (INFRA-85). Privileged only because baseline forbids hostPath: the node
-# metrics read the host's /proc and /sys through read-only mounts, and the log-retention job (INFRA-130) mounts
-# /var/log/pods writable. The containers run with no capabilities and a read-only root filesystem.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: observability
-  labels:
-    pod-security.kubernetes.io/enforce: privileged

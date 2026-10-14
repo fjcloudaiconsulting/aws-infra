@@ -27,7 +27,7 @@ case "$ns" in
 esac
 front="${front:-/}"; follow="${follow--L}"
 DIR="${CLUSTERS_DIR:-clusters}"
-# The namespace's tree is not fixed (platform today, hetzner later): first match under any tree.
+# The namespace's tree is not fixed (all four namespaces are under clusters/hetzner now): first match under any tree.
 mapfile -t found < <(ls "$DIR/$ns/backend.yaml" "$DIR"/*/"$ns/backend.yaml" 2>/dev/null)
 # A namespace moves between trees by a rename: in two trees at once is a bug, not a choice.
 (( ${#found[@]} <= 1 )) || { echo "$ns has a backend.yaml in more than one tree: ${found[*]}" >&2; exit 1; }

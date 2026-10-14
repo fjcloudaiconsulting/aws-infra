@@ -1,13 +1,9 @@
 # Nightly dumps of TBD MySQL (production and, since INFRA-67, staging) and Ziftbook Postgres (staging and, since INFRA-82,
-# production) to the Object Lock bucket (terraform/tbd-backups). Every set is dumped here; the Lightsail job is gone.
+# production) to the Object Lock bucket (terraform/tbd-backups). Every set is dumped here.
 # Each dump init container exits 0 and writes <set>.ok (its upload list) only when its dump verifies;
 # upload sends each verified set dump, grants, manifest (manifest last, so the probe sees only complete
 # nights) and fails the Job if a set is missing. Run now: kubectl -n data create job --from=cronjob/db-backup db-backup-manual
-# Hetzner (INFRA-171): DUMP_SETS lists only the sets whose data lives on this cluster. The set prefixes are shared with
-# clusters/platform, so a set uploaded from here before its data moves would put an empty dump in front of the live one.
-# Each move ticket adds its set here and drops it from clusters/platform's DUMP_SETS in the same PR (tbd-staging-mysql
-# and ziftbook-postgres first, INFRA-173; ziftbook-prod-postgres INFRA-181; tbd-mysql INFRA-175). Dumps of the not-yet-moved databases fail
-# softly and are never uploaded.
+# DUMP_SETS lists every set: tbd-mysql, tbd-staging-mysql, ziftbook-postgres and ziftbook-prod-postgres.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -273,7 +269,7 @@ spec:
               env:
                 - name: HOME
                   value: /tmp
-                # Only the sets that live here (see the top of this file); clusters/platform uploads the rest.
+                # Every set (see the top of this file).
                 - name: DUMP_SETS
                   value: tbd-mysql tbd-staging-mysql ziftbook-postgres ziftbook-prod-postgres
                 - name: BUCKET

@@ -1,5 +1,5 @@
 ---
-# Same release as terraform/platform; upgrading is a deliberate change of this line.
+# The k3s release is pinned here; upgrading is a deliberate change of this line.
 k3s_version: v1.36.5+k3s1
 
 # The private network NIC (seen as enp7s0 on the CAX21 nodes). node_base brings it up with DHCP and waits for
@@ -21,7 +21,7 @@ user_kubectl: false
 # The admin kubeconfig fetched from node-1 lands here on the machine running Ansible, never in ~/.kube/config.
 kubeconfig: ~/.kube/fjc-hetzner.yaml
 manage_firewall: false
-# GOGC=50 trades a little CPU for a smaller k3s heap (about 846Mi to 625Mi RSS on Lightsail, INFRA-80).
+# GOGC=50 trades a little CPU for a smaller k3s heap (about 846Mi to 625Mi RSS, measured on the old Lightsail node, INFRA-80).
 # The installer rewrites k3s.service.env; the collection re-adds this line after it on every run.
 extra_service_envs: ["GOGC=50"]
 k3s_node_labels: []

@@ -1,5 +1,5 @@
-# NetBird peer that gives the owner kubectl access without any public port (INFRA-66), as on clusters/platform, under
-# its own peer name (hetzner-k3s). Rootless image: userspace WireGuard, no capabilities. With hostNetwork, traffic to
+# NetBird peer that gives the owner kubectl access without any public port (INFRA-66), under
+# the peer name hetzner-k3s. Rootless image: userspace WireGuard, no capabilities. With hostNetwork, traffic to
 # the peer's NetBird IP is forwarded to the host's 127.0.0.1, so the API server (6443) is reachable. That forwarding
 # exposes every loopback listener, so the NetBird access policy (terraform/netbird: owner devices -> k3s-hetzner, TCP
 # 6443 only, one way) is the control that matters. Dashboard steps: docs/runbooks.md,

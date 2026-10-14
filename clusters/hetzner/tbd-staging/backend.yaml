@@ -1,6 +1,6 @@
 # TBD API on staging (INFRA-67): tbd-prod/backend.yaml with staging values. APP_ENV stays "production", so the migrate
 # init container and the production validators run exactly as in prod. Database tbd_staging and user tbd_staging live
-# in the shared MySQL (moved from Lightsail with its users by dump and restore, INFRA-173); sessions and rate limits are
+# in the shared MySQL (moved from the old cluster with its users by dump and restore, INFRA-173); sessions and rate limits are
 # in MySQL too since 0.296.0 (INFRA-122), so no Valkey. Secret tbd: tbd.secret.yaml (its unused redis-url and
 # valkey-password keys go with the next rotation), no prod value in it.
 # Not set on staging: Google SSO (no staging OAuth client), Mailgun webhook signing key, founder-count list, AI key prev.

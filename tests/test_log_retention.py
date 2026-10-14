@@ -1,4 +1,4 @@
-"""Fences for the node log retention script (INFRA-130): expiry is judged by the first (oldest) line, not mtime."""
+"""Fences for the node log retention script (INFRA-130, INFRA-171): expiry is judged by the first (oldest) line, not mtime."""
 import gzip
 import http.server
 import json
@@ -11,8 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "clusters/platform/observability/log-retention/log-retention.sh"
-HETZNER_SCRIPT = ROOT / "clusters/hetzner/observability/log-retention/log-retention.sh"
+SCRIPT = ROOT / "clusters/hetzner/observability/log-retention/log-retention.sh"
 CUTOFF = "2026-10-01T12:00:00"
 OLD = "2026-09-20T08:00:00.123456789Z stdout F old line\n"
 NEW = "2026-10-05T08:00:00.1Z stdout F new line\n"
@@ -149,12 +148,6 @@ class LogRetention(unittest.TestCase):
 
     def test_heartbeat_is_otlp_json(self):
         self.assertEqual(self.heartbeat(), {"service.name": "log-retention"})
-
-
-class LogRetentionHetzner(LogRetention):
-    """The Hetzner copy (INFRA-171) runs as a DaemonSet: the same rules, plus one heartbeat series per node."""
-
-    script = HETZNER_SCRIPT
 
     def test_heartbeat_names_the_node(self):
         attrs = self.heartbeat(NODE_NAME="db-1")

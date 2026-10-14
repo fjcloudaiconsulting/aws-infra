@@ -1,7 +1,6 @@
 # cloud-infra
 
-Infrastructure of FJ Consulting apps (TBD, Ziftbook). It runs on AWS Lightsail today and is migrating to
-Hetzner (INFRA-164); AWS keeps the backup chain and account-level resources. App repos keep app code,
+Infrastructure of FJ Consulting apps (TBD, Ziftbook). It runs on Hetzner (INFRA-164); AWS keeps the backup chain and account-level resources. App repos keep app code,
 Dockerfiles and their own CI; everything about where and how the apps run lives here.
 
 ## Architecture
@@ -38,8 +37,8 @@ How a release reaches staging and then production, with diagrams: [`docs/release
 
 ## Cluster access
 
-kubectl and Flux reach the node over NetBird only (no public Kubernetes port). Setup, onboarding a
-device, token renewal and revocation: [`clusters/platform/netbird/README.md`](clusters/platform/netbird/README.md).
+kubectl and Flux reach the nodes over NetBird only (no public Kubernetes port). The peer is
+`clusters/hetzner/netbird`; groups and policies are in `terraform/netbird`.
 
 ## Kubernetes secrets
 
@@ -49,7 +48,7 @@ decrypts with the private key held in-cluster as `flux-system/sops-age`.
 
 ```sh
 export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt   # sops looks elsewhere on macOS
-sops edit clusters/platform/<path>/<name>.secret.yaml   # later changes
+sops edit clusters/hetzner/<path>/<name>.secret.yaml   # later changes
 ```
 
 A new Secret is encrypted from a pipe, never written as plaintext first: recipe in
@@ -66,23 +65,13 @@ read -rsp 'Paste the key line, then Enter: ' K; K=${K%$'\r'}; echo; if [ ${#K} -
 ```
 
 Then
-`kubectl apply -f clusters/platform/flux-system/gotk-components.yaml`, wait for the controllers, and
-`kubectl apply -f clusters/platform/flux-system/gotk-sync.yaml`.
+`kubectl apply -f clusters/hetzner/flux-system/gotk-components.yaml`, wait for the controllers, and
+`kubectl apply -f clusters/hetzner/flux-system/gotk-sync.yaml`.
 Not `apply -k`: the encrypted Secrets in the folder fail kubectl validation; Flux applies them.
 
-## AWS credits (account 884686184019)
+## AWS spend (account 884686184019)
 
-Read from Billing and Cost Management > Credits on 2026-10-01:
-
-| Credit | Issued | Remaining | Expires |
-|---|---|---|---|
-| AWS Free Tier | $100.00 | $99.90 | 2027-08-27 |
-| Explore AWS: Set up a cost budget using AWS Budgets | $20.00 | $20.00 | 2027-08-27 |
-| Explore AWS: Launch an instance using EC2 | $20.00 | $20.00 | 2027-08-27 |
-| **Total** | $140.00 | **$139.90** (estimated $138.83) | |
-
-At the planned ~$26/month (Lightsail `medium_3_0` plus extras) the credits last about five months
-from the node's launch, well before they expire, assuming they apply to Lightsail (not confirmed:
-check the first invoice after launch). Re-read and update this table when planning spend.
+AWS holds only the backup chain (the Object Lock bucket and its KMS key) and the old CloudTrail log bucket
+`fjc-platform-cloudtrail-884686184019`. The trail itself is destroyed (owner ruling 2026-10-14): the account keeps no trail, only the 90-day CloudTrail Event history, and the bucket only ages out its old logs. The Lightsail node was decommissioned on 2026-10-14 (INFRA-176).
 
 Work is tracked in Jira project [INFRA](https://fjconsulting.atlassian.net/jira/software/c/projects/INFRA/).
