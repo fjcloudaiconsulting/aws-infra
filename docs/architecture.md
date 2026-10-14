@@ -305,4 +305,4 @@ Node memory and log-retention alerts are Grafana Cloud rules (`grafana/`, [runbo
 
 ## Cost
 
-AWS spend is the backup KMS key (about $1/month), S3 (backups, CloudTrail logs) and small amounts elsewhere. The servers are billed by Hetzner.
+AWS spend is the backup KMS key (about $1/month), S3 (backups, and the old CloudTrail logs until they expire) and small amounts elsewhere. The servers are billed by Hetzner.

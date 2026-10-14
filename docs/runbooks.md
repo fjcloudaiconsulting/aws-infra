@@ -224,9 +224,10 @@ unset P; kill %1
 
 Traffic path: Cloudflare (proxied), then the Cloudflare Tunnel `hetzner-k3s` (`cloudflared` in `clusters/hetzner/cloudflared`), then the app Service.
 
-1. **DNS:** add a proxied CNAME to `<tunnel id>.cfargotunnel.com` in [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf) (copy the `app` or `dev` record).
+1. **DNS:** add a proxied CNAME to `<tunnel id>.cfargotunnel.com` in [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf) (the TBD `app` and `dev` records are entries of one map there; Ziftbook's are separate resources, copy the one for your zone).
 2. **Route:** the hostname -> Service rule lives in the tunnel config in [`terraform/cloudflare/tunnel.tf`](../terraform/cloudflare/tunnel.tf); `cloudflared` only runs it.
-3. **Check** after the `cloudflare` workspace apply: `curl -sI https://<host> | head -1`.
+3. **Also:** a staging `dev.*` host needs a Cloudflare Access app ([`terraform/cloudflare/access.tf`](../terraform/cloudflare/access.tf), INFRA-117) or it is public; a new zone must join `local.app_zones` in `main.tf` (zone settings and rate limit); the app namespace's NetworkPolicy must admit the `cloudflared` namespace (model: `clusters/hetzner/tbd-prod/networkpolicy.yaml`).
+4. **Check** after the `cloudflare` workspace apply: `curl -sI https://<host> | head -1`.
 
 ## Mail (Mailgun)
 
@@ -653,7 +654,7 @@ Commit the file in a PR and merge (no kustomization lists it: Flux picks up ever
    is pinned to one node by its state volume anyway, so routes to the other nodes add no availability.
    No login-expiration change: it applies only to peers added by SSO login, not by setup key.
 
-**5. Flux (lead).** v2.9.6, source and kustomize controllers);
+**5. Flux (lead).** v2.9.6, source and kustomize controllers,
 applied once by hand, then Flux manages itself (the memory patch in `flux-system/kustomization.yaml` lands on its first
 apply). Not `apply -k`: the encrypted Secrets in the folder fail kubectl validation.
 
@@ -664,7 +665,7 @@ ssh root@$N1 k3s kubectl apply -f - < clusters/hetzner/flux-system/gotk-sync.yam
 ```
 
 **6. kubeconfig over NetBird (owner).** The CA comes from the admin kubeconfig Ansible fetched; the token is
-`netbird/owner-admin` (90 days, revocable as in the NetBird README section 5). `ssh` writes it straight into a 0600
+`netbird/owner-admin` (90 days; revoke it as below). `ssh` writes it straight into a 0600
 file that the kubeconfig names as `tokenFile` (kubectl reads it on every call), so it never sits in a variable or
 argv. Renewing is that one `ssh` line again. The server is the peer's NetBird name; its certificate is the API
 server's, which names `kubernetes`, hence `--tls-server-name`.
@@ -684,6 +685,11 @@ chmod 600 ~/.kube/hetzner
 for p in 6443 10250 22; do timeout 4 nc -z hetzner-k3s.netbird.cloud $p && echo "$p open" || echo "$p closed"; done
 # expect 6443 open, 10250 and 22 closed
 ```
+
+Renew before the 90 days run out: the same `ssh` token line. Revoke every token at once with
+`kubectl -n netbird delete sa owner-admin`; Flux recreates the account within its interval, and your own access ends
+too, so mint a new token over `ssh` (node-1, as above) and rewrite `~/.kube/hetzner-token`. Anyone who can create pods
+or tokens in namespace `netbird` holds cluster-admin: never grant namespace-scoped rights there.
 
 **7. Checks (lead).** With `KUBECONFIG=~/.kube/hetzner`:
 

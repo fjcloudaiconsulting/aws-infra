@@ -1,7 +1,7 @@
 # `netbird`
 
 Every NetBird object the clusters depend on (INFRA-171): the groups and the owner's kubectl policies. The owner group
-was made in the dashboard and imported on 2026-10-12.
+and `k3s-hetzner` were made in the dashboard and imported on 2026-10-12.
 
 | Resource | Notes |
 |---|---|

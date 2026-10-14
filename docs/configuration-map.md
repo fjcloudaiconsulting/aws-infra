@@ -214,7 +214,7 @@ own role.
   the backup chain is managed by the `tbd-backups` stack: bucket `tbd-mysql-backups-884686184019` (Object
   Lock), KMS key, the uploader users and keys, OIDC provider `token.actions.githubusercontent.com`, role
   `github-actions-backup-probe`. Details: `terraform/tbd-backups/README.md`.
-- Lightsail decommissioned 2026-10-14 (INFRA-176): the node, its firewall, alarms, budget, SNS topics, health check and the `aws-platform` workspace are gone. The CloudTrail log bucket `fjc-platform-cloudtrail-884686184019` is kept, outside any stack.
+- Lightsail decommissioned 2026-10-14 (INFRA-176): the node, its firewall, alarms, budget, SNS topics, health check and the `aws-platform` workspace are gone. The CloudTrail trail `platform-management` was destroyed too (owner ruling 2026-10-14): the account keeps no trail, only the 90-day CloudTrail Event history. The log bucket `fjc-platform-cloudtrail-884686184019` is kept, unmanaged and no longer written to; its lifecycle rule expires the old logs.
 
 ## Cloudflare
 
@@ -334,7 +334,7 @@ Made by hand by the owner (INFRA-85); the cluster side is `clusters/hetzner/obse
 | `ghcr-pull` credentials | `clusters/hetzner/namespaces/<namespace>-ghcr-pull.secret.yaml` (tbd-staging on hetzner since INFRA-173) | GHCR read credential, the same in every namespace; expires with the token behind it |
 | MySQL database and user for TBD staging | `tbd_staging` and `'tbd_staging'@'%'` in `data/mysql`, created by hand ([runbook](runbooks.md#mysql-database-per-app-environment), INFRA-67) | ALL on `tbd_staging` only, `MAX_USER_CONNECTIONS 20`. Its password is the one in `tbd-staging/tbd` `database-url`. The nightly grants dump carries the user, so a restore brings it back; the database itself is dumped once the `tbd-staging-mysql` set exists (INFRA-67 backup PRs) |
 | TBD staging secrets | `tbd-staging/tbd` (generated for staging, no production value), `tbd-staging/tbd-captcha` (Turnstile widget `tbd-staging`, hostname `dev.thebetterdecision.com` only, Cloudflare dashboard > Turnstile), `tbd-staging/tbd-mailgun` (send-only key for `m.fjconsulting.dev`, staging only; optional in the Deployment, without it TBD only logs mail, INFRA-146) | Each is a whole new file, so only the public SOPS key is needed. A new `tbd` file means new JWT and encryption keys: staging users log in again and lose MFA and AI credentials |
-| NetBird | Groups and policies are in Terraform (`terraform/netbird`); setup key and kubeconfig: see the Hetzner cluster row below | `owner-admin` token expires about 2026-12-31. Runbook: [bootstrap runbook](runbooks.md#hetzner-cluster-bootstrap) step 4 |
+| NetBird | Groups and policies are in Terraform (`terraform/netbird`); setup key and kubeconfig: see the Hetzner cluster row below | `owner-admin` token lasts 90 days from the mint (renewal and revoke-all: [bootstrap runbook](runbooks.md#hetzner-cluster-bootstrap) step 6). Setup key: step 4 |
 | Postgres roles for Ziftbook | Jobs `ziftbook-bootstrap` (database `ziftbook`, staging, Hetzner cluster only since INFRA-173) and `ziftbook-prod-bootstrap` (database `ziftbook_prod`, INFRA-82) in `data`, both from a pinned commit of the Ziftbook repo (sha256 checked) | The migrations hardcode `ziftbook_app` and `ziftbook_migrate`, so production's own login roles `ziftbook_prod_app` and `ziftbook_prod_migrate` are members of them (no inherit) and `SET ROLE` to them at login; CONNECT on each database is limited to its own environment's logins (verified on a local Postgres 18 with the real migrations). A rotated staging password goes into `ziftbook-staging/ziftbook.secret.yaml`; production's passwords are in `data/postgres-ziftbook-prod` |
 | Ziftbook production secrets | `data/postgres-ziftbook-prod`, `ziftbook-prod/ziftbook` (generated together), `namespaces/ziftbook-prod-ghcr-pull.secret.yaml` (staging's credential), `ziftbook-prod/ziftbook-mailgun` (optional, key `api-key` of the `m.ziftbook.com` sending key, INFRA-139) | Whole new files; [runbooks.md](runbooks.md#ziftbook-production-secrets). Only the pull secret needs the offline key. No mail from production until the Mailgun domain and key exist |
 | Backup upload key | Secret `data/backup-s3` | Access key of IAM user `k3s-backup-uploader` (from the `tbd-backups` stack); rotate per `terraform/tbd-backups/README.md` and re-encrypt |
@@ -358,7 +358,7 @@ commit body only.
 |---|---|---|
 | `GHCR_READ_TOKEN` (Mend) | about 2026-12-31 | Mend section |
 | `ghcr-pull` credentials | with their token | Cluster section |
-| NetBird `owner-admin` token | about 2026-12-31 | NetBird runbook |
+| NetBird `owner-admin` token | 90 days from the mint | [Bootstrap runbook](runbooks.md#hetzner-cluster-bootstrap) step 6 |
 | `k3s-backup-uploader` access key | no expiry, rotate on suspicion | Cluster section |
 | Grafana Cloud token `alloy-platform-node` | no expiry, rotate on suspicion | Grafana Cloud section |
 | Cloudflare account-owned tokens (all managed by `cloudflare-tokens`) | per token; `expires_on` in `terraform/cloudflare-tokens` | [runbook](runbooks.md#cloudflare-api-tokens). A token Terraform made gets a replace run, its consumer is rewritten in the same apply; an imported one needs its consumer wired in Terraform first |

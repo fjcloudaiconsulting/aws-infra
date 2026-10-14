@@ -71,7 +71,7 @@ Not `apply -k`: the encrypted Secrets in the folder fail kubectl validation; Flu
 
 ## AWS spend (account 884686184019)
 
-AWS holds only the backup chain (the Object Lock bucket and its KMS key) and the CloudTrail log bucket
-`fjc-platform-cloudtrail-884686184019`. The Lightsail node was decommissioned on 2026-10-14 (INFRA-176).
+AWS holds only the backup chain (the Object Lock bucket and its KMS key) and the old CloudTrail log bucket
+`fjc-platform-cloudtrail-884686184019`. The trail itself is destroyed (owner ruling 2026-10-14): the account keeps no trail, only the 90-day CloudTrail Event history, and the bucket only ages out its old logs. The Lightsail node was decommissioned on 2026-10-14 (INFRA-176).
 
 Work is tracked in Jira project [INFRA](https://fjconsulting.atlassian.net/jira/software/c/projects/INFRA/).
