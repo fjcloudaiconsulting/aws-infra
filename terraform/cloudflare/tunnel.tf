@@ -14,7 +14,10 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "hetzner_k3s" {
       # Hostname rules (hostname + path -> http://<svc>.<ns>.svc.cluster.local:<port>) are added per environment in the move tickets, next to the DNS change.
       # First match wins. `path` is a regex; these mirror the old Traefik PathPrefix routes.
       # TBD staging (INFRA-173): API, health and readiness to the backend, everything else to the frontend.
-      { hostname = "dev.thebetterdecision.com", path = "^/(api|health|ready)", service = "http://backend.tbd-staging.svc.cluster.local:8000" },
+      # Staging only (INFRA-147): the two OAuth discovery documents (subpaths included) go to the backend, exactly /mcp
+      # to the MCP server.
+      { hostname = "dev.thebetterdecision.com", path = "^/(api|health|ready|\\.well-known/oauth-(authorization-server|protected-resource))", service = "http://backend.tbd-staging.svc.cluster.local:8000" },
+      { hostname = "dev.thebetterdecision.com", path = "^/mcp$", service = "http://mcp.tbd-staging.svc.cluster.local:8001" },
       { hostname = "dev.thebetterdecision.com", service = "http://frontend.tbd-staging.svc.cluster.local:3000" },
       # TBD production (INFRA-175): the same split, to tbd-prod.
       { hostname = "app.thebetterdecision.com", path = "^/(api|health|ready)", service = "http://backend.tbd-prod.svc.cluster.local:8000" },

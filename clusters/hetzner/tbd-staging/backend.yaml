@@ -142,6 +142,10 @@ spec:
               value: "true"
             - name: SCHEDULER_ENABLED
               value: "false"
+            # Staging only (INFRA-147): the MCP OAuth routes (off by default in tbd; production stays off until its own
+            # pen test).
+            - name: MCP_OAUTH_ENABLED
+              value: "true"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
