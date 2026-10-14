@@ -13,7 +13,7 @@ python3 - <<'PY'
 import json, os, re, sys, urllib.request, urllib.error
 ACC, WS = "fb5eb042529f2621c6de3f34c6801174", "ws-NY4KrCLeGst38u6Z"
 # Must match local.pg in terraform/cloudflare-tokens/main.tf.
-PG = {"4755a26eedb94da69e1066d98aa820be": "DNS Write", "c3c847c5802d4ce3ba00e3e97b3c8555": "Notifications Write",
+PG = {"4755a26eedb94da69e1066d98aa820be": "DNS Write",
       "c03055bc037c4ea9afb9a9f104b7b721": "SSL and Certificates Write", "c8fed203ed3043cba015a93ad1616f1f": "Zone Read",
       "3030687196b94b638145a3953da2b699": "Zone Settings Write", "fb6778dc191143babbfaa57993f1d275": "Zone WAF Write",
       "e6d2666161e84845a636613608cee8d5": "Zone Write", "74e1036f577a48528b78d2413b40538d": "Dynamic URL Redirects Write"}
