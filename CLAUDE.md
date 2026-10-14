@@ -51,7 +51,7 @@ The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, public hostnames, Mailgun, TBD smoke account, following Flux and rollouts, the post-deploy smoke, node memory, metrics to Grafana Cloud, Cloudflare API tokens); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (following Flux and rollouts, promoting a TBD release, the post-deploy smoke, Secrets, Ziftbook production secrets, MySQL database per app environment, public hostnames, Mailgun, TBD smoke account, Cloudflare Access on TBD staging, Cloudflare API tokens, metrics to Grafana Cloud, node memory, the Hetzner cluster bootstrap); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
