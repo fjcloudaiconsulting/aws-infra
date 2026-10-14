@@ -28,9 +28,9 @@ metadata:
   namespace: tbd-staging
 spec:
   hard:
-    # backend 128/384, frontend 96/256 (no Valkey since INFRA-173), mcp 96/256 (INFRA-147): 320Mi requests, 896Mi limits,
-    # plus 64Mi of each for a debug pod. Recreate everywhere, and the migrate init container (96/256) fits inside the
-    # backend's own figures.
+    # backend 128/384, frontend 96/256 (no Valkey since INFRA-173), mcp 96/256 (INFRA-147): 320Mi requests, 896Mi
+    # limits, plus 64Mi of each for a debug pod (it must set limits.memory <= 64Mi: the LimitRange default is 256Mi).
+    # Recreate everywhere, and the migrate init container (96/256) fits inside the backend's own figures.
     requests.memory: 384Mi
     limits.memory: 960Mi
 ---

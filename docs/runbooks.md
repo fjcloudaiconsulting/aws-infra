@@ -95,8 +95,7 @@ namespace. `gh workflow run post-deploy-smoke.yml -f namespace=tbd-prod` does th
 What it does not cover: the TBD scheduler and the Ziftbook worker have no public endpoint. They run the backend image
 and tag, so a tag that does not pull still shows as `never converged`. The TBD staging MCP server (INFRA-147) runs its
 own image and is not checked: look at `kubectl -n tbd-staging get pods -l app=mcp` after a bump. A GitHub Actions
-outage means no smoke; the Route
-53 uptime check and the daily release drift probe still run.
+outage means no smoke; the [synthetic uptime](#synthetic-uptime) check and the daily release drift probe still run.
 
 The smoke account's credentials are the `tbd-prod` environment secrets `SMOKE_USERNAME` and `SMOKE_PASSWORD` in this
 repo. Deployments from `main` only can read them. Rotating them is part of [TBD smoke account](#tbd-smoke-account).
@@ -329,7 +328,8 @@ so the order never breaks it.
 answers 302 to `*.cloudflareaccess.com`; `/health` and `/robots.txt` answer 200; `/api/` answers 302.
 MCP paths: `curl -s https://dev.thebetterdecision.com/.well-known/oauth-protected-resource/mcp` returns the backend's
 JSON, `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://dev.thebetterdecision.com/mcp` answers 401 from the MCP
-server (not 302), and `/api/v1/auth/me` still answers 302.
+server (not 302), `curl -s -X POST https://dev.thebetterdecision.com/api/v1/oauth/token` answers 400 `invalid_request`
+(not 302), and `/api/v1/auth/me` still answers 302.
 **Lockout:** applications edited in the dashboard are drift that the next apply reverts; to open staging again, remove
 `cloudflare_zero_trust_access_application.tbd_staging` in a PR.
 

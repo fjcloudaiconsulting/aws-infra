@@ -17,8 +17,8 @@
 #
 # The TBD MCP OAuth token and registration endpoints (INFRA-147, owner ruling 2026-10-09) are listed exactly, so the
 # consent endpoints under /api/v1/oauth/authorize are not counted. They are meant for staging only (production
-# keeps them off until its security review), but the rule has no host condition. A hosted MCP client calls them from its provider's
-# shared egress addresses, so its users share one counter; the app's own per-code, per-client and per-IP limits stay.
+# keeps them off until its security review), but the rule has no host condition. A hosted MCP client calls them from its
+# provider's shared egress addresses, so its users share one counter; the app's own per-code, per-client and per-IP limits stay.
 #
 # Neither zone had an http_ratelimit entrypoint ruleset before this one. A rule added in the dashboard is drift that
 # the next apply removes. Back out with enabled = false.
