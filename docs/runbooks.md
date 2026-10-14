@@ -226,7 +226,7 @@ Traffic path: Cloudflare (proxied), then the Cloudflare Tunnel `hetzner-k3s` (`c
 
 1. **DNS:** add a proxied CNAME to `<tunnel id>.cfargotunnel.com` in [`terraform/cloudflare/main.tf`](../terraform/cloudflare/main.tf) (the TBD `app` and `dev` records are entries of one map there; Ziftbook's are separate resources, copy the one for your zone).
 2. **Route:** the hostname -> Service rule lives in the tunnel config in [`terraform/cloudflare/tunnel.tf`](../terraform/cloudflare/tunnel.tf); `cloudflared` only runs it.
-3. **Also:** a staging `dev.*` host needs a Cloudflare Access app ([`terraform/cloudflare/access.tf`](../terraform/cloudflare/access.tf), INFRA-117) or it is public; a new zone must join `local.app_zones` in `main.tf` (zone settings and rate limit); the app namespace's NetworkPolicy must admit the `cloudflared` namespace (model: `clusters/hetzner/tbd-prod/networkpolicy.yaml`).
+3. **Also:** a staging `dev.*` host needs a Cloudflare Access app ([`terraform/cloudflare/access.tf`](../terraform/cloudflare/access.tf), INFRA-117) or it is public; a new zone must join `local.app_zones` in `main.tf` (zone settings and rate limit) and get a policy in [`terraform/cloudflare-tokens/main.tf`](../terraform/cloudflare-tokens/main.tf) first, or the `cloudflare` apply fails; the app namespace's NetworkPolicy must admit the `cloudflared` namespace (model: `clusters/hetzner/tbd-prod/networkpolicy.yaml`).
 4. **Check** after the `cloudflare` workspace apply: `curl -sI https://<host> | head -1`.
 
 ## Mail (Mailgun)
@@ -687,8 +687,9 @@ for p in 6443 10250 22; do timeout 4 nc -z hetzner-k3s.netbird.cloud $p && echo 
 ```
 
 Renew before the 90 days run out: the same `ssh` token line. Revoke every token at once with
-`kubectl -n netbird delete sa owner-admin`; Flux recreates the account within its interval, and your own access ends
-too, so mint a new token over `ssh` (node-1, as above) and rewrite `~/.kube/hetzner-token`. Anyone who can create pods
+`kubectl -n netbird delete sa owner-admin`; your own access ends too. Flux recreates the account within its interval
+(up to 10 minutes; `sudo k3s kubectl get sa -n netbird owner-admin` over `ssh` on node-1 shows when), then mint a new
+token over `ssh` (node-1, as above) and rewrite `~/.kube/hetzner-token`. Anyone who can create pods
 or tokens in namespace `netbird` holds cluster-admin: never grant namespace-scoped rights there.
 
 **7. Checks (lead).** With `KUBECONFIG=~/.kube/hetzner`:

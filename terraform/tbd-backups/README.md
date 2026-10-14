@@ -181,15 +181,11 @@ Owner steps, in order, from the repo root:
 
 ```bash
 export AWS_PROFILE=fjc
-# (Historical step: the tfc-platform roles were deleted with INFRA-176.)
-# 1. BEFORE merge, as the account admin: re-mint the three role policies this PR changes.
+# 1. BEFORE merge, as the account admin: re-mint the role policy this PR changes (the tfc-platform roles it also
+#    re-minted were deleted with INFRA-176).
 aws iam put-role-policy --role-name tfc-backups-provisioner \
   --policy-name tfc-backups-provisioner-inline \
   --policy-document file://aws/bootstrap/tfc-backups-provisioner.json
-aws iam put-role-policy --role-name tfc-platform-plan \
-  --policy-name tfc-platform-plan --policy-document file://aws/bootstrap/tfc-platform-plan.json
-aws iam put-role-policy --role-name tfc-platform-apply \
-  --policy-name tfc-platform-apply --policy-document file://aws/bootstrap/tfc-platform-apply.json
 
 #    Check: expect CreateUser/PutUserPolicy/TagUser "allowed",
 #    CreateAccessKey/CreateLoginProfile "explicitDeny".
