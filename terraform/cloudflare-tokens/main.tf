@@ -52,7 +52,6 @@ locals {
   pg = {
     "DNS Write"                   = "4755a26eedb94da69e1066d98aa820be"
     "Dynamic URL Redirects Write" = "74e1036f577a48528b78d2413b40538d"
-    "Notifications Write"         = "c3c847c5802d4ce3ba00e3e97b3c8555"
     "SSL and Certificates Write"  = "c03055bc037c4ea9afb9a9f104b7b721"
     "Zone Read"                   = "c8fed203ed3043cba015a93ad1616f1f"
     "Zone Settings Write"         = "3030687196b94b638145a3953da2b699"
@@ -75,9 +74,9 @@ locals {
   # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
   # two zones with identical group lists could swap resources: keep their lists different (or merge the zones).
   cloudflare_workspace_policies = {
-    # Managed zone: settings, records, rate limit (INFRA-123), origin pulls (INFRA-93), www redirect rule (INFRA-61).
+    # Managed zone: settings, records, rate limit (INFRA-123), www redirect rule (INFRA-61).
     tbd = ["Zone Write", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write", "Dynamic URL Redirects Write"]
-    # Zone read by a data source; its settings, `dev` record, rate limit, origin pulls and www redirect rule (INFRA-131) are managed.
+    # Zone read by a data source; its settings, `dev` record, rate limit and www redirect rule (INFRA-131) are managed.
     ziftbook = ["Zone Read", "Zone Settings Write", "DNS Write", "SSL and Certificates Write", "Zone WAF Write", "Dynamic URL Redirects Write"]
     # Zone read by a data source; only the shared dev Mailgun records `m.` are managed (INFRA-47).
     fjdev = ["Zone Read", "DNS Write"]
@@ -104,11 +103,6 @@ resource "cloudflare_account_token" "cloudflare_workspace" {
       permission_groups = [for g in groups : { id = local.pg[g] }]
     }],
     [{
-      # Expiry email of the origin pull certificate (INFRA-93).
-      effect            = "allow"
-      resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
-      permission_groups = [{ id = local.pg["Notifications Write"] }]
-      }, {
       # Cloudflare Access application and policies gating dev.thebetterdecision.com (INFRA-117). Account scope: reusable
       # policies are account objects. Needs Zero Trust enabled on the account first (owner step, docs/runbooks.md).
       effect            = "allow"
