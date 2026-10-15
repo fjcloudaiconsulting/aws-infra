@@ -279,6 +279,31 @@ Then check that the Mailgun dashboard shows the domain as verified. A lookup mad
 cached as "no record" for up to 30 minutes (the zone's SOA minimum), so Mailgun can show MX unverified for that
 long after the apply. Press Verify again later; nothing needs changing.
 
+## Ziftbook worker heartbeat (Healthchecks.io)
+
+The Ziftbook worker GETs a Healthchecks.io ping URL after every good loop, about every 30 s plus the time it spends on
+due jobs (ZIF-21). A loop that fails (Postgres down, a failing prune or sweep) sends no ping, so the check alerts on
+a worker that runs but cannot work, not only on a dead one. A failed ping logs one WARNING `healthcheck ping failed`
+and the worker carries on. One check per environment, in the owner's Healthchecks.io account:
+
+1. Healthchecks.io > Add Check, name `ziftbook-staging-worker` or `ziftbook-prod-worker`, Simple schedule, period
+   1 minute, grace 5 minutes. A rollout or a long batch of jobs leaves a gap of a minute or two; the grace absorbs it.
+   Alerts go to the account's integrations (email by default).
+2. Copy the check's ping URL into Secret `ziftbook-healthcheck`, key `url`, as in
+   [Write or rotate a Kubernetes Secret](#write-or-rotate-a-kubernetes-secret), with
+   `F=clusters/hetzner/ziftbook-<env>/ziftbook-healthcheck.secret.yaml`. The URL is the credential: whoever has it
+   can keep the check green, so it never goes in plain text.
+3. After Flux applies it, `kubectl -n ziftbook-<env> rollout restart deploy/worker` (env is read at start). The
+   check turns up within a minute.
+
+The variable is optional in `worker.yaml`: without the Secret the worker runs and sends nothing, and nothing says so,
+so a check that stays "new" means the Secret is missing. Rotate: Healthchecks.io > the check > Settings > change
+the ping URL, then redo steps 2 and 3.
+
+Alert drill (staging): `kubectl -n ziftbook-staging scale deploy/worker --replicas=0`, wait for the alert (period
+plus grace, about 6 minutes), then `--replicas=1`; the check recovers at the next ping. Flux would restore the
+replica count at its next reconcile anyway (Kustomization interval 10 minutes).
+
 ## TBD smoke account
 
 TBD's post-deploy smoke test (`scripts/smoke-test.sh` in the tbd repo) logs in as a dedicated production user: active,

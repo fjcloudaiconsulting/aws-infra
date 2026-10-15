@@ -92,6 +92,14 @@ spec:
                   name: ziftbook-mailgun
                   key: api-key
                   optional: true
+            # Dead-man's switch (ZIF-21): the worker GETs this Healthchecks.io ping URL after each good loop (about 30 s), and
+            # the check alerts when pings stop. Its own Secret like ziftbook-mailgun; optional, so the worker runs without it.
+            - name: ZIF_HEALTHCHECK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-healthcheck
+                  key: url
+                  optional: true
           resources:
             requests:
               cpu: 20m
