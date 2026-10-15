@@ -1,8 +1,7 @@
 # CoreDNS at two replicas (INFRA-177), so cluster DNS survives the loss of one app node. k3s deploys CoreDNS as an
 # addon whose manifest sets no replica count, so k3s never resets it, and its own topology spread puts one replica on
-# each app node. minReplicas = maxReplicas: the HPA only holds the
-# count and acts before reading any metric. During a drain or outage the second replica stays Pending (that spread
-# counts db-1 as an empty node) while the other serves.
+# each app node. minReplicas = maxReplicas: the HPA only holds the count and acts before reading any metric. During a
+# drain or outage the second replica stays Pending (that spread counts db-1 as an empty node) while the other serves.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

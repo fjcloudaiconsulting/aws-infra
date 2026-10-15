@@ -202,8 +202,8 @@ In a database grant `_` is still a (deprecated) wildcard, so `tbd_staging` also 
 `staging`: no other database has such a name. It is left unescaped on purpose: the nightly grants dump would double an
 escaping backslash, and the replayed grant would name a different database. The password reaches
 `mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20) keeps staging from
-using up `max_connections` (120) that production needs. With the rate-limit pool (2 + 5) and mcp (1 + 1), staging's
-full pools add up to 25: under load it hits its own cap, never production's. Nothing here touches `tbd` or its users, and the MySQL pod
+using up `max_connections` (120) that production needs. The backend (15 + 7) and mcp (9, `tbd-staging/mcp.yaml`)
+add up to 31 at full pools: under load staging hits its own cap, never production's. Nothing here touches `tbd` or its users, and the MySQL pod
 does not restart. The nightly grants dump includes the new user, so a restore brings it back.
 
 **First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
@@ -465,8 +465,8 @@ ssh root@$N1 k3s kubectl uncordon node-2
 
 While the node is cordoned, expect `Pending`: the evicted replica of each prod backend and frontend, the second CoreDNS
 (its spread counts db-1 as an empty node) and NetBird when it lived there. They schedule onto the node when it is
-uncordoned. Uncordon, and wait until `kubectl get deploy -A` shows every prod backend and frontend 2/2 and CoreDNS
-2/2, before draining the other app node. Draining it earlier still evicts every pod without a PDB (Flux, the
+uncordoned. Uncordon, and wait until `kubectl get deploy -A` shows every prod backend and frontend, cloudflared and
+CoreDNS at 2/2, before draining the other app node. Draining it earlier still evicts every pod without a PDB (Flux, the
 scheduler, the worker, staging) and then times out on the PDB-covered ones, leaving it cordoned: uncordon it.
 Meanwhile `rollout status` times out and READY shows 1/2 for those Deployments; that is the cordon, not the release.
 
@@ -482,8 +482,8 @@ Meanwhile `rollout status` times out and READY shows 1/2 for those Deployments; 
    `Recreate` rollout waits for those pods and takes the app down meanwhile. Never set the taint on a node that is
    still running.
 4. If a TBD backend crash-loops in `migrate` after about 10 minutes, a session from the lost node still holds the
-   migration lock: find it in `SHOW PROCESSLIST` on `mysql-0`, check its `Host` is a pod IP of the lost node
-   (`kubectl get pods -A -o wide`), never the new pod's running migration, and `KILL` it (Ziftbook:
+   migration lock: find it in `SHOW PROCESSLIST` on `mysql-0`, check its `Host` is in the lost node's pod range
+   (`k3s kubectl get node <node> -o jsonpath='{.spec.podCIDR}'`), never the new pod's running migration, and `KILL` it (Ziftbook:
    `pg_terminate_backend` on the holder in `pg_locks` where `locktype = 'advisory'`, matched the same way on
    `client_addr` in `pg_stat_activity`).
 5. When the node is back, remove the taint (`... taint node <node> node.kubernetes.io/out-of-service-`); the Pending
