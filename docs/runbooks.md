@@ -289,7 +289,7 @@ and the worker carries on. One check per environment, in the owner's Healthcheck
 1. Healthchecks.io > Add Check, name `ziftbook-staging-worker` or `ziftbook-prod-worker`, Simple schedule, period
    1 minute, grace 5 minutes. A rollout or a long batch of jobs leaves a gap of a minute or two; the grace absorbs it.
    Alerts go to the account's integrations (email by default).
-2. Copy the check's full ping URL (with `https://`; without a scheme the worker crashes on the first ping) into
+2. Copy the check's full ping URL (with `https://`; the worker cannot ping without the scheme) into
    Secret `ziftbook-healthcheck`, key `url`, as in
    [Write or rotate a Kubernetes Secret](#write-or-rotate-a-kubernetes-secret), with
    `F=clusters/hetzner/ziftbook-<env>/ziftbook-healthcheck.secret.yaml`. The URL is the credential: whoever has it
@@ -305,6 +305,7 @@ Alert drill (staging). Suspend Flux first: its reconcile (every 10 minutes, and 
 `replicas: 1` and can land before the alert does.
 
 ```sh
+export KUBECONFIG=~/.kube/hetzner
 flux suspend kustomization flux-system
 kubectl -n ziftbook-staging scale deploy/worker --replicas=0
 # wait for the alert: period plus grace, about 6 minutes
