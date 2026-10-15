@@ -19,7 +19,7 @@ metadata:
   name: frontend
   namespace: tbd-prod
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     type: Recreate
   selector:
@@ -31,6 +31,26 @@ spec:
         app: frontend
     spec:
       automountServiceAccountToken: false
+      # One replica per app node (INFRA-177), as cloudflared. The replacement for a pod on a drained or lost node stays
+      # Pending until that node is back, while the other replica serves; it then lands there on its own.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: frontend
+      # Leave a lost node after 30 s, not the default 300 s (INFRA-177). Effect NoExecute only: tolerating the NoSchedule
+      # taint too would let a replacement schedule onto the dead node.
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
       securityContext:
         runAsUser: 1001 # nextjs in the image; runAsNonRoot cannot check a named user
         runAsGroup: 1001
@@ -58,6 +78,11 @@ spec:
             # Turnstile site key (public), checked by the backend against CAPTCHA_EXPECTED_HOSTNAME.
             - name: TBD_CAPTCHA_SITE_KEY
               value: "0x4AAAAAADTu1HIFconXLShc"
+          # Keep serving while the endpoint removal reaches cloudflared and kube-proxy, so an eviction drops no requests.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           readinessProbe:
             httpGet:
               path: /health
@@ -84,3 +109,16 @@ spec:
           emptyDir: {}
         - name: next-cache
           emptyDir: {}
+---
+# A drain evicts one replica at a time (INFRA-177). AlwaysAllow: a crash-looping replica never blocks a drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  namespace: tbd-prod
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app: frontend

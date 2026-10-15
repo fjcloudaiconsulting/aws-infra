@@ -21,6 +21,17 @@ spec:
         app: scheduler
     spec:
       automountServiceAccountToken: false
+      # Leave a lost node after 30 s, not the default 300 s (INFRA-177). Effect NoExecute only: tolerating the NoSchedule
+      # taint too would let a replacement schedule onto the dead node.
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
       securityContext:
         runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
         runAsGroup: 1001

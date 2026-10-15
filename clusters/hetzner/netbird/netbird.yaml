@@ -4,6 +4,7 @@
 # exposes every loopback listener, so the NetBird access policy (terraform/netbird: owner devices -> k3s-hetzner, TCP
 # 6443 only, one way) is the control that matters. Dashboard steps: docs/runbooks.md,
 # Hetzner cluster bootstrap. It schedules on an app node (no role=db toleration); its state volume then pins it there.
+# While that node is drained or down, access is SSH plus k3s kubectl on another server (runbooks.md, INFRA-177).
 # Recovery if the state volume is lost: the setup key is single-use, so the pod crash-loops
 # until a new key is SOPS-encrypted into setup-key.secret.yaml and merged.
 # Delete the old peer in the NetBird dashboard first: otherwise it keeps the name hetzner-k3s (the kubeconfig's host)

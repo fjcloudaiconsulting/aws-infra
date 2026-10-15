@@ -32,7 +32,7 @@ flux tree kustomization flux-system
 # crashing pod. Check the workload itself. tbd-prod runs on the Hetzner cluster since INFRA-175: use
 # KUBECONFIG=~/.kube/hetzner for the kubectl lines below (and flux's `--context` there).
 kubectl -n tbd-prod rollout status deploy/backend --timeout=5m
-kubectl -n tbd-prod get deploy,pods                       # READY 1/1, RESTARTS 0
+kubectl -n tbd-prod get deploy,pods                       # READY 2/2 (scheduler 1/1), RESTARTS 0
 kubectl -n tbd-prod get events --sort-by=.lastTimestamp | tail -20
 kubectl -n tbd-prod logs deploy/backend -c migrate        # init container: migrations
 kubectl -n tbd-prod logs deploy/backend -f --since=10m    # app log, follow
@@ -66,8 +66,8 @@ reaches the apps through Cloudflare like a user. Per namespace:
 
 1. **Converge:** reads the backend tag from `clusters/<cluster>/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
-   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90), which goes through the frontend to the backend. The Deployments use `Recreate`
-   with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
+   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90), which goes through the frontend to the backend. The Deployments use `Recreate`,
+   which removes every old pod before a new one starts, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
 2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that. `tbd-staging` sits behind [Cloudflare Access](#cloudflare-access-on-tbd-staging) and checks `GET /robots.txt` (the frontend serves it, Access bypasses it) without following redirects, since a followed login redirect is a 200 page.
 3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
@@ -201,8 +201,9 @@ GRANT ALL PRIVILEGES ON `tbd_staging`.* TO `tbd_staging`@`%`
 In a database grant `_` is still a (deprecated) wildcard, so `tbd_staging` also matches `tbd` + any one character +
 `staging`: no other database has such a name. It is left unescaped on purpose: the nightly grants dump would double an
 escaping backslash, and the replayed grant would name a different database. The password reaches
-`mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20: one connection pool of 15 plus migrations) keeps staging from
-using up `max_connections` (80) that production needs. Nothing here touches `tbd` or its users, and the MySQL pod
+`mysql` on stdin, so it is never on a command line in the pod (locally it is briefly in `sed`'s). The cap (20) keeps staging from
+using up `max_connections` (120) that production needs. The backend (15 + 7) and mcp (9, `tbd-staging/mcp.yaml`)
+add up to 31 at full pools: under load staging hits its own cap, never production's. Nothing here touches `tbd` or its users, and the MySQL pod
 does not restart. The nightly grants dump includes the new user, so a restore brings it back.
 
 **First account.** TBD makes the first user of an empty database a superadmin with a verified email, and skips the
@@ -440,6 +441,53 @@ http://localhost:12345.
 52 to 100 MiB working set: about 55 MiB anonymous memory plus up to about 45 MiB of the Alloy binary's page cache.
 Request 128Mi (headroom for app metrics), limit 256Mi, `GOMEMLIMIT` 200MiB. Scraping the kubelet's `/metrics` as well took it to 160 MiB. If `kubectl top` shows it near the limit, look
 for a new high-cardinality series in the app metrics before raising it.
+
+## Drain or lose an app node
+
+Since INFRA-177, losing one app node (node-1 or node-2) keeps both prod apps serving. Their backend and frontend run two
+replicas, one per app node (required anti-affinity), with a PodDisruptionBudget `minAvailable: 1`; cloudflared does the
+same, and CoreDNS holds two replicas with a PDB (`clusters/hetzner/kube-system/coredns.yaml`). Prod pods leave a lost node after
+30 s. The TBD scheduler, the Ziftbook worker, Flux and metrics-server are single pods and move to the other node.
+Staging keeps one replica and is down until its pods move.
+
+**Access.** NetBird's state volume is local-path storage on one app node, so kubectl over NetBird stops while that node
+is drained or down. That is accepted (INFRA-177): break-glass is SSH to any other server
+(`ssh root@<public IPv4> k3s kubectl ...`, port 22 open to `ssh_allowed_cidrs` in `terraform/hetzner`), the same path
+as [Hetzner cluster bootstrap](#hetzner-cluster-bootstrap). Run drains over SSH for that reason.
+
+**Planned drain** (reboots, INFRA-192), one app node at a time, from a different server:
+
+```bash
+ssh root@$N1 k3s kubectl drain node-2 --ignore-daemonsets --delete-emptydir-data --timeout=5m
+# ... maintenance ...
+ssh root@$N1 k3s kubectl uncordon node-2
+```
+
+While the node is cordoned, expect `Pending`: the evicted replica of each prod backend and frontend, the second CoreDNS
+(its spread counts db-1 as an empty node) and NetBird when it lived there. They schedule onto the node when it is
+uncordoned. Uncordon, and wait until `kubectl get deploy -A` shows every prod backend and frontend, cloudflared and
+CoreDNS at 2/2, before draining the other app node. Draining it earlier still evicts every pod without a PDB (Flux, the
+scheduler, the worker, staging) and then times out on the PDB-covered ones, leaving it cordoned: uncordon it.
+Meanwhile `rollout status` times out and READY shows 1/2 for those Deployments; that is the cordon, not the release.
+
+**Lost node** (NotReady, not planned):
+
+1. For about 50 s (the node monitor grace period) requests to its pods still fail; then their endpoints drop and the
+   other replicas serve. Nothing to do.
+2. Check it in the Hetzner console. If it is up but cut off from the private network, power it off there: its
+   cloudflared keeps taking tunnel requests it cannot serve.
+3. Once it is off, `ssh root@<other node> k3s kubectl taint node <node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute`
+   (node-1 or node-2 only: on db-1 it would keep MySQL and Postgres off their pinned volumes).
+   This force-deletes its pods, which otherwise stay `Terminating`. Hold every prod image merge until then: a
+   `Recreate` rollout waits for those pods and takes the app down meanwhile. Never set the taint on a node that is
+   still running.
+4. If a TBD backend crash-loops in `migrate` after about 10 minutes, a session from the lost node still holds the
+   migration lock: find it in `SHOW PROCESSLIST` on `mysql-0`, check its `Host` is in the lost node's pod range
+   (`k3s kubectl get node <node> -o jsonpath='{.spec.podCIDR}'`), never the new pod's running migration, and `KILL` it (Ziftbook:
+   `pg_terminate_backend` on the holder in `pg_locks` where `locktype = 'advisory'`, matched the same way on
+   `client_addr` in `pg_stat_activity`).
+5. When the node is back, remove the taint (`... taint node <node> node.kubernetes.io/out-of-service-`); the Pending
+   replicas schedule onto it.
 
 ## Node memory and the upsize
 

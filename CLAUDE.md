@@ -17,7 +17,7 @@ The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-
 - Cloudflare proxies all app traffic to the Cloudflare Tunnel (`cloudflared`, the cluster's only ingress).
 - Images live on GHCR, built by the app repos. Flux (source + kustomize controllers only) applies
   `clusters/hetzner/`. Secrets are SOPS + age.
-- Namespaces (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging` (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), `data` (MySQL, Postgres, backups), `cloudflared` (the tunnel connectors), `observability` (Grafana Alloy, metrics to Grafana Cloud), and `netbird` (owner kubectl access over NetBird).
+- Namespaces (`clusters/hetzner/`): `tbd-staging`, `ziftbook-staging` (INFRA-173), `ziftbook-prod` (INFRA-181) and `tbd-prod` (INFRA-175), `data` (MySQL, Postgres, backups), `cloudflared` (the tunnel connectors), `observability` (Grafana Alloy, metrics to Grafana Cloud), and `netbird` (owner kubectl access over NetBird); `kube-system/` holds only the CoreDNS replica count and PDB (INFRA-177).
 
 ## Layout and commands
 
@@ -51,7 +51,7 @@ The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (following Flux and rollouts, promoting a TBD release, the post-deploy smoke, Secrets, Ziftbook production secrets, MySQL database per app environment, public hostnames, Mailgun, TBD smoke account, Cloudflare Access on TBD staging, Cloudflare API tokens, metrics to Grafana Cloud, node memory, the Hetzner cluster bootstrap); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (following Flux and rollouts, promoting a TBD release, the post-deploy smoke, Secrets, Ziftbook production secrets, MySQL database per app environment, public hostnames, Mailgun, TBD smoke account, Cloudflare Access on TBD staging, Cloudflare API tokens, metrics to Grafana Cloud, draining or losing an app node, node memory, the Hetzner cluster bootstrap); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory

@@ -109,7 +109,9 @@ The order matters: stop k3s on the old node before deleting its Node object. Del
 member and its node-password secret; a k3s that is still running (or restarts) on the old node re-registers and
 rejoins as a stale member, and the rebuilt node then hits a node-password conflict.
 
-1. From a working node: `k3s kubectl drain <name> --ignore-daemonsets --delete-emptydir-data`.
+1. From a working node: `k3s kubectl drain <name> --ignore-daemonsets --delete-emptydir-data --timeout=5m`. On an app
+   node it times out on the PDBs (the evicted replicas wait Pending for this node, docs/runbooks.md "Drain or lose an
+   app node"); the other replicas serve, so go on.
 2. On the OLD node: `systemctl disable --now k3s && /usr/local/bin/k3s-killall.sh`.
 3. From a working node: `k3s kubectl delete node <name>`.
 4. Replace the server in TFC.
