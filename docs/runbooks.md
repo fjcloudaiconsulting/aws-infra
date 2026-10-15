@@ -289,7 +289,8 @@ and the worker carries on. One check per environment, in the owner's Healthcheck
 1. Healthchecks.io > Add Check, name `ziftbook-staging-worker` or `ziftbook-prod-worker`, Simple schedule, period
    1 minute, grace 5 minutes. A rollout or a long batch of jobs leaves a gap of a minute or two; the grace absorbs it.
    Alerts go to the account's integrations (email by default).
-2. Copy the check's ping URL into Secret `ziftbook-healthcheck`, key `url`, as in
+2. Copy the check's full ping URL (with `https://`; without a scheme the worker crashes on the first ping) into
+   Secret `ziftbook-healthcheck`, key `url`, as in
    [Write or rotate a Kubernetes Secret](#write-or-rotate-a-kubernetes-secret), with
    `F=clusters/hetzner/ziftbook-<env>/ziftbook-healthcheck.secret.yaml`. The URL is the credential: whoever has it
    can keep the check green, so it never goes in plain text.
@@ -297,12 +298,20 @@ and the worker carries on. One check per environment, in the owner's Healthcheck
    check turns up within a minute.
 
 The variable is optional in `worker.yaml`: without the Secret the worker runs and sends nothing, and nothing says so,
-so a check that stays "new" means the Secret is missing. Rotate: Healthchecks.io > the check > Settings > change
-the ping URL, then redo steps 2 and 3.
+so a check that stays "new" means the Secret is missing. Rotate: a check's ping URL cannot be changed, so create a
+new check with the same settings, redo steps 2 and 3, then delete the old check.
 
-Alert drill (staging): `kubectl -n ziftbook-staging scale deploy/worker --replicas=0`, wait for the alert (period
-plus grace, about 6 minutes), then `--replicas=1`; the check recovers at the next ping. Flux would restore the
-replica count at its next reconcile anyway (Kustomization interval 10 minutes).
+Alert drill (staging). Suspend Flux first: its reconcile (every 10 minutes, and on every merge) restores
+`replicas: 1` and can land before the alert does.
+
+```sh
+flux suspend kustomization flux-system
+kubectl -n ziftbook-staging scale deploy/worker --replicas=0
+# wait for the alert: period plus grace, about 6 minutes
+flux resume kustomization flux-system   # re-applies git at once, replicas back to 1
+```
+
+The check recovers at the worker's first ping, a minute or so after the pod starts.
 
 ## TBD smoke account
 
