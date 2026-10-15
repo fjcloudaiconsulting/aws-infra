@@ -1,0 +1,20 @@
+# Telemetry standard (docs/architecture.md, Telemetry; INFRA-105) for the backend and scheduler, read with envFrom.
+# The app names itself tbd-api (scheduler.yaml overrides it to tbd-scheduler) and adds service.version from its image.
+# Metrics always leave over OTLP; logs never do (stdout JSON only). Traces are OFF in production by default (owner
+# ruling 2026-10-06: they cost more compute than metrics); to investigate an issue set OTEL_TRACES_EXPORTER=otlp here,
+# merge, restart, and set it back to none afterwards. The frontend and migrations do not read this.
+# Read at container start: after an edit, restart the backend and scheduler deployments.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel
+  namespace: tbd-prod
+data:
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=tbd,deployment.environment.name=production
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.observability.svc:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_PROPAGATORS: tracecontext
+  OTEL_METRIC_EXPORT_INTERVAL: "60000"
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_TRACES_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none

@@ -29,8 +29,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: scheduler
-          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.296.1
+          image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.297.0
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
           env:
+            - name: OTEL_SERVICE_NAME # the same app as the backend; this tells its telemetry apart
+              value: tbd-scheduler
             - name: APP_ENV
               value: "production"
             - name: LOG_LEVEL
