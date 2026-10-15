@@ -400,7 +400,7 @@ sends metrics to the Grafana Cloud stack's OTLP gateway every 60 s:
   `exception.message`, `exception.stacktrace` and the old `http.url`, `http.target`, `http.client_ip`, `net.sock.peer.addr`
   from data point, span, span event, scope and resource attributes (by key only: span names and messages are the app's to keep clean).
 
-Traces (INFRA-106, Ziftbook staging) are forwarded too; logs are not collected yet. Config: [`clusters/hetzner/observability/alloy/config.alloy`](../clusters/hetzner/observability/alloy/config.alloy);
+Traces (Ziftbook staging, INFRA-106; TBD staging, INFRA-105) are forwarded too; logs are not collected yet. Config: [`clusters/hetzner/observability/alloy/config.alloy`](../clusters/hetzner/observability/alloy/config.alloy);
 a change there rolls the pod (the ConfigMap name carries a hash).
 
 **Credentials** are Secret `observability/grafana-cloud` (keys `otlp-endpoint`, `instance-id`, `token`), file

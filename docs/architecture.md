@@ -236,7 +236,7 @@ Rules every app keeps (traces and logs alike):
   (only five cloud-signature parameters redacted), and native logs export exception messages. `auto_configure` stays
   off because it adds a second exporter to a provider the app already configured.
 
-Environment for every process (`<role>` is `api`, `worker` or `migrations`):
+Environment for every process (`<role>` is `api`, `worker`, `scheduler` or `migrations`):
 
 | Variable | Value |
 |---|---|
@@ -253,7 +253,7 @@ Environment for every process (`<role>` is `api`, `worker` or `migrations`):
 Traces are a per-environment switch, not an app setting: the app ships the capability and exports only when
 `OTEL_TRACES_EXPORTER=otlp`, and the namespace's `otel` ConfigMap holds the value. To investigate a production issue,
 set it to `otlp` in `clusters/hetzner/<app>-prod/otel.yaml` (optionally `OTEL_TRACES_SAMPLER=parentbased_traceidratio`
-with `OTEL_TRACES_SAMPLER_ARG`), merge, restart the backend and worker; set it back to `none` afterwards.
+with `OTEL_TRACES_SAMPLER_ARG`), merge, restart the deployments that read it (Ziftbook: backend and worker; TBD: backend and scheduler); set it back to `none` afterwards.
 
 Export path (built by INFRA-85): apps send OTLP over HTTP to one Grafana Alloy DaemonSet in the cluster, which
 forwards metrics and traces to the Grafana Cloud OTLP gateway, and scrapes the
