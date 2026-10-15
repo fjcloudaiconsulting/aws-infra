@@ -330,7 +330,9 @@ default endpoint does not see these buckets). Bucket names and the jurisdiction 
 One-time owner steps, in this order:
 
 1. Cloudflare dashboard > R2 Object Storage: enable R2 on the account (it asks for a payment method even on the
-   free tier). Then approve the `cloudflare` apply that creates the buckets.
+   free tier). The `cloudflare` workspace token needs "Workers R2 Storage Write" (`terraform/cloudflare-tokens`)
+   applied too; without either, the plan passes and the `cloudflare` apply fails on every R2 resource. Then approve
+   the `cloudflare` apply that creates the buckets.
 2. R2 > Manage API tokens > Create Account API token, once per environment: name `ziftbook-<env>-storage`,
    permission **Object Read & Write**, "Apply to specific buckets only" with that environment's two buckets, TTL
    forever (or a rotation date you will keep). The secret is shown once.
@@ -344,7 +346,8 @@ One-time owner steps, in this order:
    kubectl create secret generic ziftbook-storage -n ziftbook-$env \
      --from-file=access-key-id=<(printf %s "$A") --from-file=secret-access-key=<(printf %s "$S") \
      --dry-run=client -o yaml \
-     | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"; unset A S
+     | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F.tmp" \
+     && mv "$F.tmp" "$F"; unset A S
    grep -cE '^ +(access-key-id|secret-access-key): ENC' "$F"
    ```
 
