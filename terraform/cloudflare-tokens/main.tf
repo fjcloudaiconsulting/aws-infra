@@ -70,7 +70,8 @@ locals {
   if g.name == "Cloudflare One Connector: cloudflared Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
   # Same lookup for "Workers R2 Storage Write" (ZIF-133): create R2 buckets and set their CORS, lifecycle and custom
-  # domains. Object reads and writes use the apps' own R2 tokens, made by hand per environment.
+  # domains. No narrower group can create a bucket, and this one also reads, writes and deletes objects in every
+  # bucket of the account. The apps use their own bucket-scoped tokens, made by hand per environment.
   r2_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
   if g.name == "Workers R2 Storage Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
