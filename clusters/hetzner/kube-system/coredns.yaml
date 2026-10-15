@@ -1,0 +1,30 @@
+# CoreDNS at two replicas (INFRA-177), so cluster DNS survives the loss of one app node. k3s deploys CoreDNS as an
+# addon whose manifest sets no replica count, so k3s never resets it, and its own topology spread puts one replica on
+# each app node. minReplicas = maxReplicas: the HPA only holds the
+# count and acts before reading any metric. During a drain or outage the second replica stays Pending (that spread
+# counts db-1 as an empty node) while the other serves.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: coredns
+  minReplicas: 2
+  maxReplicas: 2
+---
+# A drain never evicts the last ready CoreDNS: while the other replica is Pending, the drain waits here (INFRA-177).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      k8s-app: kube-dns

@@ -30,7 +30,7 @@ spec:
     # 2 x backend 256/384, scheduler 160/320, 2 x frontend 128/256 = 928Mi/1600Mi (INFRA-177). The migrate init
     # container (96/256) is counted at the larger of init and app containers; Recreate never needs a surge pod.
     # Twice that: pods on a lost node keep counting until the quota's 5-minute resync, while their replacements (Pending
-    # under the anti-affinity, or running for the scheduler) count too. The 2026-10-15 outage was 11 minutes of this.
+    # under the anti-affinity, or running for the scheduler) count too.
     requests.memory: 1856Mi
     limits.memory: 3200Mi
 ---

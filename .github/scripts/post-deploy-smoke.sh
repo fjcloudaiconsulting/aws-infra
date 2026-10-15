@@ -44,7 +44,7 @@ check() {
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { verdict="bad backend tag in $MANIFEST: '${tag//$'\n'/ }'"; return; }
   local want="${tag#v}" live="" i=0 ok=0 code deadline=$(( SECONDS + ${CONVERGE_SECONDS:-900} ))
 
-  # 1. The new pods: Recreate with one replica, so once the reported version matches no old backend serves. A 5xx or
+  # 1. The new pods: Recreate removes every old pod first, so once the reported version matches no old backend serves. A 5xx or
   # an HTML page in the Recreate gap is "not yet", never a failure; the cache-busting query keeps Cloudflare out.
   while :; do
     i=$((i + 1))
