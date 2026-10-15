@@ -27,10 +27,11 @@ metadata:
   namespace: ziftbook-prod
 spec:
   hard:
-    # backend, worker, frontend: 3 x 128Mi requests, 3 x 256Mi limits (INFRA-46). Every Deployment uses Recreate,
-    # so a rollout never needs room for a second pod.
-    requests.memory: 512Mi
-    limits.memory: 1Gi
+    # 2 x backend, worker, 2 x frontend: 5 x 128Mi requests, 5 x 256Mi limits (INFRA-177). Every Deployment uses
+    # Recreate, so a rollout never needs a surge pod. Twice that, as in tbd-prod.yaml: pods on a lost node keep counting
+    # until the quota's 5-minute resync, while their replacements count too.
+    requests.memory: 1280Mi
+    limits.memory: 2560Mi
 ---
 # Every pod here pulls private GHCR images with ghcr-pull (ziftbook-prod-ghcr-pull.secret.yaml), so
 # workloads need no imagePullSecrets of their own. Until the secret exists the kubelet logs a

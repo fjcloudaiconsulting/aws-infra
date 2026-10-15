@@ -66,8 +66,8 @@ reaches the apps through Cloudflare like a user. Per namespace:
 
 1. **Converge:** reads the backend tag from `clusters/<cluster>/<namespace>/backend.yaml` and polls the public version
    endpoint every 15 s until it reports that version, for up to 15 minutes. TBD uses `/health`. Ziftbook uses
-   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90), which goes through the frontend to the backend. The Deployments use `Recreate`
-   with one replica, so a match means no old backend pod is serving. If the first poll already matches (the push changed
+   `dev.ziftbook.com/api/healthz` (staging) and `app.ziftbook.com/api/healthz` (prod, INFRA-90), which goes through the frontend to the backend. The Deployments use `Recreate`,
+   which removes every old pod before a new one starts, so a match means no old backend pod is serving. If the first poll already matches (the push changed
    a policy, a Secret or the frontend only), the run waits 150 s for Flux to apply the push before the next checks.
 2. **Frontend:** `GET /` must return 200 three times in a row, 10 s apart. It gives up after 5 minutes without that. `tbd-staging` sits behind [Cloudflare Access](#cloudflare-access-on-tbd-staging) and checks `GET /robots.txt` (the frontend serves it, Access bypasses it) without following redirects, since a followed login redirect is a 200 page.
 3. **App smoke:** TBD runs its own `scripts/smoke-test.sh`, fetched from the tbd repo at the deployed tag, once: three
@@ -440,6 +440,47 @@ http://localhost:12345.
 52 to 100 MiB working set: about 55 MiB anonymous memory plus up to about 45 MiB of the Alloy binary's page cache.
 Request 128Mi (headroom for app metrics), limit 256Mi, `GOMEMLIMIT` 200MiB. Scraping the kubelet's `/metrics` as well took it to 160 MiB. If `kubectl top` shows it near the limit, look
 for a new high-cardinality series in the app metrics before raising it.
+
+## Drain or lose an app node
+
+Since INFRA-177, losing one app node (node-1 or node-2) keeps both prod apps serving. Their backend and frontend run two
+replicas, one per app node (required anti-affinity), with a PodDisruptionBudget `minAvailable: 1`; cloudflared does the
+same, and CoreDNS holds two replicas (`clusters/hetzner/kube-system/coredns-hpa.yaml`). Prod pods leave a lost node after
+30 s. The TBD scheduler, the Ziftbook worker, Flux and metrics-server are single pods and move to the other node.
+Staging keeps one replica and is down until its pods move.
+
+**Access.** NetBird's state volume is local-path storage on one app node, so kubectl over NetBird stops while that node
+is drained or down. That is accepted (INFRA-177): break-glass is SSH to any other server
+(`ssh root@<public IPv4> k3s kubectl ...`, port 22 open to `ssh_allowed_cidrs` in `terraform/hetzner`), the same path
+as [Hetzner cluster bootstrap](#hetzner-cluster-bootstrap). Run drains over SSH for that reason.
+
+**Planned drain** (reboots, INFRA-192), one app node at a time, from a different server:
+
+```bash
+ssh root@$N1 k3s kubectl drain node-2 --ignore-daemonsets --delete-emptydir-data
+# ... maintenance ...
+ssh root@$N1 k3s kubectl uncordon node-2
+```
+
+While the node is cordoned, expect `Pending`: the evicted replica of each prod backend and frontend, the second CoreDNS
+(its spread counts db-1 as an empty node) and NetBird when it lived there. They schedule onto the node when it is
+uncordoned. The PDBs refuse to drain the other app node while those replicas are Pending: uncordon first.
+
+**Lost node** (NotReady, not planned):
+
+1. For about 50 s (the node monitor grace period) requests to its pods still fail; then their endpoints drop and the
+   other replicas serve. Nothing to do.
+2. Check it in the Hetzner console. If it is up but cut off from the private network, power it off there: its
+   cloudflared keeps taking tunnel requests it cannot serve.
+3. Once it is off, `ssh root@<other node> k3s kubectl taint node <node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute`.
+   This force-deletes its pods, which otherwise stay `Terminating`. Hold every prod image merge until then: a
+   `Recreate` rollout waits for those pods and takes the app down meanwhile. Never set the taint on a node that is
+   still running.
+4. If a TBD backend crash-loops in `migrate` after about 10 minutes, a session from the lost node still holds the
+   migration lock: find it in `SHOW PROCESSLIST` on `mysql-0` and `KILL` it (Ziftbook: `pg_terminate_backend` on the
+   holder in `pg_locks` where `locktype = 'advisory'`).
+5. When the node is back, remove the taint (`... taint node <node> node.kubernetes.io/out-of-service-`); the Pending
+   replicas schedule onto it.
 
 ## Node memory and the upsize
 

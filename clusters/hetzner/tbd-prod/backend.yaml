@@ -28,8 +28,9 @@ metadata:
   name: backend
   namespace: tbd-prod
 spec:
-  replicas: 1
-  # Recreate: no surge pod, so a rollout never exceeds the namespace quota or opens a second DB pool.
+  replicas: 2
+  # Recreate: every old pod is gone before a new one starts, so no version serves beside another (the smoke's version
+  # match relies on it) and a rollout needs no surge room in the quota. Two replicas on two nodes (INFRA-177).
   strategy:
     type: Recreate
   selector:
@@ -41,6 +42,26 @@ spec:
         app: backend
     spec:
       automountServiceAccountToken: false
+      # One replica per app node (INFRA-177), as cloudflared. The replacement for a pod on a drained or lost node stays
+      # Pending until that node is back, while the other replica serves; it then lands there on its own.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: backend
+      # Leave a lost node after 30 s, not the default 300 s (INFRA-177). Effect NoExecute only: tolerating the NoSchedule
+      # taint too would let a replacement schedule onto the dead node.
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 30
       securityContext:
         runAsUser: 1001 # backend in the image; runAsNonRoot cannot check a named user
         runAsGroup: 1001
@@ -200,6 +221,11 @@ spec:
                 secretKeyRef:
                   name: tbd
                   key: founder-count-exclude-usernames
+          # Keep serving while the endpoint removal reaches cloudflared and kube-proxy, so an eviction drops no requests.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           readinessProbe:
             httpGet:
               path: /ready
@@ -222,3 +248,16 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+---
+# A drain evicts one replica at a time (INFRA-177). AlwaysAllow: a crash-looping replica never blocks a drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+  namespace: tbd-prod
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app: backend
