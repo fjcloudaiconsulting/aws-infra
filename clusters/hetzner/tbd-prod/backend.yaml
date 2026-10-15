@@ -87,6 +87,9 @@ spec:
           image: ghcr.io/fjcloudaiconsulting/tbd/backend:v0.296.1
           ports:
             - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: otel # otel.yaml
           env:
             - name: APP_ENV
               value: "production"
