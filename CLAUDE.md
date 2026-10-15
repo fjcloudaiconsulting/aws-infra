@@ -42,9 +42,8 @@ The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-
   `tfc-backups-*` roles, OIDC providers). The TFC role trust is pinned to workspace name `tbd-backups`:
   do not rename it. If a rename is ever unavoidable, or any trust statement must change, add the new
   statement, apply, then remove the old one; never edit in place.
-- The `thebetterdecision.com` registration (Route 53 Domains) lives in an older, separate
-  AWS account we have no credentials for; the owner acts there. The TBD apex is the Worker `tbd-landing`. DNS for the domain is served by Cloudflare
-  (`terraform/cloudflare`) since 2026-10-01; the old Route 53 zone is kept only until INFRA-58 deletes it.
+- `thebetterdecision.com` is registered at Cloudflare Registrar (since 2026-10-06) and its DNS is served by Cloudflare
+  (`terraform/cloudflare`); no Route 53 zone is left. The TBD apex is the Worker `tbd-landing`.
 - AWS calls go through the aws-mcp server; it runs against `884686184019`.
 
 ## Docs
@@ -52,7 +51,7 @@ The Hetzner migration (epic INFRA-164) is done; the Lightsail node and the `aws-
 Plans and specs are local only (`docs/specs/`, git-excluded). Shareable decisions go in PR bodies and Jira.
 
 `docs/configuration-map.md` lists every setting made by hand outside git and a symptom table for when one breaks. Update it in the same PR as any such change.
-`docs/runbooks.md` holds the step-by-step procedures (Secrets, hostnames and Origin CA certs, Mailgun, TBD smoke account, following Flux and rollouts, the post-deploy smoke, node memory and the upsize, metrics to Grafana Cloud, Cloudflare API tokens); update it when a procedure changes.
+`docs/runbooks.md` holds the step-by-step procedures (following Flux and rollouts, promoting a TBD release, the post-deploy smoke, Secrets, Ziftbook production secrets, MySQL database per app environment, public hostnames, Mailgun, TBD smoke account, Cloudflare Access on TBD staging, Cloudflare API tokens, metrics to Grafana Cloud, node memory, the Hetzner cluster bootstrap); update it when a procedure changes.
 
 <!-- claude-mem-lite:begin v1 -->
 ## claude-mem-lite — persistent memory
