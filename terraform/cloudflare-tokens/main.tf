@@ -69,6 +69,12 @@ locals {
   tunnel_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
   if g.name == "Cloudflare One Connector: cloudflared Write" && contains(g.scopes, "com.cloudflare.api.account")]
 
+  # Same lookup for "Workers R2 Storage Write" (ZIF-133): create R2 buckets and set their CORS, lifecycle and custom
+  # domains. No narrower group can create a bucket, and this one also reads, writes and deletes objects in every
+  # bucket of the account. The apps use their own bucket-scoped tokens, made by hand per environment.
+  r2_write_ids = [for g in data.cloudflare_account_api_token_permission_groups_list.access_write.result : g.id
+  if g.name == "Workers R2 Storage Write" && contains(g.scopes, "com.cloudflare.api.account")]
+
   # The provider stores the API's `resources` bytes as they come back, and jsonencode sorts keys, so a `resources`
   # object with two keys at one level can come back in another order and fail the apply. Keep one key per level:
   # one policy per zone. The provider also matches the API's policies back by effect and permission group set, so
@@ -113,6 +119,11 @@ resource "cloudflare_account_token" "cloudflare_workspace" {
       effect            = "allow"
       resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
       permission_groups = [{ id = one(local.tunnel_write_ids) }]
+      }, {
+      # R2 buckets for Ziftbook service photos (ZIF-133), managed by the `cloudflare` workspace. Account scope.
+      effect            = "allow"
+      resources         = jsonencode({ "com.cloudflare.api.account.${local.account_id}" = "*" })
+      permission_groups = [{ id = one(local.r2_write_ids) }]
     }],
   )
 
