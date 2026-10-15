@@ -314,6 +314,44 @@ flux resume kustomization flux-system   # re-applies git at once, replicas back 
 
 The check recovers at the worker's first ping, a minute or so after the pod starts.
 
+## R2 for Ziftbook photos
+
+Service photos (ZIF-133) live in Cloudflare R2, EU jurisdiction, two buckets per environment, all in
+`terraform/cloudflare/r2.tf`:
+
+| Bucket | Access | Rules |
+|---|---|---|
+| `ziftbook-uploads-<env>` | private; the browser PUTs with a presigned URL | CORS `PUT` from `https://dev.ziftbook.com` (staging) or `https://app.ziftbook.com` (prod), header `content-type`; every object expires after 1 day |
+| `ziftbook-media-<env>` | public read on `img-dev.ziftbook.com` (staging) or `img.ziftbook.com` (prod) only | none; the app sets `Cache-Control` on upload |
+
+The S3 endpoint of an EU bucket is `https://<account id>.eu.r2.cloudflarestorage.com` (the `.eu` matters: the
+default endpoint does not see these buckets). Bucket names and the jurisdiction are fixed at creation.
+
+One-time owner steps, in this order:
+
+1. Cloudflare dashboard > R2 Object Storage: enable R2 on the account (it asks for a payment method even on the
+   free tier). Then approve the `cloudflare` apply that creates the buckets.
+2. R2 > Manage API tokens > Create Account API token, once per environment: name `ziftbook-<env>-storage`,
+   permission **Object Read & Write**, "Apply to specific buckets only" with that environment's two buckets, TTL
+   forever (or a rotation date you will keep). The secret is shown once.
+3. Write both keys straight into Secret `ziftbook-storage` (keys `access-key-id`, `secret-access-key`), from silent
+   prompts, in bash from the repo root. It prints `2`; anything else means the file is not encrypted:
+
+   ```sh
+   env=staging   # then prod
+   F=clusters/hetzner/ziftbook-$env/ziftbook-storage.secret.yaml
+   printf 'Access Key ID: '; read -rs A; echo; printf 'Secret Access Key: '; read -rs S; echo
+   kubectl create secret generic ziftbook-storage -n ziftbook-$env \
+     --from-file=access-key-id=<(printf %s "$A") --from-file=secret-access-key=<(printf %s "$S") \
+     --dry-run=client -o yaml \
+     | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F"; unset A S
+   grep -cE '^ +(access-key-id|secret-access-key): ENC' "$F"
+   ```
+
+Rotate: create a new token, redo step 3, merge, `kubectl -n ziftbook-<env> rollout restart deploy/backend
+deploy/worker`, then delete the old token. Until the Secret and the env exist, uploads answer 503 and nothing
+else breaks.
+
 ## TBD smoke account
 
 TBD's post-deploy smoke test (`scripts/smoke-test.sh` in the tbd repo) logs in as a dedicated production user: active,
