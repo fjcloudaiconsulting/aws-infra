@@ -1,0 +1,19 @@
+# Telemetry standard (docs/architecture.md, Telemetry; INFRA-105) for the backend, read with envFrom. The app names
+# itself tbd-api and adds service.version from its image. Alloy forwards metrics and traces, every trace (staging
+# traffic is tiny; the standard SDK knobs OTEL_TRACES_SAMPLER/_ARG lower it); logs never leave over OTLP (stdout JSON
+# only). The frontend, migrations and MCP server do not read this.
+# Read at container start: after an edit, restart the backend deployment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel
+  namespace: tbd-staging
+data:
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=tbd,deployment.environment.name=staging
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.observability.svc:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_PROPAGATORS: tracecontext
+  OTEL_METRIC_EXPORT_INTERVAL: "60000"
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: none
