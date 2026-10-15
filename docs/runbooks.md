@@ -337,7 +337,7 @@ One-time owner steps, in this order:
    permission **Object Read & Write**, "Apply to specific buckets only" with that environment's two buckets, TTL
    forever (or a rotation date you will keep). The secret is shown once.
 3. Write both keys straight into Secret `ziftbook-storage` (keys `access-key-id`, `secret-access-key`), from silent
-   prompts, in bash from the repo root. It prints `2`; anything else means the file is not encrypted:
+   prompts, in bash from the repo root. It prints `2`; anything else, or nothing, means the file was not written:
 
    ```sh
    env=staging   # then prod
@@ -347,8 +347,8 @@ One-time owner steps, in this order:
      --from-file=access-key-id=<(printf %s "$A") --from-file=secret-access-key=<(printf %s "$S") \
      --dry-run=client -o yaml \
      | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F.tmp" \
-     && mv "$F.tmp" "$F"; unset A S
-   grep -cE '^ +(access-key-id|secret-access-key): ENC' "$F"
+     && mv "$F.tmp" "$F" && grep -cE '^ +(access-key-id|secret-access-key): ENC' "$F"
+   rm -f "$F.tmp"; unset A S
    ```
 
 Rotate: create a new token, redo step 3, merge, `kubectl -n ziftbook-<env> rollout restart deploy/backend

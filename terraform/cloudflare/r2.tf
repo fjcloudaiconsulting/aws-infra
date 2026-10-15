@@ -4,7 +4,8 @@
 # - uploads: private. The browser PUTs the raw file with a presigned URL, the API checks and resizes it at finalize,
 #   and anything left over expires after a day, so an unprocessed file is never public.
 # - media: public read through its custom domain only. No CORS: plain <img>.
-# The r2.dev URL of every bucket is pinned off below, so turning it on by hand shows as drift in the plan.
+# The r2.dev URL stays off: the default for a new bucket. Not managed: provider 5.27's cloudflare_r2_managed_domain
+# never reads it back, so it would neither enforce nor detect a change by hand.
 locals {
   ziftbook_r2 = {
     staging = { origin = "https://dev.ziftbook.com", media_domain = "img-dev.ziftbook.com" }
@@ -71,15 +72,4 @@ resource "cloudflare_r2_custom_domain" "ziftbook_media" {
   zone_id      = data.cloudflare_zone.ziftbook.id
   enabled      = true
   min_tls      = "1.2"
-}
-
-resource "cloudflare_r2_managed_domain" "ziftbook" {
-  for_each = merge(
-    { for env, _ in local.ziftbook_r2 : "uploads-${env}" => cloudflare_r2_bucket.ziftbook_uploads[env].name },
-    { for env, _ in local.ziftbook_r2 : "media-${env}" => cloudflare_r2_bucket.ziftbook_media[env].name },
-  )
-  account_id   = var.account_id
-  bucket_name  = each.value
-  jurisdiction = "eu"
-  enabled      = false
 }
