@@ -94,6 +94,14 @@ spec:
             - configMapRef:
                 name: otel # otel.yaml
           env:
+            # Encrypts the admins' TOTP secrets (ZIF-71). Losing it makes every enrolled second factor unreadable, so it is
+            # never rotated casually; the SOPS file in git is its backup. optional: unset only disables admin TOTP (503).
+            - name: ZIF_TOTP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-totp
+                  key: key
+                  optional: true
             # The migrate role's credentials stay in the init container.
             - name: ZIF_DATABASE_URL
               valueFrom:

@@ -168,22 +168,25 @@ Until the pull secret is merged the production pods wait (`ImagePullBackOff`) an
 
 Since v0.25.0 the backend encrypts each platform admin's TOTP secret with `ZIF_TOTP_KEY` (ZIF-71): base64 of 32 random
 bytes, one per environment, in Secret `ziftbook-totp` (key `key`). Without it the API starts, logs the ERROR `totp key
-unset: admin second factor unavailable`, and admin TOTP answers 503 (recovery codes still work). Generated, never typed,
-with the public key only; nothing is printed except `1`. It refuses to overwrite an existing file:
+unset: admin second factor unavailable`, and admin TOTP answers 503 (recovery codes still work). Both environments
+have one (INFRA-195). Generated, never typed, with the public key only, in bash from the repo root; nothing is printed
+except `1`. It refuses to overwrite an existing file:
 
 ```sh
-env=staging   # prod before its first v0.25.0 promotion
+env=staging   # or prod
 F=clusters/hetzner/ziftbook-$env/ziftbook-totp.secret.yaml
-test ! -e "$F" && kubectl create secret generic ziftbook-totp -n ziftbook-$env \
-  --from-file=key=<(openssl rand -base64 32 | tr -d '\n') --dry-run=client -o yaml \
+K=$(openssl rand -base64 32) && [ ${#K} -eq 44 ] && test ! -e "$F" \
+  && kubectl create secret generic ziftbook-totp -n ziftbook-$env \
+       --from-file=key=<(printf %s "$K") --dry-run=client -o yaml \
   | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F.tmp" \
   && mv "$F.tmp" "$F" && grep -cE '^ +key: ENC' "$F"
-rm -f "$F.tmp"
+rm -f "$F.tmp"; unset K
 ```
 
-Do not rotate it: a new key makes every enrolled second factor unreadable, and each admin must enrol again. The SOPS
-file in git is the backup, as for the database credentials. An admin CLI Job run from the migrations image needs the
-same env for TOTP enrolment.
+Rotate only if the key leaks: a new key makes every enrolled second factor unreadable, so each admin enrols again
+(recovery codes still sign in). The SOPS file in git is the backup, readable with the age key like the database
+credentials; the live Secret in the namespace is a second copy. Only the backend reads it: the worker and the admin
+CLI (`python -m app.admin enrol`) do not.
 
 ## MySQL database per app environment
 
