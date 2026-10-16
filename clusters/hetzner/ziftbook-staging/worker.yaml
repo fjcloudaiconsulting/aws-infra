@@ -91,9 +91,8 @@ spec:
                   name: ziftbook-healthcheck
                   key: url
                   optional: true
-            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). The endpoint holds the account ID,
-            # which this public repo keeps out of git, so it sits in Secret ziftbook-storage beside the env's own R2 token.
-            # optional: uploads answer 503 until the Secret exists, and nothing else breaks.
+            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). EU buckets answer only on the .eu
+            # endpoint. The env's own R2 token is in Secret ziftbook-storage; optional: uploads answer 503 until it exists.
             - name: ZIF_S3_UPLOADS_BUCKET
               value: ziftbook-uploads-staging
             - name: ZIF_S3_MEDIA_BUCKET
@@ -101,11 +100,7 @@ spec:
             - name: ZIF_MEDIA_URL
               value: https://img-dev.ziftbook.com
             - name: ZIF_S3_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: ziftbook-storage
-                  key: endpoint
-                  optional: true
+              value: https://fb5eb042529f2621c6de3f34c6801174.eu.r2.cloudflarestorage.com
             - name: ZIF_S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
