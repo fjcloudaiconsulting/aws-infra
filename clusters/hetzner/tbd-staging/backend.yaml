@@ -119,8 +119,6 @@ spec:
               value: "false"
             - name: AI_DISPATCH_TIMEOUT_S
               value: "30"
-            - name: AI_NATIVE_CURRENT_CONSENT_VERSION
-              value: "ai-tos-2026-05-22"
             - name: CAPTCHA_REQUIRED
               value: "true"
             - name: CAPTCHA_PROVIDER
