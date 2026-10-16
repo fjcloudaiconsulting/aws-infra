@@ -80,6 +80,33 @@ spec:
                 secretKeyRef:
                   name: ziftbook
                   key: database-url
+            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). The endpoint holds the account ID,
+            # which this public repo keeps out of git, so it sits in Secret ziftbook-storage beside the env's own R2 token.
+            # optional: uploads answer 503 until the Secret exists, and nothing else breaks.
+            - name: ZIF_S3_UPLOADS_BUCKET
+              value: ziftbook-uploads-staging
+            - name: ZIF_S3_MEDIA_BUCKET
+              value: ziftbook-media-staging
+            - name: ZIF_MEDIA_URL
+              value: https://img-dev.ziftbook.com
+            - name: ZIF_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: endpoint
+                  optional: true
+            - name: ZIF_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: access-key-id
+                  optional: true
+            - name: ZIF_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: secret-access-key
+                  optional: true
             # X-Forwarded-For is believed only from pods: the frontend sets it from cf-connecting-ip, and
             # networkpolicy.yaml admits only the frontend. Cluster CIDR, not the node's podCIDR, which changes
             # if the node re-registers. Node-local traffic (source 10.42.0.1) is owner-only (NetBird).
@@ -95,7 +122,7 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
-              memory: 256Mi
+              memory: 384Mi # image decode at Save: 152 MB baseline plus up to 83 MB (ZIF-133)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

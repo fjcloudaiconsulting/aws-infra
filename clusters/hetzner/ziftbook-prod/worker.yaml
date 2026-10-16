@@ -100,6 +100,33 @@ spec:
                   name: ziftbook-healthcheck
                   key: url
                   optional: true
+            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). The endpoint holds the account ID,
+            # which this public repo keeps out of git, so it sits in Secret ziftbook-storage beside the env's own R2 token.
+            # optional: uploads answer 503 until the Secret exists, and nothing else breaks.
+            - name: ZIF_S3_UPLOADS_BUCKET
+              value: ziftbook-uploads-prod
+            - name: ZIF_S3_MEDIA_BUCKET
+              value: ziftbook-media-prod
+            - name: ZIF_MEDIA_URL
+              value: https://img.ziftbook.com
+            - name: ZIF_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: endpoint
+                  optional: true
+            - name: ZIF_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: access-key-id
+                  optional: true
+            - name: ZIF_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: secret-access-key
+                  optional: true
           resources:
             requests:
               cpu: 20m

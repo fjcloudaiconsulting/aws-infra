@@ -336,19 +336,23 @@ One-time owner steps, in this order:
 2. R2 > Manage API tokens > Create Account API token, once per environment: name `ziftbook-<env>-storage`,
    permission **Object Read & Write**, "Apply to specific buckets only" with that environment's two buckets, TTL
    forever (or a rotation date you will keep). The secret is shown once.
-3. Write both keys straight into Secret `ziftbook-storage` (keys `access-key-id`, `secret-access-key`), from silent
-   prompts, in bash from the repo root. It prints `2`; anything else, or nothing, means the file was not written:
+3. Write both keys and the endpoint straight into Secret `ziftbook-storage` (keys `access-key-id`,
+   `secret-access-key`, `endpoint`), from prompts, in bash from the repo root. The account ID (dashboard > R2
+   overview, "Account ID") goes in the endpoint, so this public repo never holds it in plain text. It prints `3`;
+   anything else, or nothing, means the file was not written:
 
    ```sh
    env=staging   # then prod
    F=clusters/hetzner/ziftbook-$env/ziftbook-storage.secret.yaml
+   printf 'Account ID: '; read -r C
    printf 'Access Key ID: '; read -rs A; echo; printf 'Secret Access Key: '; read -rs S; echo
    kubectl create secret generic ziftbook-storage -n ziftbook-$env \
      --from-file=access-key-id=<(printf %s "$A") --from-file=secret-access-key=<(printf %s "$S") \
+     --from-file=endpoint=<(printf 'https://%s.eu.r2.cloudflarestorage.com' "$C") \
      --dry-run=client -o yaml \
      | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F.tmp" \
-     && mv "$F.tmp" "$F" && grep -cE '^ +(access-key-id|secret-access-key): ENC' "$F"
-   rm -f "$F.tmp"; unset A S
+     && mv "$F.tmp" "$F" && grep -cE '^ +(access-key-id|secret-access-key|endpoint): ENC' "$F"
+   rm -f "$F.tmp"; unset A S C
    ```
 
 Rotate: create a new token, redo step 3, merge, `kubectl -n ziftbook-<env> rollout restart deploy/backend
