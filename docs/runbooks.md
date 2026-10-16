@@ -164,6 +164,27 @@ sops -d "$G" | grep -c 'namespace: ziftbook-prod$'
 
 Until the pull secret is merged the production pods wait (`ImagePullBackOff`) and start by themselves once Flux applies it.
 
+## Ziftbook admin TOTP key
+
+Since v0.25.0 the backend encrypts each platform admin's TOTP secret with `ZIF_TOTP_KEY` (ZIF-71): base64 of 32 random
+bytes, one per environment, in Secret `ziftbook-totp` (key `key`). Without it the API starts, logs the ERROR `totp key
+unset: admin second factor unavailable`, and admin TOTP answers 503 (recovery codes still work). Generated, never typed,
+with the public key only; nothing is printed except `1`. It refuses to overwrite an existing file:
+
+```sh
+env=staging   # prod before its first v0.25.0 promotion
+F=clusters/hetzner/ziftbook-$env/ziftbook-totp.secret.yaml
+test ! -e "$F" && kubectl create secret generic ziftbook-totp -n ziftbook-$env \
+  --from-file=key=<(openssl rand -base64 32 | tr -d '\n') --dry-run=client -o yaml \
+  | sops encrypt --filename-override "$F" --input-type yaml --output-type yaml /dev/stdin > "$F.tmp" \
+  && mv "$F.tmp" "$F" && grep -cE '^ +key: ENC' "$F"
+rm -f "$F.tmp"
+```
+
+Do not rotate it: a new key makes every enrolled second factor unreadable, and each admin must enrol again. The SOPS
+file in git is the backup, as for the database credentials. An admin CLI Job run from the migrations image needs the
+same env for TOTP enrolment.
+
 ## MySQL database per app environment
 
 Each app environment gets its own database and user in the shared MySQL (`data/mysql-0`), with grants on that

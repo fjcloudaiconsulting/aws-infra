@@ -41,7 +41,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: migrate
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.24.1
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/migrations:v0.25.0
           envFrom:
             - configMapRef:
                 name: otel # otel.yaml
@@ -67,13 +67,21 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.24.1
+          image: ghcr.io/fjcloudaiconsulting/ziftbook/backend:v0.25.0
           ports:
             - containerPort: 8000
           envFrom:
             - configMapRef:
                 name: otel # otel.yaml
           env:
+            # Encrypts the admins' TOTP secrets (ZIF-71). Losing it makes every enrolled second factor unreadable, so it is
+            # never rotated casually; the SOPS file in git is its backup. optional: unset only disables admin TOTP (503).
+            - name: ZIF_TOTP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-totp
+                  key: key
+                  optional: true
             # The migrate role's credentials stay in the init container.
             - name: ZIF_DATABASE_URL
               valueFrom:
