@@ -100,6 +100,28 @@ spec:
                   name: ziftbook-healthcheck
                   key: url
                   optional: true
+            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). EU buckets answer only on the .eu
+            # endpoint. The env's own R2 token is in Secret ziftbook-storage; optional: uploads answer 503 until it exists.
+            - name: ZIF_S3_UPLOADS_BUCKET
+              value: ziftbook-uploads-prod
+            - name: ZIF_S3_MEDIA_BUCKET
+              value: ziftbook-media-prod
+            - name: ZIF_MEDIA_URL
+              value: https://img.ziftbook.com
+            - name: ZIF_S3_ENDPOINT
+              value: https://fb5eb042529f2621c6de3f34c6801174.eu.r2.cloudflarestorage.com
+            - name: ZIF_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: access-key-id
+                  optional: true
+            - name: ZIF_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: secret-access-key
+                  optional: true
           resources:
             requests:
               cpu: 20m

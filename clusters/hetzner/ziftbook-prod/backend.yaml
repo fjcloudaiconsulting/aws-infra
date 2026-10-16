@@ -100,6 +100,28 @@ spec:
                 secretKeyRef:
                   name: ziftbook
                   key: database-url
+            # Service photos in R2 (ZIF-133, docs/runbooks.md "R2 for Ziftbook photos"). EU buckets answer only on the .eu
+            # endpoint. The env's own R2 token is in Secret ziftbook-storage; optional: uploads answer 503 until it exists.
+            - name: ZIF_S3_UPLOADS_BUCKET
+              value: ziftbook-uploads-prod
+            - name: ZIF_S3_MEDIA_BUCKET
+              value: ziftbook-media-prod
+            - name: ZIF_MEDIA_URL
+              value: https://img.ziftbook.com
+            - name: ZIF_S3_ENDPOINT
+              value: https://fb5eb042529f2621c6de3f34c6801174.eu.r2.cloudflarestorage.com
+            - name: ZIF_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: access-key-id
+                  optional: true
+            - name: ZIF_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ziftbook-storage
+                  key: secret-access-key
+                  optional: true
             # X-Forwarded-For is believed only from pods: the frontend sets it from cf-connecting-ip, and
             # networkpolicy.yaml admits only the frontend. Cluster CIDR, not the node's podCIDR, which changes
             # if the node re-registers. Node-local traffic (source 10.42.0.1) is owner-only (NetBird).
@@ -120,7 +142,7 @@ spec:
               cpu: 50m
               memory: 128Mi
             limits:
-              memory: 256Mi
+              memory: 384Mi # image decode at Save: 152 MB baseline plus up to 83 MB (ZIF-133)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

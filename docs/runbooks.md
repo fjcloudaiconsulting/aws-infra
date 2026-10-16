@@ -324,8 +324,9 @@ Service photos (ZIF-133) live in Cloudflare R2, EU jurisdiction, two buckets per
 | `ziftbook-uploads-<env>` | private; the browser PUTs with a presigned URL | CORS `PUT` from `https://dev.ziftbook.com` (staging) or `https://app.ziftbook.com` (prod), header `content-type`; every object expires after 1 day |
 | `ziftbook-media-<env>` | public read on `img-dev.ziftbook.com` (staging) or `img.ziftbook.com` (prod) only | none; the app sets `Cache-Control` on upload |
 
-The S3 endpoint of an EU bucket is `https://<account id>.eu.r2.cloudflarestorage.com` (the `.eu` matters: the
-default endpoint does not see these buckets). Bucket names and the jurisdiction are fixed at creation.
+The S3 endpoint of an EU bucket is `https://<account id>.eu.r2.cloudflarestorage.com`, set as
+`ZIF_S3_ENDPOINT` on backend and worker (the `.eu` matters: the default endpoint does not see these buckets).
+Bucket names and the jurisdiction are fixed at creation.
 
 One-time owner steps, in this order:
 
@@ -352,8 +353,8 @@ One-time owner steps, in this order:
    ```
 
 Rotate: create a new token, redo step 3, merge, `kubectl -n ziftbook-<env> rollout restart deploy/backend
-deploy/worker`, then delete the old token. Until the Secret and the env exist, uploads answer 503 and nothing
-else breaks.
+deploy/worker`, then delete the old token. Until the Secret exists, uploads answer 503 and nothing else
+breaks.
 
 ## TBD smoke account
 
